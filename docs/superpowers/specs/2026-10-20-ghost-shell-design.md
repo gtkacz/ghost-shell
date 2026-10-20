@@ -80,7 +80,7 @@ Projects 2 and 3 each get their own brainstorm and design. They are **out of sco
   - from the task manager: Meta+1…0, unread badges and progress on icons, and right-click jump lists (§8).
 
   Polkit and the screen locker run outside plasmashell and should be unaffected; verify that. The builder chooses how to keep each function: re-implement it, keep a stripped plasmashell, or run a standalone helper.
-- **Tray menus aren't restyled in project 1.** The icons in the bar are restyled. The menus and popups behind them may be KDE's standard ones for now. Restyling them is planned later work (§16), so don't make choices that would make it hard.
+- **Tray menus aren't restyled in project 1.** The icons in the bar are restyled. The menus and popups behind them may be KDE's standard ones for now. Restyling them is planned later work (§17), so don't make choices that would make it hard.
 - **[call] Suggested stack**, open to change if the builder finds better:
   - **UI:** [Quickshell](https://quickshell.org) (Qt 6 Quick: C++ with QML, GPU scene graph, wlr-layer-shell; already proven to run on this KWin by the gridlock POC).
     - Heavy renderers (block graphs, globe, silicon schematic, process tree) as C++ scene-graph items or shaders, not JS canvas.
@@ -112,7 +112,7 @@ Projects 2 and 3 each get their own brainstorm and design. They are **out of sco
 
 ### 5.2 Colour: used only to call attention
 
-Default palette. Every colour is overridable in config (§13).
+Default palette. Every colour is overridable in config (§14).
 
 | Token | Default | Use |
 |---|---|---|
@@ -130,7 +130,7 @@ Everything stays teal-grey until it needs the user. Default thresholds: loads �
 ### 5.3 Type and text
 
 - **Font:** the user's pick is **Kode Mono** "for now", everywhere: bold for display, medium for UI. It's SIL OFL, on Google Fonts, with variable weights 400–700. It has the cut-corner shapes of the Netrunner font (Chakra Petch) plus a **slashed zero**, which the user wanted so 0 can be told from O.
-  - The font family is a **config setting** (§13). Kode Mono is the default.
+  - The font family is a **config setting** (§14). Kode Mono is the default.
   - Kode Mono is monospace and wider than Chakra Petch. Check every label at native size; text truncates with "…" and never overflows.
   - **[call]** Because the user said "for now", also ship **"Chakra Petch Slashed"** as a ready alternative: Chakra Petch with a diagonal added to the zero in every weight, made during brainstorming. Chakra Petch is SIL OFL 1.1 with no reserved font name, so a modified build under a new name is allowed.
     - Generate it reproducibly: a small script in the repo (fontTools) takes the upstream Chakra Petch release and adds the slash. The slash is 0.8 of the stroke width, runs from the inner bottom-left to the inner top-right, and is sunk 0.45 of a stroke into the walls.
@@ -268,6 +268,8 @@ Rules:
 The bar is **always on top** and reserves its height. From left to right:
 
 - **Brand block** `GS//01 攻殻`: solid signal colour with a chamfered edge. Click opens the launcher.
+  - The text (default `GS//01`) and the small subtitle (default `攻殻`) are config settings. The subtitle is hidden when Japanese is `off`.
+  - The whole block can be **turned off** in config. The space goes to the next bar item, and the launcher stays on the Meta key (and the dock tile in layout B).
 - **Tasks**, depending on layout (below).
 - **Ticker:** a slowly scrolling status line: failed systemd units, firewalld, kernel, NVIDIA driver, IPs, VPN, critical items, pending updates. It also serves as the flexible spacer.
 - **Status:** CPU %, GPU %, memory, traffic up/down (chevrons), VPN count, and the weather summary (warn colour, never animated).
@@ -377,7 +379,53 @@ The user switches apps with the taskbar slightly more than with Alt+Tab, and use
 
 Missing or broken sources (the dead NVMe, an offline API) degrade a panel row; they never break the panel.
 
-## 13. Configuration
+## 13. Extensibility: widgets and providers
+
+The user plans to open-source ghost-shell, so **every component must be pluggable**: anyone can write a new one and put it anywhere. The user approved this approach; the details are **[call]**.
+
+- **One contract for built-ins and community components.** Every built-in panel and bar item is itself a widget, written exactly as a third party would write one. No built-in gets private hooks.
+- **Widgets** are the UI pieces.
+  - A widget is a folder holding `manifest.toml` and `Widget.qml`.
+  - The manifest declares:
+    - `id`, `name`, `version`, and `api` (the widget API version);
+    - `kinds`, meaning where it can live: `panel` (dashboard), `bar` (bar item), or both;
+    - size hints in design px;
+    - `requires`, the data topics it reads;
+    - whether it `animates`;
+    - its **settings schema**: each key's type, from `bool | int | float | string | color | enum | list`, and its default.
+  - **Discovery order:** built-ins (install dir), then `~/.config/ghost-shell/widgets/`, then any extra `widgets.paths`. A user widget with a built-in's id replaces it.
+  - The daemon reads the manifests and validates the config's layout against them, so a typo produces one clear error, e.g. `layout.v1[0][1]: widget "graphics" has no setting "foo"`.
+- **Layout lives in the config file.**
+  - V1, V2, MONITOR and the bar are described as trees of rows and columns. Each slot names a widget, an optional fixed size (otherwise it flexes), and that slot's settings.
+  - The defaults reproduce the layouts in §6 and §8. The same widget can appear in several slots and several views.
+  - If fixed sizes overflow the screen, they shrink proportionally with a logged warning. Panels never overlap.
+- **The widget kit** is a QML module, `GhostKit`. It contains:
+  - the building blocks: Panel, SegMeter, BlockGraph, AlertBox, Digits, Kv;
+  - the singletons: Theme, FrameClock, Data.
+
+  Community widgets look native and follow the §15 performance rules without extra work. Widgets may also use Quickshell's own services (MPRIS, PipeWire, system tray, UPower) directly.
+- **Data providers:**
+  - Built-ins live in `ghostd`.
+  - **External providers** can be any program, in any language. They connect to ghostd's socket and declare the topics they publish (namespaced names like `myplugin.thing`). Then they push JSON, which ghostd relays to subscribers along with the last value.
+  - Providers can be listed in config, in which case ghostd starts each one once and restarts it if it exits. Built-in topic names can't be claimed by a provider.
+  - Weather alerts become a provider: INMET for Brazil, and others can add their own country.
+- **Isolation:**
+  - A widget that fails to load, or targets an unsupported API version, shows an **error card** in its own slot (`widget "x" targets API 2; this ghost-shell supports API 1`). The rest of the desktop is unaffected.
+  - A misbehaving provider is disconnected without affecting others.
+- **For authors:** an author's guide, an example widget, an example provider (Python), and JSON schemas for every built-in topic, generated from the daemon's types.
+- **Generic defaults:**
+  - The project defaults are machine-neutral:
+    - the first screen;
+    - no location, so weather widgets stay hidden until one is set;
+    - pinned apps imported from the Plasma panel on first run;
+    - built-in label rules for common sensor chips.
+  - This machine's specifics live in the user's own config file:
+    - the M27Q display;
+    - São Paulo / INMET geocode `3550308`;
+    - the 11 pinned apps;
+    - any sensor label overrides.
+
+## 14. Configuration
 
 - **One config file**, e.g. `~/.config/ghost-shell/config.toml` **[call]**. There is **no settings panel**.
 - **[call]** It reloads live when saved. If the file is invalid, the last good config is kept and a warning notification says what's wrong.
@@ -392,13 +440,15 @@ Missing or broken sources (the dead NVMe, an offline API) degrade a panel row; t
   - pinned apps;
   - default view;
   - shortcuts;
-  - the greeting name;
-  - location (city, lat/lon, INMET geocode);
+  - the greeting name (default: the login name);
+  - the brand block: on/off, text (default `GS//01`), subtitle (default `攻殻`);
+  - the **layouts** for V1, V2, MONITOR and the bar (§13), extra widget paths, and external providers;
+  - location (city, lat/lon, weather-alert provider and its area code, e.g. INMET `3550308`);
   - history length;
   - notification limits and popup timeout.
 - The user wants it to cover "other simple stuff" too. The builder should expose obvious knobs, but not invent features.
 
-## 14. Performance requirements [call]
+## 15. Performance requirements [call]
 
 These are measurable targets; the user only said "highly performant".
 
@@ -416,7 +466,7 @@ These are measurable targets; the user only said "highly performant".
 - The first greeting frame appears within 500 ms of shell start.
 - Ship a way to measure these, such as a debug overlay or a log of the shell's and daemon's own CPU and memory.
 
-## 15. Non-goals and anti-goals
+## 16. Non-goals and anti-goals
 
 - **Non-goals (this project):**
   - lock screen (project 2);
@@ -433,15 +483,16 @@ These are measurable targets; the user only said "highly performant".
   - visible idle CPU/GPU cost;
   - text that overflows or clips;
   - losing any Plasma function the user relies on (§4).
+  - hard-coding where a component goes, or giving built-in components hooks that third-party widgets can't use (§13).
 
-## 16. Later work (keep in mind, not in project 1)
+## 17. Later work (keep in mind, not in project 1)
 
 - **Restyle the tray popups and menus** (network, Bluetooth, audio, keyboard layout, Disks & Devices, Brightness & Night Light, camera indicator, device batteries, printers, Vaults, input method, display configuration). In project 1 they may be KDE's standard popups.
 - **Projects 2 and 3** (§2). The lock screen leads straight into the greeting, so project 2 must hand over to §7 without a flash.
 
-## 17. Left to the builder
+## 18. Left to the builder
 
-- The exact implementation of the stack in §4 (or a better one that meets §14).
+- The exact implementation of the stack in §4 (or a better one that meets §15).
 - IPC format.
 - Libraries, crates and the GeoIP database.
 - How Plasma's lost functions are covered.
