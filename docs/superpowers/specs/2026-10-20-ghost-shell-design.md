@@ -125,7 +125,7 @@ Default palette. Every colour is overridable in config (§13).
 | `crit` | `#ff3b45` | critical |
 | `dot` | `#a3d4cc` at 16 % | 1 px dots on a 24 px grid |
 
-Everything stays teal-grey until it needs the user. Default thresholds: loads ≥ 75 % turn **warn** and ≥ 90 % **crit**; temperatures ≥ 80 °C warn and ≥ 90 °C crit (per sensor, configurable). Dead drives and INMET *Perigo* / *Grande Perigo* are **crit**, and *Perigo Potencial* is **warn**. That severity mapping follows the user's own `storm_alert.py`.
+Everything stays teal-grey until it needs the user. Default thresholds: loads ≥ 75 % turn **warn** and ≥ 90 % **crit**; temperatures ≥ 80 °C warn and ≥ 90 °C crit (per sensor, configurable). Dead drives and INMET *Perigo* / *Grande Perigo* are **crit**, and *Perigo Potencial* is **warn**. Device batteries ≤ 20 % warn and ≤ 10 % crit. Air quality (US AQI) > 100 warns and > 150 is crit. A microphone in use is **warn**, as a privacy cue. That severity mapping follows the user's own `storm_alert.py`.
 
 ### 5.3 Type and text
 
@@ -217,18 +217,18 @@ All values at mockup scale: 12 px margins and gutters, a 30 px bar on top.
 
 | Panel | Shows |
 |---|---|
-| Processor | per-CCD thread block graphs (CCD0 · V-CACHE, CCD1 · FREQ, with temperatures), load history, load %, Tctl, average frequency, CPU fan rpm |
+| Processor | per-CCD thread block graphs (CCD0 · V-CACHE, CCD1 · FREQ, with temperatures), load history, load %, Tctl, average frequency, **CPU package power (W)**, CPU fan rpm |
 | Graphics | load %, VRAM, temperature, power, fan, load history |
 | Memory | used GiB, RAM and swap meters, top processes by CPU (name, CPU %, MEM %) |
-| Storage | every drive: model, mounts, used %, temperature; **dead** and **unmounted** states; read/write rates |
-| Sensors | every temperature and fan listed in §3 |
+| Storage | every drive: model, mounts, used %, temperature, **wear % and power-on hours**; **dead** and **unmounted** states; read/write rates |
+| Sensors | every temperature and fan listed in §3, plus **device batteries** (DualSense, phone via KDE Connect) |
 | Network | traffic block graph, up/down rates, ping, links (LAN + each VPN with state) |
 | Uplink | dotted globe with **accurate geography**, home marker in São Paulo, **arcs to the endpoints of live connections** with moving packets and hostname labels; endpoint location from an **offline** GeoIP database **[call]** |
-| Silicon | schematic of the real package: CCD0 and CCD1, each with 8 core tiles (two segmented thread bars each), the L3 strip with the V-Cache hatch on CCD0, Infinity Fabric links with packets whose speed follows load, and I/O-die blocks (DDR5 usage, PCIe ×16 to the GPU with GPU load, NVMe throughput, iGPU). Tile outlines go warn/crit with load. |
+| Silicon | schematic of the real package: CCD0 and CCD1, each with 8 core tiles (two segmented thread bars each), the L3 strip with the V-Cache hatch on CCD0, Infinity Fabric links with packets whose speed follows load, and I/O-die blocks (DDR5 usage, PCIe ×16 to the GPU with GPU load, NVMe throughput, iGPU). Tile outlines go warn/crit with load. The header adds the CPU package power and an approximate system draw (`SYS ≈` CPU package + GPU board power). |
 | Process tree | pscircle-style radial tree of the real process table (kernel threads collapsed into one node), dots sized by RSS and coloured by CPU. **Must be traversable: nodes collapse and expand.** |
-| Media | MPRIS: art, title, artist, segmented spectrum, segmented progress, previous / play-pause / next, volume |
+| Media | MPRIS: art, title, artist, segmented spectrum, segmented progress, previous / play-pause / next. **Idle states:** *paused* keeps the track and progress, shows a PAUSED chip, and the spectrum goes dark (all cells unlit, no motion); *stopped or no player* shows the last track dimmed with `STOPPED · LAST PLAYED 12M AGO`, and play resumes it or opens the player. **Audio rows**, always visible: `OUT` (default output device, segmented volume, mute) and `IN` (default input device, live mic level, mute). While any app records, `IN` reads LIVE in warn and a boxed alert says `MIC LIVE · <APP> IS RECORDING`. |
 | Notifications | searchable (live filter), scrollable history: app, message, age; warn/crit rows get a coloured left edge; new items scramble in |
-| Weather | temperature, condition, high/low, humidity, wind, rain chance, 6-hour forecast, INMET alert box with countdown |
+| Weather | temperature, condition, high/low, humidity, wind, rain chance, 6-hour forecast, **sunrise, sunset, moon phase and illumination, air quality (US AQI)**, INMET alert box with countdown |
 | Clock | `HH:MM` plus superscript seconds, `DD.MM.YY`, weekday, uptime, city / UTC offset |
 
 **Uplink geography:** the mockup's continents come from a coarse 10° placeholder mask and look like a "bizarro Earth". The real globe must be geographically right. Sample a proper land dataset, e.g. Natural Earth land polygons (public domain), onto the dot sphere at a density that keeps coastlines recognisable. Check that the São Paulo marker sits on Brazil's south-east coast and that the major continents are unmistakable while the globe rotates.
@@ -368,6 +368,12 @@ The user switches apps with the taskbar slightly more than with Alt+Tab, and use
 | Weather alerts | INMET `https://apiprevmet3.inmet.gov.br/avisos/ativos`: `hoje` + `futuro`, filtered by geocode `3550308`; fields `descricao`, `severidade`, `data_inicio`/`hora_inicio`, `data_fim`/`hora_fim`, `riscos` (as in the user's script) | 10 min |
 | Forecast, current weather | Open-Meteo for São Paulo **[call]** | 15 min |
 | Session events | logind (PrepareForSleep, session lock/unlock), ScreenSaver D-Bus | event-driven |
+| Audio devices, volume, mute, mic level, recording apps | PipeWire (native API or WirePlumber) | event-driven; mic level ~15 Hz, only while visible |
+| Device batteries | `power_supply` / UPower (DualSense), KDE Connect D-Bus (phone) | event-driven / 60 s |
+| Drive wear %, power-on hours | UDisks2 D-Bus NVMe SMART (no root needed for the active session) | 10 min |
+| CPU package power | RAPL `/sys/class/powercap/intel-rapl:0/energy_uj`. It's **root-only on this kernel**, so install a one-time permission rule (udev or tmpfiles, with sudo). Without it, the value is hidden, not shown as an error. | 1 Hz |
+| Air quality | Open-Meteo air-quality API (US AQI) | 30 min |
+| Sunrise, sunset, moon | calculated locally from the configured lat/lon | once per minute |
 
 Missing or broken sources (the dead NVMe, an offline API) degrade a panel row; they never break the panel.
 
@@ -382,7 +388,7 @@ Missing or broken sources (the dead NVMe, an offline API) degrade a panel row; t
   - **font family** (default Kode Mono) and the CJK fallback;
   - **every colour token** (§5.2, plus dot grid and scanlines);
   - **panel fill %**;
-  - warn/crit thresholds;
+  - warn/crit thresholds (including batteries and AQI);
   - pinned apps;
   - default view;
   - shortcuts;
