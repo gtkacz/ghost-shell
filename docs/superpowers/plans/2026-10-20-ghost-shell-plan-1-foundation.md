@@ -2,17 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A running `ghostd` daemon streams real telemetry and the live-reloaded config over a Unix socket. A Quickshell desktop surface draws the dot grid, the scanlines and the five V1 machine panels (Processor, Graphics, Memory, Storage, Sensors) in the final style, from that live data, within the spec's idle budget.
+**Goal:** By the end of this plan:
+- `ghostd` streams real telemetry, the live-reloaded config, the resolved widget layout, and data relayed from external providers over a Unix socket.
+- A Quickshell desktop surface renders V1 from that layout.
+- The five machine panels (Processor, Graphics, Memory, Storage, Sensors) and a placeholder exist as **pluggable widgets**: each is a folder with a manifest and a QML file, built on a shared `GhostKit` module, in the final style and within the spec's idle budget.
 
 **Architecture:**
-- A Rust workspace with two crates:
-  - `ghost-proto`: wire types and config types, sent as JSON lines.
-  - `ghostd`: collectors that read from a configurable `/proc` + `/sys` root, history ring buffers, config load/validate/watch, a tokio Unix-socket server, and a fake mode.
-- A Quickshell config in `shell/`:
-  - singletons for the daemon connection, the theme and the frame clock;
-  - pure-logic ES modules, tested with Node;
-  - QML components and panels;
-  - one wlr-layer-shell desktop surface, sized in design pixels × `u = logicalWidth / 1280`.
+- **A Rust workspace with two crates:**
+  - `ghost-proto` holds the wire types, config types and layout types, sent as JSON lines. Topics are open strings.
+  - `ghostd` holds:
+    - the collectors, which read from a configurable `/proc` + `/sys` root;
+    - the history buffers;
+    - config load, validation and watching;
+    - widget manifest discovery, and validation of the layout against the manifests;
+    - a tokio Unix-socket server that relays external providers;
+    - the fake mode.
+- **The Quickshell config in `shell/`:**
+  - the `GhostKit` QML module, holding the Theme, FrameClock and Data singletons and the Panel, SegMeter, BlockGraph, AlertBox, Digits, Kv, DotGrid and Scanlines components, plus Node-tested ES modules;
+  - a host that turns the resolved layout tree into rectangles and loads each slot's widget, showing an error card when a widget fails.
+- **Built-in widgets** live in `widgets/<id>/` and use exactly the contract a third-party widget would.
 
 **Tech Stack:**
 - Rust 1.98: tokio (current-thread), serde, serde_json, toml, notify, nvml-wrapper, nix, zbus, thiserror, tracing, tracing-subscriber; dev dependency tempfile.
@@ -20,32 +28,38 @@
 - Node 24 (`node --test`).
 - GNU make.
 
-**Spec:** `docs/superpowers/specs/2026-10-20-ghost-shell-design.md`. Read it alongside this plan. The reference mockup `docs/superpowers/specs/mockups/2026-10-20-ghost-shell-reference.html` is the visual truth.
+**Spec:** `docs/superpowers/specs/2026-10-20-ghost-shell-design.md`. §13 covers extensibility and §14 configuration. The reference mockup `docs/superpowers/specs/mockups/2026-10-20-ghost-shell-reference.html` is the visual truth.
 
-**Roadmap.** This is plan 1 of 4. Each later plan is written after the previous one ships, because it depends on this plan's spike results and measurements.
-1. **This plan:** foundation.
-2. The rest of the dashboard:
-   - panels: network, uplink globe (Natural Earth geography), silicon, collapsible process tree, media and PipeWire spectrum, weather, INMET alerts and countdown, clock;
-   - views: V2 and MONITOR, print transitions, desktop-only shortcuts;
+**Roadmap.** This is plan 1 of 4. Each later plan is written after the previous one ships.
+1. **This plan:** the foundation and the widget/provider contract.
+2. The rest of the dashboard, each piece as a widget:
+   - panels: network, uplink globe (Natural Earth), silicon, process tree, media with idle states and audio rows, weather with sun, moon, AQI and the INMET provider, clock;
+   - views: V2 and MONITOR layouts, print transitions, desktop-only shortcuts;
    - text scramble and the Japanese chips;
-   - the greeting over windows.
-3. Taskbar and switching:
-   - bar layouts A/B/C, top or bottom position, mono/colour icons;
-   - tasks, badges, jump lists, Meta+1…0;
-   - tray host with KDE's standard popups;
-   - launcher;
+   - the greeting.
+3. The bar as a layout of bar widgets:
+   - the brand block (configurable or off), tasks, tray, view chip, clock;
+   - layouts A/B/C, top or bottom position, mono/colour icons;
+   - the launcher;
    - the KWin TabBox switcher;
-   - the notification server, centre, popups and Do Not Disturb.
-4. Taking over from plasmashell:
-   - keeping every Plasma function (§4);
-   - migrating off gridlock, conky, `dash` and `storm_alert` (with consent);
+   - notifications.
+4. Plasma takeover:
+   - keeping every function in §4;
+   - migration (with consent);
    - the Chakra Petch Slashed generator;
    - packaging;
-   - a performance and spacing audit at native resolution.
+   - the author's guide, an example widget and provider, and topic JSON schemas;
+   - generating the user's machine-specific config on first run;
+   - a native-resolution audit.
 
 ## Global Constraints
 
-- **Design units:** every size here is mockup px at 1280×720. On screen, multiply by `u = surfaceLogicalWidth / 1280` (≈ 1.74 on the 2560×1440 M27Q at scale 1.15). Never hard-code the scale.
+- **Pluggable by contract:**
+  - Built-in widgets use only the public widget contract: the manifest, `Widget.qml`, the `GhostKit` imports and an injected `settings` object.
+  - No panel's placement is hard-coded; placement comes from `layout.*` in the config file.
+  - Topic names match `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$` and are at most 64 characters.
+- **Widget API version is `1`.**
+- **Design units:** every size is mockup px at 1280×720. On screen, multiply by `u = surfaceLogicalWidth / 1280` (≈ 1.74 on the 2560×1440 M27Q at scale 1.15). Never hard-code the scale.
 - **Palette defaults:**
   - `ground #0a0f11`, `panel #0a0f11` at **55 %** fill, `hair #2a3a3d`, `hair2 #1a2527`;
   - `text #b7d1cd`, `hi #e4f1ef`, `dim #587170`;
@@ -53,20 +67,20 @@
   - `dot #a3d4cc` at **16 %** on a **24 px** grid;
   - scanlines: a **1 px** dark line every **3 px** at **15 %** black.
 - **Colour only for attention:**
-  - loads (CPU, GPU, memory) ≥ **75 %** warn and ≥ **90 %** crit;
+  - loads ≥ **75 %** warn and ≥ **90 %** crit;
   - temperatures ≥ **80 °C** warn and ≥ **90 °C** crit;
+  - batteries ≤ **20 %** warn and ≤ **10 %** crit;
+  - US AQI > **100** warn and > **150** crit;
   - a dead drive is crit.
 - **Panels:**
   - a 45° chamfer of **12 px** on the top-right and bottom-left corners;
   - **1.5 px** signal-colour brackets with **14 px** arms on the top-left and bottom-right corners;
   - a 1 px `hair` edge;
   - a header with a **5 px** signal square, an UPPERCASE label (10 px, weight 600, tracking .16 em), the Japanese tag, and right-aligned `dim` meta.
-- **Segmented bars:**
-  - meter cells are **4 px** wide with **2 px** gaps and **7 px** tall;
-  - graph cells are columns of small cells;
-  - unlit cells are signal at **6 %**.
-- **Font:** config `appearance.font`, default **"Kode Mono"**; CJK fallback default **"Noto Sans CJK JP"**. Numbers never shift.
-- **Japanese tags:** mode `kanji | katakana | mixed | off`, default `mixed`, where mixed means kanji on panel tags.
+- **Segmented bars:** meter cells are **4 px** wide with **2 px** gaps and **7 px** tall; graphs are columns of cells; unlit cells are signal at **6 %**.
+- **Layout:** gutter **12**, margin **12**, and a **30 px** band reserved for the bar (Plan 3).
+- **Font:** config `appearance.font`, default **"Kode Mono"**; CJK fallback **"Noto Sans CJK JP"**. Numbers never shift.
+- **Japanese tags:** mode `kanji | katakana | mixed | off`, default `mixed`, where mixed means kanji tags.
 
   | Key | Kanji | Katakana |
   |---|---|---|
@@ -80,31 +94,34 @@
 - **Never:** glow or bloom, glitch effects, smooth fades on alert text, Unicode glyphs used as icons.
 - **Boxed alert:**
   - a 3 px left edge;
-  - a 16 px diagonal stripe tile scrolling one tile per 1.6 s;
-  - text does a held-frame arrival flicker over 1.6 s, then blinks like the boot cursor: a 1 s loop of four held frames with opacity `1, .5, 0, .5`.
-- **Motion:** decorative motion runs at ≤ **15 fps** in held steps, never at the display's refresh rate (170 Hz). Data panels repaint only on new data (1 Hz).
-- **Budgets:** shell + daemon ≤ **2 %** of one core (averaged over 60 s) while anything animates, ≤ **1 %** with nothing animating, and ≤ **300 MB** RSS combined.
-- **Daemon behaviour:** no forks, shell scripts or busy polling in steady state. A missing or broken source degrades one row, never a panel or the daemon.
-- **Drives** are identified by model + serial, never by their `nvmeX` name.
+  - a 16 px stripe tile scrolling one tile per 1.6 s;
+  - text does a held-frame arrival flicker over 1.6 s, then the cursor blink: a 1 s loop of four held frames, `1, .5, 0, .5`.
+- **Motion:** decorative motion runs at ≤ **15 fps** in held steps, never at the 170 Hz refresh rate. Data widgets repaint only on new data (1 Hz).
+- **Budgets:** shell + daemon ≤ **2 %** of one core (averaged over 60 s) while animating, ≤ **1 %** when still, ≤ **300 MB** RSS.
+- **Daemon behaviour:** no forks, scripts or busy polling in steady state. The only exception is starting each configured provider once, and restarting it when it exits. A broken source degrades one row, never a widget or the daemon.
+- **Drives** are identified by model + serial.
 - **Formats:** dates `DD.MM.YY`, 24-hour time, °C.
-- **Config:**
-  - lives at `$XDG_CONFIG_HOME/ghost-shell/config.toml`, in TOML;
-  - reloads live when saved;
-  - if the new file is invalid, the last good config is kept and a warning notification names the problem.
+- **Generic defaults:**
+  - `display.model = ""` (the first screen);
+  - no location;
+  - `bar.pinned = []`;
+  - `bar.brand = { enabled = true, text = "GS//01", subtitle = "攻殻" }`;
+  - the greeting name defaults to the login name.
+- **Config:** `$XDG_CONFIG_HOME/ghost-shell/config.toml`, reloaded live. An invalid file keeps the last good config and raises a warning notification naming the problem.
 
 ## Review Focus
 
-1. **A sensor read fails mid-run.** The dead WD NVMe returns EIO, or the DualSense is unplugged. That reading shows as unavailable (`--` in `dim`) and every other reading still updates. *Tests: Task 7 and Task 16.*
-2. **An editor replaces the config file by atomic rename, or the file is half-written when read.** The watcher keeps working after renames, and a parse error keeps the last good config. *Test: Task 4.*
-3. **The shell starts before the daemon, or the daemon restarts.** The shell reconnects with backoff and shows values in `dim`, never fake zeros or errors. *Tests: Task 11 and Task 13.*
-4. **Two drives share a model, or the kernel renumbers NVMe drives at boot.** Identity comes from the serial, and the order stays the same across boots. *Test: Task 9.*
-5. **The display scale or connector changes** (scale 1.15 → 1.0, DP-4 → DP-1). The surface stays on the M27Q, matched by model, `u` recomputes, and nothing overflows. *Tests: Task 12 and Task 16.*
+1. **A third-party widget is broken** (bad QML, a missing file, `api = 2`), or a layout names a widget that isn't installed. That slot shows an error card naming the widget and the reason; every other slot renders. *Tests: Task 5 and Task 16.*
+2. **A sensor read fails mid-run** (the dead WD NVMe gives EIO; the DualSense is unplugged). That reading shows as unavailable (`--` in `dim`) and the rest still updates. *Tests: Task 8 and Task 17.*
+3. **An editor replaces the config file by atomic rename, or the file is half-written.** The watcher survives, and a parse error keeps the last good config. *Test: Task 4.*
+4. **The shell starts before the daemon, a provider crashes, or the daemon restarts.** The shell reconnects with backoff and shows `dim` values, not zeros. A dead provider's topics go stale without affecting the others. *Tests: Task 12 and Task 14.*
+5. **Two drives share a model, or the kernel renumbers NVMe drives.** Identity comes from the serial and the order is stable. *Test: Task 10.*
 
 ---
 
 ### Task 1: Rendering spike (layer, frame pacing, cost)
 
-This task decides how every later animation is driven, and it must finish before Task 13. It's a spike: the deliverable is a measurement script plus a decision note, not product code.
+This decides how every animation is driven, and must finish before Task 14. It's a spike: the deliverable is a measurement script and a decision note.
 
 **Files:**
 - Create: `scripts/measure-cpu.sh`, `spikes/pacing/shell.qml`, `spikes/pacing/dots.frag`, `docs/superpowers/notes/2026-10-20-rendering-spike.md`
@@ -112,29 +129,29 @@ This task decides how every later animation is driven, and it must finish before
 
 **Interfaces:**
 - Produces:
-  - `scripts/measure-cpu.sh <pid> <seconds>` prints exactly one line, `cpu_pct=<float with 2 decimals> rss_kib=<int>`. The CPU figure is the average % of one core, from the `utime+stime` delta in `/proc/<pid>/stat` with `getconf CLK_TCK`; RSS is `VmRSS` at the end. With an unknown pid it exits 2 and prints `no such process <pid>` to stderr.
-  - The note's **Decision** section, which Task 13 follows. It fixes:
+  - `scripts/measure-cpu.sh <pid> <seconds>` prints one line, `cpu_pct=<2 decimals> rss_kib=<int>`. CPU is the average % of one core, from the `/proc/<pid>/stat` `utime+stime` delta with `getconf CLK_TCK`; RSS is `VmRSS` at the end. With an unknown pid it prints `no such process <pid>` and exits 2.
+  - The note's **Decision** section, which Task 14 follows. It fixes:
     - the layer: `Bottom` or `Background`;
-    - the FrameClock approach and its rate;
+    - the FrameClock rate;
     - whether occluded surfaces stop rendering on their own.
 
 - [ ] **Step 1: Check the script against a known-idle process**
 
 Run: `sleep 30 & scripts/measure-cpu.sh $! 3; scripts/measure-cpu.sh 999999 1; echo "exit=$?"`
-Expected: the first line matches `cpu_pct=0.0[0-9] rss_kib=[0-9]+`, then `no such process 999999` and `exit=2`.
+Expected: `cpu_pct=0.0x rss_kib=N`, then `no such process 999999` and `exit=2`.
 
-- [ ] **Step 2: Write the spike shell**
+- [ ] **Step 2: Write the spike shell and compile its shader**
 
-`spikes/pacing/shell.qml` puts a full-screen `PanelWindow` on the screen whose `model` contains `M27Q`, with `WlrLayershell.layer: WlrLayer.Bottom` and `exclusionMode: ExclusionMode.Ignore`. It draws a dot-grid ShaderEffect (`dots.frag`: 1 px dots, 24-unit spacing, 16 % alpha). The env var `SPIKE_MODE` picks what else runs:
+`spikes/pacing/shell.qml` puts a full-screen `PanelWindow` on the screen whose model contains `M27Q`, on `WlrLayer.Bottom` with `ExclusionMode.Ignore`. It draws a dot-grid ShaderEffect: 1 px dots, 24 spacing, 16 % alpha. `SPIKE_MODE` picks what else runs:
 - `static`: nothing else;
-- `data`: 600 `Rectangle`s in a 30×20 grid recoloured by a 1000 ms `Timer`;
-- `anim`: `data`, plus a 12 px square moved 1 px by a 66 ms `Timer`.
+- `data`: 600 `Rectangle`s recoloured every 1000 ms;
+- `anim`: `data`, plus a square stepped 1 px every 66 ms by a `Timer`.
 
 Compile the shader: `qsb-qt6 --qt6 -o spikes/pacing/dots.frag.qsb spikes/pacing/dots.frag`
 
 - [ ] **Step 3: Measure each mode**
 
-The gridlock HUD currently runs on the desktop layer. **Ask the user before stopping it** with `pkill -f "qs -c gridlock"`, and restart it afterwards with `qs -c gridlock -d`.
+**Ask the user before stopping gridlock** (`pkill -f "qs -c gridlock"`). Restart it afterwards with `qs -c gridlock -d`.
 
 For each mode, run:
 ```bash
@@ -144,14 +161,13 @@ grep -c "Frame rendered" /tmp/spike-<mode>.log
 ```
 Repeat `anim` with a maximised window covering the whole screen.
 
-Record CPU %, RSS and frames per second for each case. Also record whether the surface sits above Plasma's desktop, sits below windows, and stays visible under Show Desktop (Meta+D).
+Record CPU %, RSS and frames per second. Also record whether the surface sits above Plasma's desktop, sits below windows, and stays visible under Meta+D.
 
 - [ ] **Step 4: Write the decision note**
 
-Write the results table and a **Decision** section.
 - **Acceptance:** `static` renders about 0 frames/s, and `anim` renders ≤ 15 frames/s at ≤ 1.5 % CPU.
-- **If `anim` is over budget,** record the mitigation Task 13 must use: either a lower FrameClock rate, or animated regions on their own small surfaces.
-- **If covered surfaces keep rendering,** record that Plan 2 needs explicit occlusion detection.
+- **Otherwise,** record the mitigation: a lower rate, or separate small surfaces for animated regions.
+- **If covered surfaces keep rendering,** record that Plan 2 needs occlusion detection.
 
 - [ ] **Step 5: Commit**
 
@@ -162,69 +178,70 @@ git commit -m "chore: add rendering spike and cpu measurement script"
 
 ---
 
-### Task 2: Rust workspace and the wire protocol (`ghost-proto`)
+### Task 2: Workspace and the open wire protocol (`ghost-proto`)
 
 **Files:**
 - Create: `Cargo.toml` (workspace with members `crates/*`, `resolver = "3"`, edition 2024), `crates/ghost-proto/Cargo.toml`, `crates/ghost-proto/src/{lib.rs,msg.rs,snapshot.rs}`
 - Test: `crates/ghost-proto/tests/wire.rs`
 
 **Interfaces:**
-- Produces (all `Serialize + Deserialize + Debug + Clone + PartialEq`):
+- Produces (all `Serialize + Deserialize + Debug + Clone + PartialEq`, messages tagged `#[serde(tag = "t", rename_all = "snake_case")]`):
   - `pub const PROTO_VERSION: u32 = 1;`
-  - `pub enum Topic { Cpu, Mem, Sensors, Gpu, Disks, Perf }`, serialised `snake_case`.
-  - `pub enum ClientMsg { Hello { proto: u32, topics: Vec<Topic> } }`, tagged `#[serde(tag = "t", rename_all = "snake_case")]`.
-  - `pub enum ServerMsg` with the same tagging. Variants:
+  - `pub mod topics { pub const CPU: &str = "cpu"; MEM = "mem"; SENSORS = "sensors"; GPU = "gpu"; DISKS = "disks"; PERF = "perf"; pub const BUILTIN: [&str; 6]; }`
+  - `pub fn is_valid_topic(name: &str) -> bool` implements the Global Constraints rule.
+  - `pub enum ClientMsg`:
+    - `Hello { proto: u32, topics: Vec<String> }`: a UI client.
+    - `Subscribe { topics: Vec<String> }`: replaces the client's subscription set.
+    - `Provide { proto: u32, name: String, topics: Vec<String> }`: an external provider.
+    - `Publish { topic: String, data: serde_json::Value }`.
+  - `pub enum ServerMsg`:
     - `Hello { proto: u32, host: String }`
     - `Error { message: String }`
     - `History { step_ms: u32, series: BTreeMap<String, Vec<f32>> }`
-    - `Cpu(CpuSnapshot)`, `Mem(MemSnapshot)`, `Sensors(SensorSnapshot)`, `Gpu(GpuSnapshot)`, `Disks(DiskSnapshot)`, `Perf(PerfSnapshot)`. Newtype variants flatten their fields next to `"t"`.
-  - Snapshot types:
-    - `CpuSnapshot { seq: u64, model: String, threads: Vec<f32>, ccds: Vec<CcdLoad>, load: f32, freq_mhz: u32 }`
+    - `Data { topic: String, seq: u64, data: serde_json::Value }`
+
+    Task 3 adds `Config` and `ConfigError`; Task 5 adds `Layout`.
+  - `pub fn data_msg<T: Serialize>(topic: &str, seq: u64, v: &T) -> ServerMsg`
+  - Snapshot types for the built-in topics, all `Default`:
+    - `CpuSnapshot { model: String, threads: Vec<f32>, ccds: Vec<CcdLoad>, load: f32, freq_mhz: u32 }`
     - `CcdLoad { id: u8, cpus: Vec<u16>, l3_kib: u32, vcache: bool, load: f32 }`
-    - `MemSnapshot { seq: u64, total_kib: u64, used_kib: u64, swap_total_kib: u64, swap_used_kib: u64, top: Vec<ProcUsage> }`
-    - `ProcUsage { pid: u32, name: String, cpu: f32, mem: f32 }`, where both values are % of the whole machine.
-    - `SensorSnapshot { seq: u64, temps: Vec<Reading>, fans: Vec<Reading> }`
-    - `Reading { id: String, label: String, value: Option<f32> }`, where `None` means unavailable.
-    - `GpuSnapshot { seq: u64, present: bool, name: String, load: f32, vram_used_mib: u32, vram_total_mib: u32, temp_c: f32, power_w: f32, power_limit_w: f32, fan_pct: f32 }`
-    - `DiskSnapshot { seq: u64, drives: Vec<Drive> }`
+    - `MemSnapshot { total_kib: u64, used_kib: u64, swap_total_kib: u64, swap_used_kib: u64, top: Vec<ProcUsage> }`
+    - `ProcUsage { pid: u32, name: String, cpu: f32, mem: f32 }`, both % of the whole machine.
+    - `SensorSnapshot { temps: Vec<Reading>, fans: Vec<Reading> }`
+    - `Reading { id: String, label: String, value: Option<f32> }`
+    - `GpuSnapshot { present: bool, name: String, load: f32, vram_used_mib: u32, vram_total_mib: u32, temp_c: f32, power_w: f32, power_limit_w: f32, fan_pct: f32 }`
+    - `DiskSnapshot { drives: Vec<Drive> }`
     - `Drive { id: String, label: String, model: String, kernel_name: String, state: DriveState, mounts: Vec<String>, used_pct: Option<f32>, temp_c: Option<f32>, read_bps: u64, write_bps: u64 }`
-    - `DriveState { Live, Dead, Unmounted }`, serialised `snake_case`.
-    - `PerfSnapshot { seq: u64, daemon_cpu: f32, daemon_rss_kib: u64, shell_cpu: Option<f32>, shell_rss_kib: Option<u64> }`
-  - `pub fn encode_line(msg: &ServerMsg) -> String` returns compact JSON plus `\n`.
-  - `pub fn decode_client_line(line: &str) -> Result<ClientMsg, WireError>`, where `WireError` (thiserror) wraps the serde_json error.
+    - `DriveState { Live, Dead, Unmounted }`, `snake_case`.
+    - `PerfSnapshot { daemon_cpu: f32, daemon_rss_kib: u64, shell_cpu: Option<f32>, shell_rss_kib: Option<u64> }`
+  - `pub fn encode_line(m: &ServerMsg) -> String` returns compact JSON plus `\n`.
+  - `pub fn decode_client_line(l: &str) -> Result<ClientMsg, WireError>`
 
 - [ ] **Step 1: Write the failing tests**
 
 ```rust
-#[test] fn hello_has_exact_wire_form() {
-    let s = encode_line(&ServerMsg::Hello { proto: 1, host: "tkacz-workstation".into() });
-    assert_eq!(s, "{\"t\":\"hello\",\"proto\":1,\"host\":\"tkacz-workstation\"}\n");
+#[test] fn hello_exact_wire_form() { assert_eq!(encode_line(&ServerMsg::Hello { proto: 1, host: "tkacz-workstation".into() }), "{\"t\":\"hello\",\"proto\":1,\"host\":\"tkacz-workstation\"}\n"); }
+#[test] fn data_envelope_wraps_snapshot() {
+    let v: serde_json::Value = serde_json::from_str(&encode_line(&data_msg(topics::GPU, 3, &GpuSnapshot { present: true, ..Default::default() }))).unwrap();
+    assert_eq!(v["t"], "data"); assert_eq!(v["topic"], "gpu"); assert_eq!(v["seq"], 3); assert_eq!(v["data"]["present"], true);
 }
-#[test] fn snapshot_fields_flatten_next_to_tag() {
-    let v: serde_json::Value = serde_json::from_str(&encode_line(&ServerMsg::Gpu(GpuSnapshot { seq: 3, present: true, ..Default::default() }))).unwrap();
-    assert_eq!(v["t"], "gpu"); assert_eq!(v["seq"], 3); assert_eq!(v["present"], true);
+#[test] fn provider_messages_decode() {
+    assert_eq!(decode_client_line(r#"{"t":"provide","proto":1,"name":"inmet","topics":["weather.alerts"]}"#).unwrap(),
+               ClientMsg::Provide { proto: 1, name: "inmet".into(), topics: vec!["weather.alerts".into()] });
+    assert!(matches!(decode_client_line(r#"{"t":"publish","topic":"weather.alerts","data":{"n":1}}"#).unwrap(), ClientMsg::Publish { .. }));
 }
-#[test] fn unavailable_reading_is_null() {
-    let r = Reading { id: "nvme/213823802844".into(), label: "WD GREEN".into(), value: None };
-    assert_eq!(serde_json::to_value(&r).unwrap()["value"], serde_json::Value::Null);
-}
-#[test] fn decodes_client_hello() {
-    let m = decode_client_line(r#"{"t":"hello","proto":1,"topics":["cpu","gpu"]}"#).unwrap();
-    assert_eq!(m, ClientMsg::Hello { proto: 1, topics: vec![Topic::Cpu, Topic::Gpu] });
-}
-#[test] fn rejects_garbage() { assert!(decode_client_line("{nope").is_err()); }
-#[test] fn every_server_msg_round_trips() { /* build one of each variant, encode, decode as ServerMsg, assert_eq */ }
+#[test] fn topic_names() { assert!(is_valid_topic("weather.alerts")); assert!(is_valid_topic("cpu")); assert!(!is_valid_topic("Weather")); assert!(!is_valid_topic("a..b")); assert!(!is_valid_topic(&"a".repeat(65))); }
+#[test] fn unavailable_reading_is_null() { assert_eq!(serde_json::to_value(Reading { value: None, ..Default::default() }).unwrap()["value"], serde_json::Value::Null); }
 #[test] fn drive_state_wire_names() { assert_eq!(serde_json::to_string(&DriveState::Dead).unwrap(), "\"dead\""); }
+#[test] fn rejects_garbage() { assert!(decode_client_line("{nope").is_err()); }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
 
 Run: `cargo test -p ghost-proto`
-Expected: compile errors for the missing types.
+Expected: compile errors.
 
-- [ ] **Step 3: Implement the types and the two functions**
-
-Derive `Default` on the snapshot structs so tests can use `..Default::default()`.
+- [ ] **Step 3: Implement the module**
 
 - [ ] **Step 4: Run them and watch them pass**
 
@@ -235,15 +252,15 @@ Expected: PASS (7 tests).
 
 ```bash
 git add Cargo.toml crates/ghost-proto
-git commit -m "feat(proto): add wire protocol types and json-lines codec"
+git commit -m "feat(proto): add open-topic wire protocol and built-in snapshot types"
 ```
 
 ---
 
-### Task 3: Config schema, defaults and validation
+### Task 3: Config schema, generic defaults and validation
 
 **Files:**
-- Create: `crates/ghost-proto/src/config.rs`, `crates/ghostd/Cargo.toml`, `crates/ghostd/src/main.rs` (a stub with a `default-config` subcommand), `crates/ghostd/src/lib.rs`, `crates/ghostd/src/config/{mod.rs,load.rs,default.toml}`
+- Create: `crates/ghost-proto/src/config.rs`, `crates/ghostd/{Cargo.toml,src/main.rs,src/lib.rs}`, `crates/ghostd/src/config/{mod.rs,load.rs,default.toml}`
 - Modify: `crates/ghost-proto/src/msg.rs`, adding `ServerMsg::Config { data: ResolvedConfig }` and `ServerMsg::ConfigError { message: String }`
 - Test: `crates/ghostd/tests/config_load.rs`
 
@@ -251,53 +268,64 @@ git commit -m "feat(proto): add wire protocol types and json-lines codec"
 - Produces, in `ghost-proto`: `ResolvedConfig` and its sections. Every field has a default; serde uses `deny_unknown_fields`; `Default` gives exactly these values.
   - `appearance`:
     - `font = "Kode Mono"`, `font_cjk = "Noto Sans CJK JP"`;
-    - `japanese = Mixed` (enum `Kanji | Katakana | Mixed | Off`);
-    - `panel_fill = 55` (u8, 0..=100);
-    - `colors { ground = "#0a0f11", panel = "#0a0f11", hair = "#2a3a3d", hair2 = "#1a2527", text = "#b7d1cd", hi = "#e4f1ef", dim = "#587170", signal = "#a3d4cc", warn = "#e9a84c", crit = "#ff3b45", dot = "#a3d4cc" }`;
-    - `dots { spacing = 24, opacity = 16 }`;
-    - `scanlines { opacity = 15 }`.
-  - `thresholds { load_warn = 75, load_crit = 90, temp_warn = 80, temp_crit = 90, sensors: BTreeMap<String, SensorThreshold { warn: f32, crit: f32 }> }`
-  - `display { model = "M27Q" }`
-  - `sensors { labels: BTreeMap<String,String> }` and `disks { labels: BTreeMap<String,String> }`, the latter keyed by serial.
-  - `dashboard { default_view = V1 (enum V1 | V2), history_minutes = 5 (1..=60) }`
-  - `bar`:
-    - `layout = A` (enum `A | B | C`), `position = Top` (enum `Top | Bottom`), `icons = Mono` (enum `Mono | Colour`);
-    - `pinned = ["org.kde.dolphin", "steam", "tixati", "com.discordapp.Discord", "org.mozilla.firefox", "thorium-browser", "com.spotify.Client", "thorium-hnpfjngllnobngcgfapefoaidbinmjnm-Profile_1", "com.visualstudio.code", "com.slack.Slack", "org.kde.konsole"]`.
-  - `greeting { name = "" }`. An empty name is replaced with the login name by `load_*`.
-  - `location { city = "São Paulo", lat = -23.55, lon = -46.63, inmet_geocode = "3550308" }`
+    - `japanese = Mixed` (`Kanji | Katakana | Mixed | Off`);
+    - `panel_fill = 55` (0..=100);
+    - `colors { ground "#0a0f11", panel "#0a0f11", hair "#2a3a3d", hair2 "#1a2527", text "#b7d1cd", hi "#e4f1ef", dim "#587170", signal "#a3d4cc", warn "#e9a84c", crit "#ff3b45", dot "#a3d4cc" }`;
+    - `dots { spacing = 24, opacity = 16 }`, `scanlines { opacity = 15 }`.
+  - `thresholds { load_warn 75, load_crit 90, temp_warn 80, temp_crit 90, battery_warn 20, battery_crit 10, aqi_warn 100, aqi_crit 150, sensors: BTreeMap<String, SensorThreshold { warn: f32, crit: f32 }> }`
+  - `display { model = "" }`
+  - `sensors { labels: BTreeMap<String,String> }`, `disks { labels: BTreeMap<String,String> }` (keyed by serial)
+  - `dashboard { default_view = V1 (V1 | V2), history_minutes = 5 (1..=60) }`
+  - `bar { layout = A (A|B|C), position = Top (Top|Bottom), icons = Mono (Mono|Colour), pinned: Vec<String> = [], brand { enabled = true, text = "GS//01", subtitle = "攻殻" } }`
+  - `greeting { name = "" }`
+  - `location { city = "", lat: Option<f64> = None, lon: Option<f64> = None, alerts { provider = "", area = "" } }`
   - `shortcuts { monitor = "Meta+M", swap = "Meta+Shift+M" }`
   - `notifications { history_limit = 200, popup_timeout_s = 6 }`
+  - `layout { gutter = 12.0, margin = 12.0, views: BTreeMap<String, LayoutNode> }`, whose default is the V1 tree below.
+  - `widgets { paths: Vec<String> = [] }`
+  - `providers: Vec<ProviderSpec { name: String, exec: Vec<String>, restart: bool = true }>`
+  - `LayoutNode`, `#[serde(untagged)]`:
+    - `Slot { widget: String, size: Option<f32>, settings: serde_json::Map }`
+    - `Split { direction: Direction (Row | Column), size: Option<f32>, children: Vec<LayoutNode> }`
+- **The default `layout.views.v1`**, sizes in design px, no `size` meaning flex:
+  - `Row`:
+    - `Column` size 300:
+      - `processor` 250
+      - `graphics` 204
+      - `memory`
+    - `Column`:
+      - `placeholder` 262 `{label="Clock"}`
+      - `Row`:
+        - `placeholder` 290 `{label="Media"}`
+        - `placeholder` `{label="Notifications"}`
+    - `Column` size 300:
+      - `placeholder` 300 `{label="Uplink"}`
+      - `storage`
+      - `sensors` 184
 - Produces, in `ghostd::config`:
-  - `pub const DEFAULT_TOML: &str`: the commented default file, holding every key at its default (`include_str!("default.toml")`).
-  - `pub fn load_str_with_user(s: &str, user: &str) -> Result<ResolvedConfig, ConfigError>`. An empty `greeting.name` becomes `user`.
-  - `pub fn load_str(s: &str) -> Result<ResolvedConfig, ConfigError>`, which is `load_str_with_user` with `$USER`.
-  - `pub fn load_path(p: &Path) -> Result<ResolvedConfig, ConfigError>`. A missing file gives the defaults.
-  - `pub fn default_path() -> PathBuf` (`$XDG_CONFIG_HOME` or `~/.config`, then `ghost-shell/config.toml`).
-  - `pub struct ConfigError { pub message: String }` with `Display = message`.
-  - Messages use the exact formats in the tests.
-- CLI: `ghostd default-config` prints `DEFAULT_TOML`.
+  - `DEFAULT_TOML`: a commented file holding every default.
+  - `load_str_with_user(s, user) -> Result<ResolvedConfig, ConfigError>`, which replaces an empty `greeting.name` with `user`.
+  - `load_str(s)`, which uses `$USER`.
+  - `load_path(&Path)`. A missing file gives the defaults.
+  - `default_path()`.
+  - `ConfigError { message: String }`.
+- CLI: `ghostd default-config`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```rust
 #[test] fn default_file_equals_builtin_defaults() { let mut d = ResolvedConfig::default(); d.greeting.name = "gtkacz".into(); assert_eq!(load_str_with_user(DEFAULT_TOML, "gtkacz").unwrap(), d); }
-#[test] fn empty_file_is_defaults() { assert_eq!(load_str("").unwrap().appearance.panel_fill, 55); }
-#[test] fn partial_override_keeps_other_defaults() {
-    let c = load_str("[appearance]\npanel_fill = 40\n").unwrap();
-    assert_eq!(c.appearance.panel_fill, 40); assert_eq!(c.appearance.colors.warn, "#e9a84c"); assert_eq!(c.bar.pinned.len(), 11);
-}
-#[test] fn bad_colour_names_the_key() {
-    let e = load_str("[appearance.colors]\nwarn = \"orange\"\n").unwrap_err();
-    assert_eq!(e.message, "appearance.colors.warn: expected #rrggbb, got \"orange\"");
-}
-#[test] fn warn_must_be_below_crit() {
-    let e = load_str("[thresholds]\nload_warn = 95\n").unwrap_err();
-    assert_eq!(e.message, "thresholds: load_warn (95) must be below load_crit (90)");
-}
-#[test] fn fill_out_of_range() { assert_eq!(load_str("[appearance]\npanel_fill = 120\n").unwrap_err().message, "appearance.panel_fill: must be 0..=100, got 120"); }
-#[test] fn unknown_key_is_rejected() { assert!(load_str("[appearance]\nglow = true\n").unwrap_err().message.contains("unknown field `glow`")); }
-#[test] fn empty_greeting_name_becomes_login_name() { assert_eq!(load_str_with_user("", "gtkacz").unwrap().greeting.name, "gtkacz"); }
-#[test] fn japanese_off_parses() { assert_eq!(load_str("[appearance]\njapanese = \"off\"\n").unwrap().appearance.japanese, Japanese::Off); }
+#[test] fn defaults_are_machine_neutral() { let c = load_str_with_user("", "u").unwrap(); assert_eq!(c.display.model, ""); assert!(c.bar.pinned.is_empty()); assert_eq!(c.location.lat, None); assert_eq!(c.bar.brand.text, "GS//01"); assert!(c.bar.brand.enabled); }
+#[test] fn partial_override_merges() { let c = load_str_with_user("[appearance]\npanel_fill = 40\n", "u").unwrap(); assert_eq!(c.appearance.panel_fill, 40); assert_eq!(c.appearance.colors.warn, "#e9a84c"); }
+#[test] fn brand_can_be_turned_off_and_renamed() { let c = load_str_with_user("[bar.brand]\nenabled = false\ntext = \"TKZ//07\"\n", "u").unwrap(); assert!(!c.bar.brand.enabled); assert_eq!(c.bar.brand.text, "TKZ//07"); }
+#[test] fn bad_colour_names_the_key() { assert_eq!(load_str_with_user("[appearance.colors]\nwarn = \"orange\"\n", "u").unwrap_err().message, "appearance.colors.warn: expected #rrggbb, got \"orange\""); }
+#[test] fn warn_below_crit() { assert_eq!(load_str_with_user("[thresholds]\nload_warn = 95\n", "u").unwrap_err().message, "thresholds: load_warn (95) must be below load_crit (90)"); }
+#[test] fn battery_order_is_reversed() { assert_eq!(load_str_with_user("[thresholds]\nbattery_crit = 30\n", "u").unwrap_err().message, "thresholds: battery_crit (30) must be below battery_warn (20)"); }
+#[test] fn fill_out_of_range() { assert_eq!(load_str_with_user("[appearance]\npanel_fill = 120\n", "u").unwrap_err().message, "appearance.panel_fill: must be 0..=100, got 120"); }
+#[test] fn unknown_key_rejected() { assert!(load_str_with_user("[appearance]\nglow = true\n", "u").unwrap_err().message.contains("unknown field `glow`")); }
+#[test] fn default_v1_layout_shape() { let c = load_str_with_user("", "u").unwrap(); let LayoutNode::Split { children, .. } = &c.layout.views["v1"] else { panic!() }; assert_eq!(children.len(), 3); }
+#[test] fn user_layout_replaces_default_view() { /* [layout.views.v1] with a single Slot{widget="memory"} → views["v1"] is that slot */ }
+#[test] fn provider_spec_parses() { let c = load_str_with_user("[[providers]]\nname = \"inmet\"\nexec = [\"inmet-provider\", \"--area\", \"3550308\"]\n", "u").unwrap(); assert_eq!(c.providers[0].exec[2], "3550308"); assert!(c.providers[0].restart); }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -305,20 +333,20 @@ git commit -m "feat(proto): add wire protocol types and json-lines codec"
 Run: `cargo test -p ghostd --test config_load`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement the types, the defaults and `load_*`**
+- [ ] **Step 3: Implement the types, the defaults, `validate` and `load_*`**
 
-Parse with `toml::from_str` into the `deny_unknown_fields` types. Then run one `validate(&ResolvedConfig) -> Result<(), ConfigError>` pass: hex colours `^#[0-9a-fA-F]{6}$`, ranges, and `warn < crit` for loads, temps and every per-sensor pair. Map toml errors to `"{dotted.key}: {message}"` where toml gives the key.
+`validate` checks hex colours, ranges, warn/crit ordering (reversed for batteries), that provider names are unique and non-empty, and that `exec` is non-empty.
 
 - [ ] **Step 4: Run them and watch them pass**
 
-Run: `cargo test -p ghostd --test config_load && cargo run -q -p ghostd -- default-config | head -3`
-Expected: PASS, then the first lines of the commented default file.
+Run: `cargo test -p ghostd --test config_load`
+Expected: PASS (12 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add crates/ghost-proto/src crates/ghostd
-git commit -m "feat(config): add config schema with defaults and validation"
+git commit -m "feat(config): add config schema with generic defaults, layout tree and providers"
 ```
 
 ---
@@ -331,25 +359,19 @@ git commit -m "feat(config): add config schema with defaults and validation"
 
 **Interfaces:**
 - Consumes: `load_path` (Task 3).
-- Produces: `pub fn spawn_watcher(path: PathBuf, initial: ResolvedConfig) -> notify::Result<(WatchHandle, tokio::sync::watch::Receiver<ResolvedConfig>, tokio::sync::mpsc::Receiver<ConfigError>)>`.
-  - It watches the **parent directory**, so it survives atomic renames and delete-then-recreate.
-  - It debounces events by 150 ms.
-  - When the reparse succeeds and the result differs, it publishes the new config.
-  - When the reparse fails, it sends the error and leaves the watch value alone.
-  - When the file is removed, it sends `ConfigError { message: "config file removed; keeping last configuration" }`.
-  - Dropping `WatchHandle` stops the watcher.
+- Produces: `pub fn spawn_watcher(path: PathBuf, initial: ResolvedConfig) -> notify::Result<(WatchHandle, watch::Receiver<ResolvedConfig>, mpsc::Receiver<ConfigError>)>`.
+  - It watches the **parent directory** and debounces events by 150 ms.
+  - When the reparse succeeds and the result differs, it publishes the new config. When it fails, it sends the error and keeps the last good config.
+  - When the file is removed, it sends `"config file removed; keeping last configuration"`.
+  - Dropping the handle stops the watcher.
 
-- [ ] **Step 1: Write the failing tests** (tokio test; each waits at most 2 s)
+- [ ] **Step 1: Write the failing tests** (tokio; each waits ≤ 2 s)
 
 ```rust
-#[tokio::test] async fn plain_save_publishes() { /* write panel_fill = 40 → rx.changed() → borrow().appearance.panel_fill == 40 */ }
-#[tokio::test] async fn atomic_rename_publishes() { /* write config.toml.tmp, rename over config.toml → value 30 */ }
-#[tokio::test] async fn half_written_file_keeps_last_good() {
-    /* write "[appearance\npanel_fi" → err_rx yields a message; watch value still 55; then write valid 35 → 35 */
-}
-#[tokio::test] async fn removed_file_keeps_last_good() {
-    /* remove → err message == "config file removed; keeping last configuration"; value unchanged */
-}
+#[tokio::test] async fn plain_save_publishes() { /* panel_fill = 40 → watch value 40 */ }
+#[tokio::test] async fn atomic_rename_publishes() { /* write .tmp, rename over → 30 */ }
+#[tokio::test] async fn half_written_keeps_last_good() { /* "[appearance\npanel_fi" → error received, value 55; then valid 35 → 35 */ }
+#[tokio::test] async fn removed_file_keeps_last_good() { /* remove → "config file removed; keeping last configuration", value unchanged */ }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -357,9 +379,7 @@ git commit -m "feat(config): add config schema with defaults and validation"
 Run: `cargo test -p ghostd --test config_watch`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement `spawn_watcher`**
-
-Use `notify::RecommendedWatcher` on `path.parent()`, filter events by the file name, and debounce with a tokio timer.
+- [ ] **Step 3: Implement it with `notify::RecommendedWatcher` and a tokio debounce**
 
 - [ ] **Step 4: Run them and watch them pass**
 
@@ -375,43 +395,101 @@ git commit -m "feat(config): watch config directory and keep last good config on
 
 ---
 
-### Task 5: SysRoot, the `Source` trait and the CPU collector
+### Task 5: Widget manifests and layout resolution
 
 **Files:**
-- Create: `crates/ghostd/src/sysroot.rs`, `crates/ghostd/src/collect/{mod.rs,cpu.rs}`, `crates/ghostd/tests/common/mod.rs` (`FakeRoot`)
+- Create: `crates/ghost-proto/src/layout.rs`, `crates/ghostd/src/widgets/{mod.rs,manifest.rs,resolve.rs}`
+- Modify: `crates/ghost-proto/src/msg.rs`, adding `ServerMsg::Layout { data: ResolvedLayout }`
+- Test: `crates/ghostd/tests/widgets.rs`
+
+**Interfaces:**
+- Consumes: `ResolvedConfig.layout` and `ResolvedConfig.widgets` (Task 3).
+- Produces:
+  - **Manifest format** (`manifest.toml`; this is the public contract):
+    - `id` (matching `^[a-z][a-z0-9-]*$`), `name`, `version` (semver), `api` (integer);
+    - `kinds = ["panel" | "bar", …]`, `requires = [topic, …]`, `animates = bool` (default false);
+    - `[size] min = [w, h]` and `preferred = [w, h]`;
+    - `[settings.<key>] type = "bool"|"int"|"float"|"string"|"color"|"enum"|"list"`, `default = …`, `values = [...]` (enum only).
+  - `pub const WIDGET_API: u32 = 1;`
+  - `pub fn discover(dirs: &[PathBuf]) -> (BTreeMap<String, Manifest>, Vec<String>)`.
+    - Dirs are searched in order; a later dir's widget with the same id replaces an earlier one.
+    - The second value is the list of non-fatal problems, each naming the manifest path.
+    - The default dirs are the built-in widget dir (`$GHOST_WIDGETS_DIR`, else `~/.local/share/ghost-shell/widgets`), then `~/.config/ghost-shell/widgets`, then `widgets.paths`.
+  - `pub fn resolve(layout: &LayoutConfig, manifests: &BTreeMap<String, Manifest>) -> ResolvedLayout`. It **never fails**. Problems become per-slot `error` strings, and are also collected into `errors`.
+  - `ResolvedLayout { gutter: f32, margin: f32, views: BTreeMap<String, ResolvedNode>, errors: Vec<String> }`
+  - `ResolvedNode`:
+    - `Split { direction, size, children }`
+    - `Slot { widget: String, source: Option<String>, size: Option<f32>, settings: serde_json::Map, requires: Vec<String>, animates: bool, error: Option<String> }`, where `source` is the `file://` URL of `Widget.qml`.
+  - **Exact error strings:**
+    - `no widget named "x" is installed`
+    - `widget "x" targets API 2; this ghost-shell supports API 1`
+    - `widget "x" has no setting "foo"`
+    - `widget "x" setting "history": expected bool, got "yes"`
+    - `widget "x" can't be placed in a panel slot`
+
+    In `errors`, each one is prefixed with its path, e.g. `layout.v1[0][1]: `.
+  - Slot settings are filled from the manifest defaults.
+
+- [ ] **Step 1: Write the failing tests** (tempdir widget folders)
+
+```rust
+#[test] fn resolves_known_widget_with_defaults() { /* manifest graphics{settings.history bool default true}; slot {widget="graphics"} → source ends "graphics/Widget.qml", settings["history"] == true, error None */ }
+#[test] fn unknown_widget_is_a_slot_error_not_a_failure() { /* slot {widget="nope"} → error Some("no widget named \"nope\" is installed"); other slots fine */ }
+#[test] fn api_mismatch_is_reported() { /* api = 2 → "widget \"x\" targets API 2; this ghost-shell supports API 1" */ }
+#[test] fn bad_setting_key_and_type() { /* {foo=1} → "has no setting \"foo\""; {history="yes"} → "setting \"history\": expected bool, got \"yes\"" */ }
+#[test] fn errors_carry_layout_path() { /* second child of first column → errors[0] starts with "layout.v1[0][1]: " */ }
+#[test] fn user_dir_overrides_builtin() { /* same id in two dirs → source from the later dir */ }
+#[test] fn bar_only_widget_rejected_in_panel_slot() { /* kinds=["bar"] → "widget \"x\" can't be placed in a panel slot" */ }
+```
+
+- [ ] **Step 2: Run them and watch them fail**
+
+Run: `cargo test -p ghostd --test widgets`
+Expected: FAIL to compile.
+
+- [ ] **Step 3: Implement `discover`, `resolve` and the proto types**
+
+- [ ] **Step 4: Run them and watch them pass**
+
+Run: `cargo test -p ghostd --test widgets`
+Expected: PASS (7 tests).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/ghost-proto/src/layout.rs crates/ghost-proto/src/msg.rs crates/ghostd/src/widgets crates/ghostd/tests/widgets.rs
+git commit -m "feat(ghostd): discover widget manifests and resolve layouts against them"
+```
+
+---
+
+### Task 6: SysRoot, the `Source` trait and the CPU collector
+
+**Files:**
+- Create: `crates/ghostd/src/sysroot.rs`, `crates/ghostd/src/collect/{mod.rs,cpu.rs}`, `crates/ghostd/tests/common/mod.rs`
 - Test: `crates/ghostd/tests/cpu.rs`
 
 **Interfaces:**
 - Produces:
-  - `pub struct SysRoot(PathBuf)`.
-    - `SysRoot::new(p)` and `SysRoot::host()` (which is `/`).
-    - `fn read(&self, rel: &str) -> io::Result<String>`, where `rel` looks like `"proc/stat"`.
-    - `fn list(&self, rel: &str) -> io::Result<Vec<String>>`, the sorted entry names.
-    - `fn path(&self, rel: &str) -> PathBuf`.
-  - `pub trait Source<T> { fn sample(&mut self) -> T; }`. Every collector in Tasks 5–9 implements it.
-  - `pub fn parse_cpu_list(s: &str) -> Vec<u16>`, so `"0-7,16-23"` gives `[0..=7, 16..=23]`.
-  - `pub struct CpuCollector`.
-    - `CpuCollector::new(root: &SysRoot) -> io::Result<Self>` reads the topology once. It groups logical CPUs by `sys/devices/system/cpu/cpuN/cache/index3/shared_cpu_list`, orders the CCDs by their lowest CPU, sets `vcache = l3_kib > min(l3_kib)`, and takes `model` from the `model name` line in `proc/cpuinfo`.
-    - `impl Source<CpuSnapshot>`. The first sample has zero loads. Per-thread load is `100·Δbusy/Δtotal`, where `busy = total − idle − iowait`. CCD and total loads are means of their threads. `freq_mhz` is the mean `cpufreq/scaling_cur_freq` (kHz) / 1000, or 0 when that's missing.
-  - `tests/common::FakeRoot` creates a tempdir with `fn write(&self, rel, contents)`, `fn remove(&self, rel)` and `fn root(&self) -> SysRoot`.
-  - `tests/common::fake_9950x3d() -> FakeRoot` writes 32 `cpuN` topology dirs, a two-line `proc/stat` and a `proc/cpuinfo` with `model name : AMD Ryzen 9 9950X3D 16-Core Processor`. Later tasks reuse it.
+  - `SysRoot`: `new(p)`, `host()` (`/`), `read(rel) -> io::Result<String>`, `list(rel) -> io::Result<Vec<String>>`, `path(rel)`.
+  - `pub trait Source<T> { fn sample(&mut self) -> T; }`
+  - `parse_cpu_list("0-7,16-23")`.
+  - `CpuCollector::new(&SysRoot) -> io::Result<Self>`, implementing `Source<CpuSnapshot>`.
+    - It groups CPUs by `cpuN/cache/index3/shared_cpu_list`, orders the CCDs by their lowest CPU, and sets `vcache = l3_kib > min`.
+    - `model` comes from `proc/cpuinfo`.
+    - Thread load is `100·Δbusy/Δtotal`, where `busy = total − idle − iowait`.
+    - `freq_mhz` is the mean of `scaling_cur_freq` / 1000, or 0 when it's missing.
+  - `tests/common`:
+    - `FakeRoot` with `write`, `remove` and `root()`;
+    - `fake_9950x3d()`, which writes 32 CPU topology dirs with the real lists and sizes, plus `proc/stat` and `proc/cpuinfo`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```rust
 #[test] fn parses_ranges() { assert_eq!(parse_cpu_list("0-2,16-17"), vec![0, 1, 2, 16, 17]); }
-#[test] fn groups_ccds_and_detects_vcache() {
-    let r = fake_9950x3d();   // cpu0..31, index3 lists "0-7,16-23"/98304K and "8-15,24-31"/32768K
-    let mut c = CpuCollector::new(&r.root()).unwrap(); let s = c.sample();
-    assert_eq!(s.ccds[0].cpus, [0,1,2,3,4,5,6,7,16,17,18,19,20,21,22,23]);
-    assert!(s.ccds[0].vcache); assert!(!s.ccds[1].vcache); assert_eq!(s.ccds[0].l3_kib, 98304);
-    assert_eq!(s.model, "AMD Ryzen 9 9950X3D 16-Core Processor");
-}
-#[test] fn computes_thread_and_ccd_load() {
-    /* sample 1; rewrite proc/stat so cpu0 gained 50 busy + 50 idle jiffies, cpu1 0 busy + 100 idle, all others 100 idle */
-    /* sample 2 → threads[0] == 50.0, threads[1] == 0.0, ccds[0].load == 50.0/16.0 */
-}
-#[test] fn missing_cpufreq_is_zero_not_panic() { /* no cpufreq dirs → freq_mhz == 0 */ }
+#[test] fn groups_ccds_and_detects_vcache() { /* ccds[0].cpus == [0..=7,16..=23], vcache true, l3 98304; ccds[1] vcache false; model "AMD Ryzen 9 9950X3D 16-Core Processor" */ }
+#[test] fn computes_thread_and_ccd_load() { /* cpu0 +50 busy +50 idle → threads[0] == 50.0; ccds[0].load == 50.0/16.0 */ }
+#[test] fn missing_cpufreq_is_zero() { /* freq_mhz == 0, no panic */ }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -419,7 +497,7 @@ git commit -m "feat(config): watch config directory and keep last good config on
 Run: `cargo test -p ghostd --test cpu`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement `SysRoot`, `Source` and `CpuCollector`**
+- [ ] **Step 3: Implement it**
 
 - [ ] **Step 4: Run them and watch them pass**
 
@@ -435,29 +513,27 @@ git commit -m "feat(ghostd): add cpu collector with ccd topology from l3 sharing
 
 ---
 
-### Task 6: Memory and top processes
+### Task 7: Memory and top processes
 
 **Files:**
 - Create: `crates/ghostd/src/collect/mem.rs`
 - Test: `crates/ghostd/tests/mem.rs`
 
 **Interfaces:**
-- Consumes: `SysRoot` and `Source` (Task 5).
-- Produces: `MemCollector::new(root: &SysRoot, top_n: usize) -> Self`, implementing `Source<MemSnapshot>`.
-  - `used_kib = MemTotal − MemAvailable` and `swap_used_kib = SwapTotal − SwapFree`, both from `proc/meminfo`.
-  - Each process's `cpu = 100·Δ(utime+stime) / Δ(sum of all jiffies in the "cpu " line of proc/stat)`.
-  - Each process's `mem = 100·rss_kib / total_kib`, using `VmRSS` from `proc/<pid>/status`, and `name` comes from `proc/<pid>/comm`.
-  - Processes with an RSS of 0 (kernel threads) are excluded. A process that vanishes between reads is skipped.
-  - `top` is sorted by `cpu` descending, then by pid, and has `top_n` entries.
+- Produces: `MemCollector::new(&SysRoot, top_n: usize)`, implementing `Source<MemSnapshot>`.
+  - `used = MemTotal − MemAvailable`; `swap_used = SwapTotal − SwapFree`.
+  - Process `cpu = 100·Δ(utime+stime) / Δ(all-cpu jiffies)`; `mem = 100·VmRSS / total`; the name comes from `comm`.
+  - Processes with an RSS of 0 are excluded, and vanished ones are skipped.
+  - The list is sorted by cpu descending, then pid.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```rust
-#[test] fn used_is_total_minus_available() { /* MemTotal 96388184, MemAvailable 77000000 → used_kib == 19388184 */ }
-#[test] fn process_cpu_is_share_of_whole_machine() { /* pid 42: Δ(utime+stime)=64 over Δtotal=3200 → cpu == 2.0 */ }
-#[test] fn vanished_process_is_skipped() { /* remove proc/42 between samples → no panic, 42 absent */ }
-#[test] fn kernel_threads_excluded() { /* pid 7 without VmRSS → not in top */ }
-#[test] fn top_is_sorted_and_truncated() { /* 6 procs, top_n 5 → 5 entries, cpu descending */ }
+#[test] fn used_is_total_minus_available() { /* 96388184 − 77000000 → 19388184 */ }
+#[test] fn process_cpu_is_machine_share() { /* Δ 64 of Δtotal 3200 → 2.0 */ }
+#[test] fn vanished_process_skipped() { }
+#[test] fn kernel_threads_excluded() { }
+#[test] fn top_sorted_and_truncated() { /* 6 procs, top_n 5 → 5, descending */ }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -465,7 +541,7 @@ git commit -m "feat(ghostd): add cpu collector with ccd topology from l3 sharing
 Run: `cargo test -p ghostd --test mem`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement `MemCollector`**
+- [ ] **Step 3: Implement it**
 
 - [ ] **Step 4: Run them and watch them pass**
 
@@ -481,49 +557,41 @@ git commit -m "feat(ghostd): add memory and top process collector"
 
 ---
 
-### Task 7: Temperatures and fans (hwmon)
+### Task 8: Temperatures and fans (hwmon)
 
 **Files:**
-- Create: `crates/ghostd/src/collect/hwmon.rs`, `crates/ghostd/src/collect/labels.rs`
+- Create: `crates/ghostd/src/collect/{hwmon.rs,labels.rs}`
 - Test: `crates/ghostd/tests/hwmon.rs`
 
 **Interfaces:**
-- Consumes: `SysRoot` and `Source`.
-- Produces: `SensorCollector::new(root: &SysRoot, overrides: &BTreeMap<String,String>) -> Self`, implementing `Source<SensorSnapshot>`. It rescans `sys/class/hwmon` every 30 samples to pick up hotplugged devices.
-  - **Ids** are `"{chip}/{label}"`, where `chip` is the hwmon `name` and `label` is the content of `tempN_label` / `fanN_label`, or `tempN` / `fanN` when there is none.
-    - NVMe chips use `"nvme/{serial}"`, with the serial from `hwmonX/device/serial`, trimmed.
-    - `spd5118` chips use `"spd5118/{n}"`, with n = 1, 2… in hwmon order.
-  - **Built-in labels**, matched by chip prefix and sensor label:
+- Produces: `SensorCollector::new(&SysRoot, overrides: &BTreeMap<String,String>)`, implementing `Source<SensorSnapshot>`. It rescans every 30 samples.
+  - **Ids** are `"{chip}/{label}"`, falling back to `tempN`/`fanN` when there's no label. NVMe chips use `nvme/{device/serial trimmed}`, and `spd5118` chips use `spd5118/{n}`.
+  - **Built-in labels.** These are generic rules for common chips, matched by chip prefix:
 
     | Sensor | Label |
     |---|---|
     | `k10temp` `Tctl` | `CPU TCTL` |
     | `k10temp` `Tccd1` | `CCD0` |
     | `k10temp` `Tccd2` | `CCD1` |
-    | `nct6799` `fan2` | `CPU FAN` |
-    | `nct6799` `fan3` | `CHASSIS FAN` |
-    | `nct6799` `SYSTIN` | `MOBO` |
-    | `r8169*` `temp1` | `NIC` |
+    | `nct*` `SYSTIN` | `MOBO` |
+    | `nct*` `fan2` | `CPU FAN` |
+    | `nct*` `fan3` | `CHASSIS FAN` |
+    | `r8169*` | `NIC` |
     | `spd5118/n` | `DIMM n` |
-    | `nvme/*` | the drive model, uppercased and trimmed |
+    | `nvme/*` | the drive model, uppercased |
+    | anything else | `"{CHIP} {LABEL}"` |
 
-    Any other sensor is labelled `"{CHIP} {LABEL}"`, uppercased. `overrides[id]` replaces any label.
-  - **Values:** temperatures are millidegrees / 1000. Fans are listed only if they have a built-in label or read > 0 at the first scan. **A failed read gives `value: None`, and the other readings are unaffected.**
-  - `ps_controller_battery_*` and any other hwmon without `temp*`/`fan*` inputs contributes nothing.
+    The `overrides` map wins over all of them.
+  - **Values:** temperatures are millidegrees / 1000. Fans are listed only if they have a known label or read > 0 at the first scan. **A failed read gives `None`, and the other readings are unaffected.** Hwmons without temp or fan inputs are ignored.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```rust
-#[test] fn labels_and_values_for_this_machine() {
-    /* k10temp temp1 "Tctl"=57875, temp3 "Tccd1"=57625, temp4 "Tccd2"=40875; nct6799 fan2=1670, fan3=450, fan1=0 */
-    /* → temps contain (id "k10temp/Tctl", label "CPU TCTL", 57.875); fans == ["CPU FAN" 1670, "CHASSIS FAN" 450]; no fan1 */
-}
-#[test] fn nvme_uses_serial_and_model() { /* hwmon name nvme, device/serial "2O412LA45EG7 ", device/model "XPG GAMMIX S70 BLADE" → id "nvme/2O412LA45EG7", label "XPG GAMMIX S70 BLADE" */ }
-#[test] fn failed_read_is_unavailable_not_fatal() {
-    /* make temp1_input of the WD nvme a directory (read fails like the dead drive's EIO) → that Reading.value == None; k10temp still Some */
-}
-#[test] fn override_label_wins() { /* overrides {"k10temp/Tctl": "CPU"} → label "CPU" */ }
-#[test] fn hotplug_is_picked_up_on_rescan() { /* add a new hwmon dir, sample 30 times → its reading appears */ }
+#[test] fn labels_and_values() { /* Tctl 57875 → ("k10temp/Tctl","CPU TCTL",57.875); fans == [CPU FAN 1670, CHASSIS FAN 450]; fan1=0 absent */ }
+#[test] fn nvme_uses_serial_and_model() { /* id "nvme/2O412LA45EG7", label "XPG GAMMIX S70 BLADE" */ }
+#[test] fn failed_read_is_unavailable_not_fatal() { /* temp1_input is a directory → None; k10temp still Some */ }
+#[test] fn override_label_wins() { }
+#[test] fn hotplug_on_rescan() { /* new hwmon after 30 samples appears */ }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -531,7 +599,7 @@ git commit -m "feat(ghostd): add memory and top process collector"
 Run: `cargo test -p ghostd --test hwmon`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement `SensorCollector` and the label table**
+- [ ] **Step 3: Implement it**
 
 - [ ] **Step 4: Run them and watch them pass**
 
@@ -547,27 +615,32 @@ git commit -m "feat(ghostd): add hwmon temperature and fan collector"
 
 ---
 
-### Task 8: GPU through NVML
+### Task 9: GPU through NVML
 
 **Files:**
 - Create: `crates/ghostd/src/collect/gpu.rs` (unit tests inside it)
 
 **Interfaces:**
 - Produces:
-  - `pub struct GpuReading { name: String, load: f32, vram_used_mib: u32, vram_total_mib: u32, temp_c: f32, power_w: f32, power_limit_w: f32, fan_pct: f32 }`
-  - `pub trait GpuSource { fn read(&mut self) -> Option<GpuReading>; }`
-  - `pub struct NvmlSource`.
-    - `NvmlSource::open() -> Option<Self>` is `None` when NVML can't be loaded.
-    - It reads device 0: `utilization_rates().gpu`, `memory_info()` (bytes / 1 MiB), `temperature(Gpu)`, `power_usage()` and `enforced_power_limit()` (mW / 1000), `fan_speed(0)`, and `name()`. Any NVML error gives `None`.
-  - `GpuCollector::new(src: Option<Box<dyn GpuSource>>)`, implementing `Source<GpuSnapshot>`. It sets `present = false` and zeroes the fields when the source is missing or returns `None`.
-- CLI: `ghostd probe gpu` prints one `GpuSnapshot` as JSON. Task 11 adds the other topics to `probe`.
+  - `GpuReading` (the `GpuSnapshot` fields minus `present`) and `trait GpuSource { fn read(&mut self) -> Option<GpuReading>; }`.
+  - `NvmlSource::open() -> Option<Self>` reads device 0:
+    - utilisation;
+    - memory, in bytes / MiB;
+    - temperature;
+    - `power_usage` and `enforced_power_limit` (mW / 1000);
+    - `fan_speed(0)`;
+    - `name`.
 
-- [ ] **Step 1: Write the failing tests** (in-module, with a `FakeGpu(Vec<Option<GpuReading>>)`)
+    Any error gives `None`.
+  - `GpuCollector::new(Option<Box<dyn GpuSource>>)`, implementing `Source<GpuSnapshot>`. `present = false` when the source is missing or returns `None`.
+- CLI: `ghostd probe gpu`.
+
+- [ ] **Step 1: Write the failing tests**
 
 ```rust
-#[test] fn maps_reading() { /* Some(load 31.0, vram 3174/16376, 41.0, 54.4, 320.0, 31.0) → snapshot fields equal, present true */ }
-#[test] fn missing_nvml_is_absent() { let mut c = GpuCollector::new(None); assert!(!c.sample().present); }
-#[test] fn error_mid_run_degrades() { /* Some then None → second sample present false, no panic */ }
+#[test] fn maps_reading() { }
+#[test] fn missing_nvml_is_absent() { assert!(!GpuCollector::new(None).sample().present); }
+#[test] fn error_mid_run_degrades() { }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -575,12 +648,12 @@ git commit -m "feat(ghostd): add hwmon temperature and fan collector"
 Run: `cargo test -p ghostd --lib -- gpu`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement `NvmlSource`, `GpuCollector` and `probe gpu`**
+- [ ] **Step 3: Implement it**
 
 - [ ] **Step 4: Run them, then try the real GPU**
 
 Run: `cargo test -p ghostd --lib -- gpu && cargo run -q -p ghostd -- probe gpu`
-Expected: PASS, then JSON containing `"name":"NVIDIA GeForce RTX 4080 SUPER"` and `"present":true`.
+Expected: PASS, then JSON containing `"name":"NVIDIA GeForce RTX 4080 SUPER"`.
 
 - [ ] **Step 5: Commit**
 
@@ -591,51 +664,42 @@ git commit -m "feat(ghostd): add nvml gpu collector"
 
 ---
 
-### Task 9: Drives (identity, state, usage, I/O)
+### Task 10: Drives (identity, state, usage, I/O)
 
 **Files:**
 - Create: `crates/ghostd/src/collect/disk.rs`
 - Test: `crates/ghostd/tests/disk.rs`
 
 **Interfaces:**
-- Consumes: `SysRoot`, `Source`, and the `nvme/{serial}` readings from `SensorSnapshot` (Task 7).
 - Produces:
-  - `pub trait FsStat { fn used_pct(&self, mount: &str) -> Option<f32>; }`. `StatvfsFs` implements it with `nix::sys::statvfs`.
-  - `DiskCollector::new(root: &SysRoot, fs: Box<dyn FsStat>, labels: &BTreeMap<String,String>)`, implementing `Source<DiskSnapshot>`.
+  - `trait FsStat { fn used_pct(&self, mount: &str) -> Option<f32>; }`, with the `StatvfsFs` implementation.
+  - `DiskCollector::new(&SysRoot, Box<dyn FsStat>, labels)`, implementing `Source<DiskSnapshot>`.
   - **Which devices:** every `sys/block/*` except `loop*`, `zram*`, `ram*` and `dm-*`.
   - **Identity:**
     - `model` is `device/model`, trimmed.
-    - `serial` is `device/serial` (NVMe), else `device/wwid`, else `"{kernel_name}"`.
+    - `serial` is `device/serial`, else `device/wwid`, else the kernel name.
     - `id = "{model}#{serial}"`.
     - `label` is `labels[serial]`, else `model`.
   - **State:**
-    - `Dead` when the controller's `device/state` (NVMe) is `dead` or the size is 0.
-    - Otherwise `Live` when a partition or the device appears in `proc/self/mountinfo` (matched by `major:minor` from `sys/block/X/**/dev`).
-    - Otherwise `Unmounted`.
+    - `Dead` when the NVMe `device/state` is `dead` or the size is 0;
+    - otherwise `Live` when it's mounted (via the `proc/self/mountinfo` `major:minor`);
+    - otherwise `Unmounted`.
   - **Usage and rates:**
-    - `mounts` are the mount points, with `/` first.
-    - `used_pct` is `fs.used_pct(first mount)`, refreshed every 60 samples and cached in between.
-    - `read_bps` and `write_bps` come from the `proc/diskstats` whole-device sector deltas × 512 per second.
-  - **Order:**
-    1. the drive mounted at `/`;
-    2. other `Live` drives;
-    3. `Dead` drives;
-    4. `Unmounted` drives.
-
-    Ties break by `id`.
-  - `pub fn attach_temps(d: &mut DiskSnapshot, s: &SensorSnapshot)` sets `temp_c` from `nvme/{serial}`.
+    - `mounts` come with `/` first;
+    - `used_pct` is refreshed every 60 samples;
+    - `read_bps` and `write_bps` come from the `proc/diskstats` sector deltas × 512 per second.
+  - **Order:** the drive mounted at `/`, then other `Live` drives, then `Dead`, then `Unmounted`. Ties break by `id`.
+  - `attach_temps(&mut DiskSnapshot, &SensorSnapshot)` matches drives to `nvme/{serial}`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```rust
-#[test] fn dead_nvme_is_dead() { /* nvme1: device/state "dead", size 0 → state Dead, used_pct None */ }
-#[test] fn identity_survives_renumbering() {
-    /* build twice with XPG/WD names swapped between nvme0n1 and nvme1n1 → identical (id, state) lists in identical order */
-}
-#[test] fn same_model_different_serial_are_distinct() { /* two "WDC WD10EZEX" with serials A and B → 2 ids */ }
-#[test] fn root_mounted_first_then_dead_then_unmounted() { /* XPG on "/", Kingston on /run/media/x, WD dead, sda unmounted → that order */ }
-#[test] fn io_rates_from_diskstats() { /* Δ sectors read 2000 over 1 s → read_bps == 1_024_000 */ }
-#[test] fn temps_attach_by_serial() { /* SensorSnapshot nvme/2O412LA45EG7 = 37.85 → XPG temp_c Some(37.85) */ }
+#[test] fn dead_nvme_is_dead() { }
+#[test] fn identity_survives_renumbering() { /* swap nvme0/nvme1 names → identical ordered (id, state) */ }
+#[test] fn same_model_different_serial_distinct() { }
+#[test] fn ordering_root_live_dead_unmounted() { }
+#[test] fn io_rates_from_diskstats() { /* Δ2000 sectors over 1 s → read_bps 1_024_000 */ }
+#[test] fn temps_attach_by_serial() { }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -643,9 +707,9 @@ git commit -m "feat(ghostd): add nvml gpu collector"
 Run: `cargo test -p ghostd --test disk`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement `DiskCollector`, `StatvfsFs` and `attach_temps`**
+- [ ] **Step 3: Implement it**
 
-The sampling interval is injected (`Instant` delta) so tests control the elapsed time.
+The elapsed time is injected, so the tests control it.
 
 - [ ] **Step 4: Run them and watch them pass**
 
@@ -661,33 +725,27 @@ git commit -m "feat(ghostd): add drive collector keyed by model and serial"
 
 ---
 
-### Task 10: History buffers and the sampler
+### Task 11: History buffers and the sampler
 
 **Files:**
 - Create: `crates/ghostd/src/history.rs`, `crates/ghostd/src/sampler.rs` (unit tests inside both)
 
 **Interfaces:**
-- Consumes: the `Source<…>` collectors (Tasks 5–9) and `attach_temps`.
 - Produces:
-  - `History`:
-    - `History::new(len: usize)`
-    - `push(&mut self, key: &str, v: f32)`
-    - `series(&self) -> BTreeMap<String, Vec<f32>>`, oldest first, each series at most `len` long.
-    - `resize(&mut self, len)`, which keeps the newest samples.
+  - `History`: `new(len)`, `push(key, v)`, `series() -> BTreeMap<String, Vec<f32>>` (oldest first, at most `len`), and `resize(len)`, which keeps the newest samples.
   - `Sampler`:
     - `Sampler::new(cpu, mem, sensors, gpu, disks)`, each a `Box<dyn Source<…>>`.
-    - `fn tick(&mut self, hist: &mut History) -> Vec<ServerMsg>` returns `[Cpu, Mem, Sensors, Gpu, Disks]` in that order, with a shared, increasing `seq`.
-    - Each tick pushes the history keys `"load"`, `"ccd0"`, `"ccd1"` and `"gpu_load"`.
-    - It calls `attach_temps` before emitting `Disks`.
-  - History length is `history_minutes × 60` (one sample a second).
+    - `tick(&mut self, hist: &mut History) -> Vec<ServerMsg>` returns five `Data` messages, in the order `cpu, mem, sensors, gpu, disks`, all with the same increasing `seq`.
+    - Each tick pushes the history keys `load`, `ccd0`, `ccd1` and `gpu_load`, and calls `attach_temps` before building `disks`.
+  - History length is `history_minutes × 60`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```rust
-#[test] fn tick_order_and_seq() { /* fakes → kinds == [cpu, mem, sensors, gpu, disks]; second tick seq == first + 1 */ }
-#[test] fn history_grows_then_caps() { /* len 3, 5 ticks → series["load"].len() == 3, holding ticks 3..=5 */ }
-#[test] fn resize_keeps_newest() { /* 5 samples, resize(2) → last two */ }
-#[test] fn ccd_history_keys_present() { /* series has "ccd0" and "ccd1" */ }
+#[test] fn tick_order_and_seq() { /* topics == [cpu, mem, sensors, gpu, disks]; seq +1 per tick */ }
+#[test] fn history_caps() { /* len 3, 5 ticks → 3 newest */ }
+#[test] fn resize_keeps_newest() { }
+#[test] fn ccd_keys_present() { }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -695,7 +753,7 @@ git commit -m "feat(ghostd): add drive collector keyed by model and serial"
 Run: `cargo test -p ghostd --lib -- sampler history`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement `History` and `Sampler`**
+- [ ] **Step 3: Implement it**
 
 - [ ] **Step 4: Run them and watch them pass**
 
@@ -711,53 +769,53 @@ git commit -m "feat(ghostd): add sampler and history ring buffers"
 
 ---
 
-### Task 11: The socket server, `main`, fake mode, perf and config-error notifications
+### Task 12: The server, provider relay, `main`, fake mode, perf and notifications
 
 **Files:**
-- Create: `crates/ghostd/src/{server.rs,fake.rs,selfmon.rs,notify.rs}`
+- Create: `crates/ghostd/src/{server.rs,providers.rs,fake.rs,selfmon.rs,notify.rs}`
 - Modify: `crates/ghostd/src/main.rs`
 - Test: `crates/ghostd/tests/server.rs`
 
 **Interfaces:**
-- Consumes: everything from Tasks 2–10.
+- Consumes: everything from Tasks 2–11.
 - Produces:
   - **CLI:**
-    - `ghostd run [--socket PATH] [--config PATH] [--fake] [--tick-ms N]`. Defaults: the socket is `$XDG_RUNTIME_DIR/ghostd.sock`, the config is `default_path()`, and the tick is 1000 ms.
+    - `ghostd run [--socket PATH] [--config PATH] [--widgets-dir DIR] [--fake] [--tick-ms N]`. Defaults: the socket is `$XDG_RUNTIME_DIR/ghostd.sock`, the tick is 1000 ms, and the widgets dir is `$GHOST_WIDGETS_DIR`, else `~/.local/share/ghost-shell/widgets`.
     - `ghostd default-config`.
-    - `ghostd probe <cpu|mem|sensors|gpu|disks>`.
-  - `pub async fn serve(listener: UnixListener, hub: Hub)`.
-    - **Handshake:** a client must send `ClientMsg::Hello` with `proto == 1` within 2 s. Otherwise the server sends `ServerMsg::Error { message: "expected hello with proto 1" }` and closes the connection.
-    - **After hello,** the server sends `Hello`, `Config`, then `History { step_ms: 1000, series }`, then streams only the subscribed topics from each tick.
-    - **Config changes** are broadcast to every client as `Config`. Watcher errors are broadcast as `ConfigError`.
-    - **Slow clients:** a client whose unsent output exceeds 256 KiB is disconnected.
-    - **Disconnects:** one client leaving never affects the others.
-    - **Startup:** a stale socket file is removed before binding, and the socket is created with mode 0600.
-  - `Hub { ticks: broadcast::Sender<Arc<Vec<ServerMsg>>>, config: watch::Receiver<ResolvedConfig>, errors: broadcast::Sender<String>, history: Arc<Mutex<History>> }`
-  - `selfmon`:
-    - It emits `Perf` every tick.
-    - Its own figures come from `/proc/self`.
-    - The shell's pid is the peer pid of the client that subscribed to `perf` (`UnixStream::peer_cred()`). No process scanning is needed.
-    - The shell's CPU and RSS are measured like `measure-cpu.sh` does.
-  - `notify::send_warning(summary: &str, body: &str)`.
-    - It sends a zbus `org.freedesktop.Notifications.Notify` with app_name `"ghost-shell"` and urgency `normal`.
-    - It's called with `("Config error", message)` on watcher errors.
-    - A failure is only logged.
+    - `ghostd probe <topic>`.
+  - `serve(listener, hub)`. The first message decides the connection's role:
+    - **UI client (`Hello`):**
+      1. The server replies with `Hello`, `Config`, then `Layout`.
+      2. On each `Subscribe` (which replaces the subscription set), it sends `History` for the subscribed built-ins, then the last value of each subscribed topic, then streams those topics.
+      3. `Config` and `Layout` are re-sent whenever the config or the widget set changes. Watcher errors and layout `errors` go out as `ConfigError`.
+    - **Provider (`Provide`):**
+      - Every topic must pass `is_valid_topic`, must not be built-in, and must not be claimed by another live provider.
+      - Violations get `Error { message }` and a close. The exact messages are `topic "cpu" is built in`, `topic "x.y" is already provided by "other"`, and `invalid topic name "X"`.
+      - `Publish` is accepted only for declared topics, at most 64 KiB per message. The server caches the last value, and relays it to subscribers as `Data` with a per-topic `seq`.
+      - When a provider disconnects, its topics are released and keep their last value.
+    - **Handshake timeout:** no `Hello` or `Provide` within 2 s gives `Error { message: "expected hello or provide with proto 1" }` and a close. A wrong `proto` gets the same message.
+    - **Slow UI clients:** more than 256 KiB of unsent output disconnects them.
+    - **Socket file:** a stale one is replaced, and the socket is created with mode 0600.
+  - `providers::supervise(specs)` starts each `ProviderSpec.exec` once. When a process with `restart = true` exits, it's restarted after 1, 2, 4… up to 30 s. Each process gets the env `GHOST_SOCKET=<path>`.
+  - `selfmon` emits `perf`. The shell's pid is the peer pid (`peer_cred()`) of the UI client subscribed to `perf`.
+  - `notify::send_warning(summary, body)` sends a zbus Notify with app_name `"ghost-shell"`. A failure is only logged.
   - **Fake mode:**
-    - deterministic sine-based sources for every topic, with 2 CCDs of 16 threads;
-    - one `Dead` drive "WD GREEN 960G" and one sensor whose `value` is `None`;
-    - GPU present with the name "NVIDIA GeForce RTX 4080 SUPER".
+    - sine-based data for every built-in topic, with 2 CCDs of 16 threads;
+    - one `Dead` "WD GREEN 960G" and one sensor whose value is `None`;
+    - the GPU named "NVIDIA GeForce RTX 4080 SUPER".
 
-- [ ] **Step 1: Write the failing tests** (spawn `serve` with fake sources at `--tick-ms 50` on a temp socket)
+- [ ] **Step 1: Write the failing tests** (`serve` with fake sources at `--tick-ms 50`, a temp socket and temp widget dirs)
 
 ```rust
-#[tokio::test] async fn handshake_then_subscribed_topics_only() {
-    /* send hello topics [cpu] → lines: hello, config, history, then ≥2 "cpu" lines within 500 ms and zero "gpu" lines */
-}
-#[tokio::test] async fn wrong_proto_gets_error_and_close() { /* hello proto 9 → {"t":"error","message":"expected hello with proto 1"} then EOF */ }
-#[tokio::test] async fn silent_client_times_out() { /* send nothing → error line within 2.5 s, then EOF */ }
-#[tokio::test] async fn clients_are_independent_and_reconnect_works() { /* A and B connected; drop A; B keeps getting ticks; new A' handshake succeeds */ }
-#[tokio::test] async fn config_change_reaches_clients() { /* send new ResolvedConfig into watch → client receives "config" with panel_fill 40 */ }
-#[tokio::test] async fn stale_socket_file_is_replaced() { /* create a plain file at the socket path → bind succeeds */ }
+#[tokio::test] async fn ui_handshake_then_subscribed_topics_only() { /* hello → hello, config, layout; subscribe [cpu] → history, then ≥2 cpu data lines, 0 gpu */ }
+#[tokio::test] async fn wrong_proto_and_silence_get_errors() { /* proto 9 → error+EOF; silence → error within 2.5 s */ }
+#[tokio::test] async fn provider_publish_reaches_subscriber() { /* P: provide ["weather.alerts"], publish {n:1}; UI subscribed → data topic weather.alerts data.n == 1 */ }
+#[tokio::test] async fn late_subscriber_gets_last_value() { /* publish, then subscribe → receives the cached value immediately */ }
+#[tokio::test] async fn provider_rules() { /* "cpu" → `topic "cpu" is built in`; duplicate → `already provided by`; publish undeclared → error */ }
+#[tokio::test] async fn provider_crash_does_not_affect_others() { /* drop P; UI keeps receiving cpu; a new P' can claim the topic */ }
+#[tokio::test] async fn reconnect_works() { /* drop UI, reconnect → full handshake again */ }
+#[tokio::test] async fn config_change_resends_config_and_layout() { }
+#[tokio::test] async fn supervised_provider_restarts() { /* exec ["sh","-c","exit 0"] with tick 50 ms → started ≥2 times within 3 s */ }
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -765,165 +823,152 @@ git commit -m "feat(ghostd): add sampler and history ring buffers"
 Run: `cargo test -p ghostd --test server`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement `serve`, `Hub`, the wiring in `main`, fake mode, `selfmon` and `notify`**
+- [ ] **Step 3: Implement the module and wire `main`**
 
-`main` uses a current-thread tokio runtime. The sampler runs on a `tokio::time::interval` with `MissedTickBehavior::Skip`. The config watcher from Task 4 feeds `Hub.config` and `Hub.errors`.
+Use a current-thread runtime and an interval with `MissedTickBehavior::Skip`. The Task 4 watcher feeds the config. Widget dirs are rediscovered on every config reload.
 
 - [ ] **Step 4: Run them, then do a live check**
 
 ```bash
 cargo test -p ghostd --test server
-cargo run -q -p ghostd -- run --socket /tmp/gs.sock & sleep 2
-uv run python -I -c "import socket,time; s=socket.socket(socket.AF_UNIX); s.connect('/tmp/gs.sock'); s.send(b'{\"t\":\"hello\",\"proto\":1,\"topics\":[\"cpu\",\"disks\"]}\n'); time.sleep(2.5); print(s.recv(1<<20).decode()[:3000])"; kill %1
+cargo run -q -p ghostd -- run --socket /tmp/gs.sock --widgets-dir widgets & sleep 2
+uv run python -I -c "import socket,time; s=socket.socket(socket.AF_UNIX); s.connect('/tmp/gs.sock'); s.send(b'{\"t\":\"hello\",\"proto\":1,\"topics\":[]}\n{\"t\":\"subscribe\",\"topics\":[\"cpu\",\"disks\"]}\n'); time.sleep(2.5); print(s.recv(1<<20).decode()[:3000])"; kill %1
 ```
-Expected: PASS. The live check prints `hello`, `config` and `history` lines, then real `cpu` and `disks` lines. The disks include `"state":"dead"` for the WD Green.
+Expected: PASS. The live check shows `hello`, `config`, `layout`, `history`, then real `cpu` and `disks` data, including `"state":"dead"`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add crates/ghostd
-git commit -m "feat(ghostd): serve telemetry and config over a unix socket"
+git commit -m "feat(ghostd): serve telemetry, layout and external providers over a unix socket"
 ```
 
 ---
 
-### Task 12: Shell logic modules (Node-tested)
+### Task 13: Shell logic modules (Node-tested)
 
 **Files:**
-- Create: `shell/lib/{format.mjs,segments.mjs,theme.mjs,scale.mjs,labels.mjs}`
-- Test: `shell/tests/{format,segments,theme,scale,labels}.test.mjs`
+- Create: `shell/kit/GhostKit/lib/{format.mjs,segments.mjs,theme.mjs,scale.mjs,labels.mjs,layout.mjs}`
+- Test: `shell/tests/*.test.mjs`
 
 **Interfaces:**
-- Produces (ES modules; QML imports them with `import "../lib/x.mjs" as X`):
+- Produces:
   - **`format.mjs`:**
-    - `pct(v)` → `"23%"`, rounded.
-    - `tempC(v)` → `"64°C"`. `null` gives `"--"`.
-    - `tempShort(v)` → `"64°"`.
-    - `gib(kib, dp = 1)` → `"19.7"`.
-    - `rate(bps)`: below 1e3 gives `"830 B/s"`, below 1e6 gives `"830.0 KB/s"`, otherwise `"12.4 MB/s"`.
-    - `ghz(mhz)` → `"5.21 GHz"`.
-    - `rpm(v)` → `"1690 RPM"`.
-    - `ddmmyy(date)` → `"20.10.26"`.
+    - `pct(22.6)` → `"23%"`;
+    - `tempC(null)` → `"--"`;
+    - `tempShort(64)` → `"64°"`;
+    - `gib(kib, dp=1)`;
+    - `rate(bps)`: below 1e3 `"830 B/s"`, below 1e6 `"830.0 KB/s"`, otherwise `"12.4 MB/s"`;
+    - `ghz(mhz)`, `rpm(v)`, `ddmmyy(date)`.
   - **`segments.mjs`:**
-    - `cellCount(width, cell = 4, gap = 2)` = `floor((width + gap) / (cell + gap))`.
-    - `litCells(value, lo, hi, cells, min = 0)`.
-    - `level(fraction, warnAt, critAt)` → `"normal" | "warn" | "crit"`, using ≥ comparisons.
-    - `cellColor(level, row, lit, rows, t)`:
-      - an unlit cell gives `t.signal` at 6 %;
-      - a crit cell gives `t.crit`; a warn cell gives `t.warn`;
-      - the top lit cell gives `t.hi`;
-      - any other lit cell gives `t.signal` at `0.35 + 0.5·row/rows`.
-  - **`theme.mjs`:**
-    - `TAGS` holds the Global Constraints table (kanji and katakana sets).
-    - `tag(key, mode)`: `mixed` → kanji, `off` → `""`.
-    - `withAlpha(hex, pct)` → `"#AARRGGBB"`.
-    - `isMonospace(w0, w1)` = `Math.abs(w0 − w1) < 0.5`.
-  - **`scale.mjs`:**
-    - `designUnit(logicalWidth)` = `logicalWidth / 1280`.
-    - `pickScreen(screens, model)`: the first screen whose `.model` includes `model`, else `screens[0]`, else `null`.
-  - **`labels.mjs`:**
-    - `cpuModelShort(s)`: `"AMD Ryzen 9 9950X3D 16-Core Processor"` → `"RYZEN 9 9950X3D"`.
-    - `gpuNameShort(s)`: `"NVIDIA GeForce RTX 4080 SUPER"` → `"RTX 4080 SUPER"`.
-    - `ccdTitle(ccd)` → `"CCD0 · V-CACHE"` or `"CCD1 · FREQ"`.
-    - `reading(snapshot, id)` → the value or `null`.
+    - `cellCount(w, cell=4, gap=2)`;
+    - `litCells(v, lo, hi, cells, min=0)`;
+    - `level(frac, warnAt, critAt)`, using ≥ comparisons;
+    - `levelLow(v, warnAt, critAt)` for batteries, using ≤ comparisons;
+    - `cellColor(level, row, lit, rows, t)`.
+  - **`theme.mjs`:** `TAGS` (the Global Constraints table), `tag(key, mode)`, `withAlpha(hex, pct)` → `#AARRGGBB`, and `isMonospace(w0, w1)`.
+  - **`scale.mjs`:** `designUnit(logicalWidth)` = `logicalWidth / 1280`, and `pickScreen(screens, model)`. An empty `model` gives the first screen, and a screen matching nothing also falls back to the first screen; `[]` gives `null`.
+  - **`labels.mjs`:** `cpuModelShort`, `gpuNameShort`, `ccdTitle`, `reading(snapshot, id)`.
+  - **`layout.mjs`:** `computeRects(node, rect, gutter) → [{ path, widget, source, settings, error, x, y, w, h }]`.
+    - Within a split, fixed `size` values are taken along the split's direction, and flex children share what's left equally.
+    - When the fixed sizes plus gutters exceed the available space, the fixed sizes scale down proportionally and the result includes `overflow: true`.
+    - `path` is like `"[0][1]"`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```js
-import { test } from 'node:test'; import assert from 'node:assert/strict';
 test('pct rounds', () => assert.equal(pct(22.6), '23%'));
 test('rate tiers', () => { assert.equal(rate(830), '830 B/s'); assert.equal(rate(830000), '830.0 KB/s'); assert.equal(rate(12400000), '12.4 MB/s'); });
-test('unavailable temp', () => assert.equal(tempC(null), '--'));
-test('cells', () => { assert.equal(cellCount(266), 44); assert.equal(litCells(50, 0, 100, 10), 5); assert.equal(litCells(0.4, 0, 100, 10, 1), 1); });
-test('levels at the spec thresholds', () => { assert.equal(level(0.749, .75, .9), 'normal'); assert.equal(level(.75, .75, .9), 'warn'); assert.equal(level(.9, .75, .9), 'crit'); });
+test('cells and levels', () => { assert.equal(cellCount(266), 44); assert.equal(level(.75, .75, .9), 'warn'); assert.equal(level(.9, .75, .9), 'crit'); assert.equal(levelLow(20, 20, 10), 'warn'); assert.equal(levelLow(10, 20, 10), 'crit'); });
 test('tags', () => { assert.equal(tag('cpu', 'mixed'), '演算'); assert.equal(tag('cpu', 'katakana'), 'コア'); assert.equal(tag('cpu', 'off'), ''); });
 test('alpha', () => assert.equal(withAlpha('#0a0f11', 55), '#8C0A0F11'));
-test('design unit at 1.15 scale', () => assert.ok(Math.abs(designUnit(2560 / 1.15) - 1.739) < 0.001));
-test('screen by model survives connector drift', () => {
-  assert.equal(pickScreen([{ model: 'DELL U2720Q' }, { model: 'Gigabyte M27Q' }], 'M27Q').model, 'Gigabyte M27Q');
-  assert.equal(pickScreen([], 'M27Q'), null);
+test('design unit at 1.15', () => assert.ok(Math.abs(designUnit(2560 / 1.15) - 1.739) < 0.001));
+test('screen pick', () => { assert.equal(pickScreen([{ model: 'A' }, { model: 'Gigabyte M27Q' }], 'M27Q').model, 'Gigabyte M27Q'); assert.equal(pickScreen([{ model: 'A' }], '').model, 'A'); assert.equal(pickScreen([], ''), null); });
+test('default v1 geometry', () => {
+  const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
+  assert.deepEqual(pick(r, 'processor'), { x: 12, y: 42, w: 300, h: 250 });
+  assert.equal(pick(r, 'storage').h, 666 - 300 - 184 - 24);
 });
-test('short names', () => { assert.equal(cpuModelShort('AMD Ryzen 9 9950X3D 16-Core Processor'), 'RYZEN 9 9950X3D'); assert.equal(gpuNameShort('NVIDIA GeForce RTX 4080 SUPER'), 'RTX 4080 SUPER'); });
-test('ccd titles', () => { assert.equal(ccdTitle({ id: 0, vcache: true }), 'CCD0 · V-CACHE'); assert.equal(ccdTitle({ id: 1, vcache: false }), 'CCD1 · FREQ'); });
+test('overflow shrinks instead of overlapping', () => { const r = computeRects({ direction: 'column', children: [{ widget: 'a', size: 400 }, { widget: 'b', size: 400 }] }, { x: 0, y: 0, w: 100, h: 500 }, 12); assert.ok(r.overflow); assert.ok(r[1].y >= r[0].y + r[0].h); });
+test('short names', () => { assert.equal(cpuModelShort('AMD Ryzen 9 9950X3D 16-Core Processor'), 'RYZEN 9 9950X3D'); assert.equal(gpuNameShort('NVIDIA GeForce RTX 4080 SUPER'), 'RTX 4080 SUPER'); assert.equal(ccdTitle({ id: 0, vcache: true }), 'CCD0 · V-CACHE'); });
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
 
 Run: `node --test shell/tests/`
-Expected: FAIL (the modules are missing).
+Expected: FAIL.
 
-- [ ] **Step 3: Implement the five modules**
+- [ ] **Step 3: Implement the modules**
 
-They are plain functions with no dependencies, because QML's JS engine loads them as-is.
+They're plain functions with no dependencies.
 
 - [ ] **Step 4: Run them and watch them pass**
 
 Run: `node --test shell/tests/`
-Expected: PASS (11 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add shell/lib shell/tests
-git commit -m "feat(shell): add tested formatting, segment, theme and scale logic"
+git add shell/kit/GhostKit/lib shell/tests
+git commit -m "feat(shell): add tested formatting, segment, theme, scale and layout logic"
 ```
 
 ---
 
-### Task 13: Shell skeleton (services, desktop surface, dot grid, scanlines, frame clock)
+### Task 14: Shell skeleton (GhostKit singletons, desktop surface, dot grid, scanlines)
 
 **Files:**
 - Create:
   - `shell/shell.qml`
-  - `shell/services/{Daemon.qml,Theme.qml,FrameClock.qml,qmldir}`
-  - `shell/components/{DotGrid.qml,Scanlines.qml}`
-  - `shell/shaders/{dotgrid.frag,scanlines.frag}`
-  - `shell/views/Desktop.qml`
+  - `shell/kit/GhostKit/{qmldir,Data.qml,Theme.qml,FrameClock.qml,Fmt.qml,DotGrid.qml,Scanlines.qml}`
+  - `shell/kit/GhostKit/shaders/{dotgrid.frag,scanlines.frag}`
+  - `shell/host/Desktop.qml`
   - `scripts/qml-smoke.sh`
   - `Makefile` (targets `shaders`, `test`, `smoke`)
 
 **Interfaces:**
-- Consumes: the Task 1 decision note (layer, frame rate), the Task 11 protocol, and the Task 12 modules.
+- Consumes: the Task 1 decision, the Task 12 protocol, the Task 13 modules.
 - Produces:
-  - **`Daemon` singleton:**
-    - properties `connected`, `stale` (no message for 3 s), `config`, `cpu`, `mem`, `sensors`, `gpu`, `disks`, `perf`, `history` (`{ key: number[] }`), and the signal `configError(string message)`;
-    - the socket path is `Quickshell.env("GHOST_SOCKET")`, else `$XDG_RUNTIME_DIR/ghostd.sock`;
-    - when it connects, it writes `{"t":"hello","proto":1,"topics":["cpu","mem","sensors","gpu","disks","perf"]}\n` and logs `console.info("ghostd connected")`;
-    - after each `cpu` and `gpu` message, it appends to `history.load`, `ccd0`, `ccd1` and `gpu_load`, trimmed to `config.dashboard.history_minutes × 60`;
+  - **The `GhostKit` QML module.** Its `qmldir` declares `module GhostKit` and the singletons `Data`, `Theme`, `FrameClock` and `Fmt`. `qs` runs with `QML_IMPORT_PATH=<shell>/kit`, which is how third-party widgets import the same module.
+  - **`Data` singleton:**
+    - properties `connected`, `stale` (no message for 3 s), `config`, `layout`, `topics` (an object keyed by topic, re-assigned on every update so bindings fire), `history`, and the signal `configError(string)`;
+    - the socket is `GHOST_SOCKET`, else `$XDG_RUNTIME_DIR/ghostd.sock`;
+    - on connect it sends `hello` with no topics and logs `ghostd connected`;
+    - on each `layout` it sends `subscribe` with the union of every slot's `requires` plus `perf`;
+    - it appends to the `load`, `ccd0`, `ccd1` and `gpu_load` history and trims it to `history_minutes × 60`;
     - it reconnects after 1 s, doubling to at most 10 s.
   - **`Theme` singleton:**
-    - `u` (set by Desktop) and `function d(px) { return px * u }`;
-    - colours `ground, panel, hair, hair2, text, hi, dim, signal, warn, crit, dot` as `color`;
-    - `panelFill` (0..1), `font`, `fontCjk`, `japanese`, `loadWarn` and `loadCrit` (fractions), `tempWarn` and `tempCrit` (°C), and `tag(key)`;
-    - its defaults equal the Global Constraints until a config message arrives.
-  - **`FrameClock` singleton:**
-    - `frame`: an int at the Task 1 rate (default 15 fps), driven by a `Timer`;
-    - `blinkOpacity`: `[1, .5, 0, .5]` on a 250 ms `Timer`;
-    - `acquire()` and `release()` keep a refcount, so both timers stop when nothing uses them.
+    - `u` and `d(px)`;
+    - the colour tokens, `panelFill`, `font`, `fontCjk` and `japanese`;
+    - `loadWarn` and `loadCrit` (fractions), `tempWarn` and `tempCrit`, `batteryWarn` and `batteryCrit`;
+    - `tag(key)`;
+    - Global Constraints defaults until a config arrives.
+  - **`FrameClock` singleton:** `frame` at the Task 1 rate (default 15 fps), `blinkOpacity` from `[1, .5, 0, .5]` on a 250 ms timer, and `acquire()`/`release()` with a refcount so the timers stop when unused.
+  - **`Fmt` singleton:** a thin wrapper re-exporting `format.mjs` and `labels.mjs`, so widgets don't import files by path.
   - **`Desktop`:**
-    - a `PanelWindow` on `pickScreen(Quickshell.screens, Theme config display.model)`, on the layer from Task 1, with namespace `"ghost-shell-desktop"`, `ExclusionMode.Ignore`, all four anchors and colour `Theme.ground`;
-    - it sets `Theme.u = width / 1280` (`GHOST_FORCE_U` overrides this for tests);
-    - it stacks `DotGrid`, a `Loader` for the view (Task 16 sets V1), `Scanlines` on top, and a perf overlay when `GHOST_DEBUG=1` (daemon and shell CPU % and RSS);
+    - a `PanelWindow` on `pickScreen(Quickshell.screens, Data.config.display.model)`, on the Task 1 layer, with namespace `"ghost-shell-desktop"`, `ExclusionMode.Ignore`, all four anchors and colour `Theme.ground`;
+    - it sets `Theme.u = width / 1280` (`GHOST_FORCE_U` overrides this);
+    - it stacks `DotGrid`, a `Loader` slot for the view (Task 16), `Scanlines`, and a perf overlay when `GHOST_DEBUG=1`;
     - other screens get a window with only `DotGrid`.
-  - **Shaders:**
-    - `dotgrid.frag` uniforms: `vec4 dotColor; float spacing; float radius;`, sizes in design px × `u`.
-    - `scanlines.frag` uniforms: `float strength; float period; float lineWidth;`, with defaults 0.15, 3 and 1 in design px × `u`.
-  - **Stale rule:** while `!Daemon.connected || Daemon.stale`, panels draw values in `dim` and meters with nothing lit.
+  - **Shaders:** `dotgrid.frag` (`vec4 dotColor; float spacing; float radius;`) and `scanlines.frag` (`float strength; float period; float lineWidth;`), in design px × `u`.
+  - **Stale rule:** while `!Data.connected || Data.stale`, kit components show values in `dim` and meters with nothing lit.
 
 - [ ] **Step 1: Write the smoke script and watch it fail**
 
 `scripts/qml-smoke.sh`:
-1. Builds with `cargo build -q -p ghostd`, then starts `target/debug/ghostd run --fake --socket /tmp/ghost-smoke.sock` and `GHOST_SOCKET=/tmp/ghost-smoke.sock qs -p shell`, logging to `/tmp/ghost-smoke.log`.
-2. Waits 6 s.
-3. Kills ghostd, waits 3 s, restarts it, and waits 5 s.
-4. Stops both.
-5. **Fails** if the log matches `ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to`.
-6. **Fails** unless `ghostd connected` appears at least twice, which covers the reconnect.
+1. Runs `cargo build -q -p ghostd`.
+2. Starts `target/debug/ghostd run --fake --socket /tmp/ghost-smoke.sock --widgets-dir widgets` and `GHOST_SOCKET=/tmp/ghost-smoke.sock QML_IMPORT_PATH=shell/kit qs -p shell`, logging to `/tmp/ghost-smoke.log`.
+3. Waits 6 s.
+4. Kills ghostd, waits 3 s, restarts it, and waits 5 s.
+5. Stops both.
+6. **Fails** if the log matches `ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to`.
+7. **Fails** unless `ghostd connected` appears at least twice.
 
 Run: `make shaders && scripts/qml-smoke.sh`
-Expected: FAIL (there's no `shell.qml` yet).
+Expected: FAIL (`shell.qml` is missing).
 
-- [ ] **Step 2: Implement the services, the components, the shaders, Desktop and `shell.qml`**
+- [ ] **Step 2: Implement the module, the singletons, the shaders, Desktop and `shell.qml`**
 
 - [ ] **Step 3: Run the smoke test and the logic tests**
 
@@ -932,59 +977,54 @@ Expected: `smoke: ok (2 connects, 0 errors)` and PASS.
 
 - [ ] **Step 4: Check it visually**
 
-Run: `GHOST_SOCKET=/tmp/ghost-smoke.sock qs -p shell & sleep 3; spectacle -b -n -f -o /tmp/gs-task13.png`
-Then look at the screenshot. Expected:
-- a `#0a0f11` screen with faint teal dots on a 24-design-px grid;
-- the faint scanlines are visible on close inspection;
-- no panels yet;
+Take a screenshot with `spectacle -b -n -f -o /tmp/gs-task14.png` and look at it. Expected:
+- a `#0a0f11` screen with faint teal dots on the 24-px grid;
+- faint scanlines;
 - windows draw above it.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add shell Makefile scripts/qml-smoke.sh
-git commit -m "feat(shell): add desktop surface, daemon client, theme and frame clock"
+git commit -m "feat(shell): add GhostKit singletons and the desktop surface"
 ```
 
 ---
 
-### Task 14: Components (Panel, SegMeter, BlockGraph, AlertBox, Digits, Kv)
+### Task 15: GhostKit components
 
 **Files:**
-- Create: `shell/components/{Panel.qml,SegMeter.qml,BlockGraph.qml,AlertBox.qml,Digits.qml,Kv.qml}`, `shell/shaders/stripes.frag`, `shell/views/Gallery.qml`
-- Modify: `shell/views/Desktop.qml` (when `GHOST_VIEW=gallery`, load `Gallery`)
+- Create: `shell/kit/GhostKit/{Panel.qml,SegMeter.qml,BlockGraph.qml,AlertBox.qml,Digits.qml,Kv.qml}`, `shell/kit/GhostKit/shaders/stripes.frag`, `shell/host/Gallery.qml`
+- Modify: `shell/kit/GhostKit/qmldir` (export the components), `shell/host/Desktop.qml` (`GHOST_VIEW=gallery` loads `Gallery`)
 
 **Interfaces:**
-- Consumes: Theme, FrameClock, `segments.mjs`, `theme.mjs`.
-- Produces:
-  - **`Panel { label: string; tagKey: string; meta: string; default property alias content; padding: Theme.d(12) }`**
-    - The background is a `Shape` polygon with the 12 px chamfers, filled with `Theme.panel` at `Theme.panelFill`.
-    - The frame is a 1 px `Theme.hair` edge plus 1.5 px `Theme.signal` brackets with 14 px arms on the top-left and bottom-right.
-    - The header is 26 high: a 5 px square, the label (UPPERCASE, 10 px, weight 600, tracking .16 em), `Theme.tag(tagKey)` in signal, and `meta` right-aligned in dim.
-    - All text uses `elide: Text.ElideRight`.
-  - **`SegMeter { value: real (0..1); warnAt: Theme.loadWarn; critAt: Theme.loadCrit }`**: 7 px tall, with cells from `cellCount(width / Theme.u)`.
-  - **`BlockGraph { values: var; lo: 0; hi: 100; cols: 0; cellW: 3; cellH: 2; gap: 1; warnAt; critAt; minLit: 1 }`**
-    - `cols: 0` fits as many columns as `cellW` allows. The newest value is on the right.
-    - It's built from Repeaters of `Rectangle`, and repaints only when `values` changes.
-  - **`AlertBox { text: string; trailing: string; level: "warn"|"crit"; chipKey: string }`**
-    - It has a 3 px left edge in the level's colour.
-    - The stripes come from a `stripes.frag` ShaderEffect whose phase follows `FrameClock.frame` (one 16 px tile per 1.6 s).
-    - On `Component.onCompleted`, the text runs the stepped arrival keyframes (opacity `0%:.3 6%:1 10%:.46 14%:1 40%:.82 70%:.64`) over 1.6 s with held frames. After that it binds to `FrameClock.blinkOpacity`.
-    - It calls `FrameClock.acquire()` while visible.
-  - **`Digits { text: string; pixelSize: real; weight: int }`**: a single `Text` when the font is monospace (`isMonospace` from `TextMetrics` of "0" and "1"). Otherwise each digit sits in a cell as wide as "0".
-  - **`Kv { key: string; value: string }`**: the key in dim at 8.5 px with tracking .14 em, above the value in `hi` at 10 px.
+- Consumes: Theme, FrameClock, the `segments.mjs` and `theme.mjs` modules.
+- Produces (the public building blocks of the widget API):
+  - **`Panel { label; tagKey; meta; default property alias content; padding: Theme.d(12) }`**
+    - The background is a `Shape` polygon with the 12 px chamfers on the top-right and bottom-left, filled with `Theme.panel` at `panelFill`.
+    - The frame is a 1 px `hair` edge plus 1.5 px signal brackets with 14 px arms on the top-left and bottom-right.
+    - The header is 26 high: the square, the label, the tag and the meta.
+    - All text elides on the right.
+  - **`SegMeter { value (0..1); warnAt; critAt; low: false }`**: 7 high. When `low` is true, it uses `levelLow` (for batteries).
+  - **`BlockGraph { values; lo: 0; hi: 100; cols: 0; cellW: 3; cellH: 2; gap: 1; warnAt; critAt; minLit: 1 }`**: the newest value on the right, built from Repeaters of `Rectangle`, and repainted only when `values` changes.
+  - **`AlertBox { text; trailing; level: "warn" | "crit"; chipKey }`**
+    - It has a 3 px edge, and its stripes come from `stripes.frag`, phased by `FrameClock.frame` at one 16 px tile per 1.6 s.
+    - The text runs the stepped arrival (`0%:.3 6%:1 10%:.46 14%:1 40%:.82 70%:.64`, 1.6 s), then binds to `FrameClock.blinkOpacity`.
+    - It holds `FrameClock.acquire()` while visible.
+  - **`Digits { text; pixelSize; weight }`**: a single `Text` when the font is monospace. Otherwise each digit sits in a cell as wide as "0".
+  - **`Kv { key; value }`**: the key in dim at 8.5 px with tracking .14 em, above the value in `hi` at 10 px.
 
-- [ ] **Step 1: Write the gallery**
+- [ ] **Step 1: Write the gallery and watch the smoke test fail**
 
-The gallery shows each component with fixed values:
-- meters at 0.2, 0.8 and 0.95;
-- a `BlockGraph` ramp from 0 to 100;
-- AlertBoxes with `"STORM WARNING"` (warn) and `"WD GREEN 960G · nvme1"` / `"DEAD"` (crit);
-- a `Digits` sample of `"20:07"`;
+The gallery shows:
+- meters at 0.2, 0.8 and 0.95, and a `low` meter at 15;
+- a `BlockGraph` ramp;
+- a warn AlertBox and a crit AlertBox;
+- `Digits` "20:07";
 - three Panels.
 
 Run: `GHOST_VIEW=gallery scripts/qml-smoke.sh`
-Expected: FAIL (the components don't exist yet).
+Expected: FAIL.
 
 - [ ] **Step 2: Implement the components and the stripe shader**
 
@@ -995,153 +1035,170 @@ Expected: `smoke: ok`.
 
 - [ ] **Step 4: Compare it with the mockup and measure the animation cost**
 
-Take a screenshot (as in Task 13) and open the reference mockup next to it. Check:
-- the chamfers are on the top-right and bottom-left, and the brackets on the top-left and bottom-right;
-- the 0.2 meter is teal, 0.8 amber and 0.95 red;
-- the alert stripes move to the right, and the text blinks in visible held steps with no smooth fading;
-- there is no glow anywhere.
+Take a screenshot and compare it with the reference mockup. Check:
+- the corners and brackets are in the right places;
+- the meters are teal, amber and red, and the battery meter at 15 is amber;
+- the stripes move right, and the text blinks in held steps;
+- there is no glow.
 
-Then run `scripts/measure-cpu.sh "$(pgrep -f 'qs -p shell')" 60` with the gallery up.
+Then measure for 60 s with the gallery up.
 Expected: `cpu_pct` ≤ 1.50.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add shell/components shell/shaders/stripes.frag shell/views
-git commit -m "feat(shell): add panel, meter, graph, alert and digit components"
+git add shell/kit shell/host
+git commit -m "feat(shell): add GhostKit panel, meter, graph, alert and digit components"
 ```
 
 ---
 
-### Task 15: Left-column panels (Processor, Graphics, Memory)
+### Task 16: Widget host, layout view and the first built-in widgets
 
 **Files:**
-- Create: `shell/panels/{ProcessorPanel.qml,GraphicsPanel.qml,MemoryPanel.qml}`
+- Create:
+  - `shell/host/{LayoutView.qml,WidgetHost.qml,ErrorCard.qml}`
+  - `widgets/placeholder/{manifest.toml,Widget.qml}`
+  - `widgets/processor/{manifest.toml,Widget.qml}`
+  - `widgets/graphics/{manifest.toml,Widget.qml}`
+  - `widgets/memory/{manifest.toml,Widget.qml}`
+  - `widgets/broken-example/{manifest.toml,Widget.qml}`. This is a deliberately broken test fixture, excluded from installs.
+- Modify: `shell/host/Desktop.qml` (load `LayoutView` for `Data.layout.views[Data.config.dashboard.default_view]`)
 
 **Interfaces:**
 - Consumes:
-  - `Daemon.cpu`, `gpu`, `mem`, `sensors` and `history`;
-  - the components from Task 14;
-  - `labels.mjs` and `format.mjs`;
-  - the sensor ids `k10temp/Tctl`, `k10temp/Tccd1` (CCD0), `k10temp/Tccd2` (CCD1) and `nct6799/fan2`.
-- Produces the three panels, each filling its parent:
-  - **`ProcessorPanel`:**
-    - `label: "Processor"`, `tagKey: "cpu"`, `meta: cpuModelShort(cpu.model)`;
-    - two side-by-side groups, each a `ccdTitle` line with its temperature (`tempShort`) above a `BlockGraph` with `cols: 16`, `cellH: 3`, `gap: 2`, values = that CCD's thread loads in `ccd.cpus` order, and warn/crit at 0.75 and 0.9. **These groups stretch to fill spare height.**
-    - a history `BlockGraph` 40 high from `history.load`;
-    - a `Kv` row: LOAD (`pct`), TCTL (`tempC`), FREQ (`ghz`), CPU FAN (`rpm`).
-  - **`GraphicsPanel`:**
-    - `label: "Graphics"`, `tagKey: "gpu"`, `meta: gpuNameShort(gpu.name)`;
-    - a big `Digits` load % (30 px) with the dim caption `LOAD`;
-    - `SegMeter` rows:
-      - VRAM: `used / total`, shown as `"3.1 / 16G"`;
-      - TEMP: `temp / 100`, with temp thresholds;
-      - POWER: `power / power_limit`;
-      - FAN: `fan_pct / 100`;
-    - a history `BlockGraph` from `history.gpu_load`. **It stretches to fill spare height.**
-    - When `present` is false, every value shows `--` in dim.
-  - **`MemoryPanel`:**
-    - `label: "Memory"`, `tagKey: "mem"`, `meta: gib(total) + " GIB"`;
-    - a big used GiB with the dim caption `/ 91.9 GiB`;
-    - RAM and SWAP `SegMeter`s, using the load thresholds;
-    - top processes (NAME, CPU, MEM, the last two as `x.x%`). **The list stretches and clips whole rows.**
+  - `Data.layout` (Task 12);
+  - `computeRects` (Task 13);
+  - GhostKit (Tasks 14–15);
+  - the topics `cpu`, `gpu`, `mem` and `sensors`, and the history keys;
+  - the sensor ids `k10temp/Tctl`, `k10temp/Tccd1`, `k10temp/Tccd2` and `nct6799/fan2`.
+- Produces:
+  - **`LayoutView { node }`**: calls `computeRects(node, { x: margin, y: margin + 30, w: 1280 − 2·margin, h: 720 − 2·margin − 30 }, gutter)` and places one `WidgetHost` per rect, in `Theme.d()` units.
+  - **`WidgetHost { slot }`**:
+    - When `slot.error` is set, it shows `ErrorCard { widgetId; message }`: a Panel whose label is the widget id, containing a crit `AlertBox` with the message.
+    - Otherwise it calls `Qt.createComponent(slot.source)`.
+      - On `Component.Error`, it logs `widget "<id>" failed to load: <first line of errorString()>` and shows an `ErrorCard` with that text.
+      - On success, it calls `createObject(host, { settings: slot.settings })`.
+  - **The widget contract**, which `docs/widgets.md` (Plan 4) will document:
+    - the root item fills its parent;
+    - it declares `property var settings`;
+    - it imports `GhostKit`;
+    - it reads data only through `Data.topics[...]` and `Data.history[...]`;
+    - it animates only through `FrameClock`.
+  - **The manifests:**
 
-- [ ] **Step 1: Add the panels to the gallery and watch the smoke test fail**
+    | Widget | `kinds` | `requires` | Settings |
+    |---|---|---|---|
+    | `placeholder` | `["panel"]` | none | `label` string, default `"Empty"` |
+    | `processor` | `["panel"]` | `cpu`, `sensors` | none |
+    | `graphics` | `["panel"]` | `gpu` | none |
+    | `memory` | `["panel"]` | `mem` | `top` int, default 6 |
 
-Add the three panels at their V1 sizes: 300×250, 300×204 and 300×192.
+    All of them have `api = 1`.
+  - **Widget content** (spec §6.3):
+    - **Processor:**
+      - meta `cpuModelShort`;
+      - two CCD groups, each a `ccdTitle` with its temperature above a `BlockGraph` (cols 16, cellH 3, gap 2, warn .75, crit .9). **The groups stretch.**
+      - a load-history `BlockGraph` 40 high;
+      - a `Kv` row: LOAD, TCTL, FREQ, CPU FAN.
+    - **Graphics:**
+      - meta `gpuNameShort`;
+      - a big `Digits` load %;
+      - `SegMeter` rows for VRAM, TEMP (temp thresholds), POWER (`power_w / power_limit_w`) and FAN;
+      - the `gpu_load` history, **which stretches**;
+      - everything shows `--` when `present` is false.
+    - **Memory:**
+      - meta `gib(total) + " GIB"`;
+      - a big used GiB with `/ total`;
+      - RAM and SWAP meters;
+      - the top processes, **which stretch and clip whole rows**.
 
-Run: `GHOST_VIEW=gallery scripts/qml-smoke.sh`
-Expected: FAIL (the panels don't exist yet).
+- [ ] **Step 1: Write the broken fixture and a failing smoke variant**
 
-- [ ] **Step 2: Implement the three panels**
+`widgets/broken-example/Widget.qml` holds deliberately invalid QML.
+
+A test config at `/tmp/ghost-layout-test.toml` sets `layout.views.v1` to a row of five slots: `processor`, `graphics`, `memory`, `broken-example` and `not-installed`.
+
+Running `GHOST_CONFIG=/tmp/ghost-layout-test.toml scripts/qml-smoke.sh` (the script passes `--config "$GHOST_CONFIG"`) must:
+- log `widget "broken-example" failed to load` and `no widget named "not-installed" is installed`;
+- not match any other error pattern.
+
+The smoke script whitelists exactly these two messages.
+
+Run it.
+Expected: FAIL (there's no host yet).
+
+- [ ] **Step 2: Implement the host, the error card and the four widgets**
+
+- [ ] **Step 3: Run the smoke test with the default and the test layouts**
+
+Run: `make shaders && scripts/qml-smoke.sh && GHOST_CONFIG=/tmp/ghost-layout-test.toml scripts/qml-smoke.sh`
+Expected: `smoke: ok` twice.
+
+- [ ] **Step 4: Check it visually**
+
+Take a screenshot with the test layout. Expected:
+- three live panels and two red error cards with their messages;
+- nothing else is affected.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add shell/host widgets
+git commit -m "feat(shell): add widget host with error cards and processor, graphics, memory widgets"
+```
+
+---
+
+### Task 17: Storage and Sensors widgets, and the default V1
+
+**Files:**
+- Create: `widgets/storage/{manifest.toml,Widget.qml}`, `widgets/sensors/{manifest.toml,Widget.qml}`
+
+**Interfaces:**
+- Consumes: the host (Task 16) and the topics `disks` and `sensors`.
+- Produces:
+  - **`storage`:** `requires = ["disks"]`, settings `show_unmounted` bool (default true).
+    - `Live` drives get two lines: `label · mounts` with the temperature, then a `SegMeter` of used % (warn .85, crit .95) with the percentage.
+    - `Dead` drives get `AlertBox { level: "crit"; chipKey: "crit"; text: label + " · " + kernel_name; trailing: "DEAD" }`.
+    - `Unmounted` drives get a dim line ending in `UNMOUNTED`.
+    - A footer shows R/W totals.
+  - **`sensors`:** `requires = ["sensors"]`, no settings.
+    - Temperatures, with level colours from the temperature thresholds (or the per-sensor overrides), then fans.
+    - Unavailable values show `--` in dim.
+  - The default V1 from Task 3 now renders fully, with `placeholder`s standing in for the Plan 2 widgets.
+
+- [ ] **Step 1: Watch the smoke test fail**
+
+Run: `scripts/qml-smoke.sh`
+Expected: FAIL, because the default layout references `storage` and `sensors`, which are now missing. The error cards appear in the log.
+
+- [ ] **Step 2: Implement both widgets**
 
 - [ ] **Step 3: Run the smoke test against fake and real data**
 
-Run: `make shaders && GHOST_VIEW=gallery scripts/qml-smoke.sh`, then repeat against the real `ghostd run`.
+Run: `scripts/qml-smoke.sh`, then repeat against the real `ghostd run`.
 Expected: `smoke: ok` both times.
-
-- [ ] **Step 4: Compare it with the mockup**
-
-Take a screenshot and compare it with the reference mockup's left column. Check:
-- the values update once a second;
-- CCD0 shows "V-CACHE";
-- a thread above 75 % shows amber cells, and one above 90 % red;
-- the text never overflows (it's elided instead).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add shell/panels shell/views/Gallery.qml
-git commit -m "feat(shell): add processor, graphics and memory panels"
-```
-
----
-
-### Task 16: Storage and Sensors panels, and the V1 layout
-
-**Files:**
-- Create: `shell/panels/{StoragePanel.qml,SensorsPanel.qml,PlaceholderPanel.qml}`, `shell/views/V1.qml`, `shell/lib/layout.mjs`, `shell/tests/layout.test.mjs`
-- Modify: `shell/views/Desktop.qml` (load `V1` by default)
-
-**Interfaces:**
-- Consumes: Daemon `disks` and `sensors`, the components, and the Task 15 panels.
-- Produces:
-  - **`StoragePanel`:**
-    - `label: "Storage"`, `tagKey: "disk"`, `meta: drives.length + " DRIVES"`.
-    - `Live` drives get two lines: `label · mounts` with the temperature on the right, then a `SegMeter` of used % (warn/crit 0.85/0.95) with the percentage.
-    - `Dead` drives get `AlertBox { level: "crit"; chipKey: "crit"; text: label + " · " + kernel_name; trailing: "DEAD" }`.
-    - `Unmounted` drives get one dim line ending in `UNMOUNTED`.
-    - A footer shows R/W totals (`rate`).
-  - **`SensorsPanel`:**
-    - `label: "Sensors"`, `tagKey: "sens"`, `meta: count + " PROBES"`.
-    - Temperatures (with level colours from the temperature thresholds), a 4 px gap, then fans.
-    - An unavailable value is `--` in dim.
-  - **`PlaceholderPanel { label: string; meta: "PLAN 2" }`**: an empty Panel standing in for later panels.
-  - **`layout.mjs`:**
-    - `V1` holds:
-      - top inset 42 (a 30 px band is reserved for Plan 3's bar), side and bottom margins 12, gutters 12;
-      - the left column: 300 wide, with rows `[250, 204, "flex"]`;
-      - the centre: a `[262, "flex"]` stack whose second row is split `[290, "flex"]`;
-      - the right column: 300 wide, with rows `[300, "flex", 184]`.
-    - `fits(column, available)` is true when the fixed rows plus the gutters are under `available` (`720 − 42 − 12 = 666`).
-  - **`V1.qml`:** lays out the left column (Processor, Graphics, Memory), the centre (Placeholder "Clock" on top; Placeholder "Media" and Placeholder "Notifications" below) and the right column (Placeholder "Uplink", Storage, Sensors), all in `Theme.d()` units.
-
-- [ ] **Step 1: Write the failing layout test**
-
-```js
-test('v1 columns fit the 666 px body', () => { assert.ok(fits(V1.left, 666)); assert.ok(fits(V1.right, 666)); });
-test('flex row leaves room for its content', () => assert.ok(666 - (300 + 184 + 2 * 12) >= 150));
-```
-
-Run: `node --test shell/tests/layout.test.mjs`
-Expected: FAIL (the module is missing).
-
-- [ ] **Step 2: Implement `layout.mjs`, the panels and `V1.qml`**
-
-- [ ] **Step 3: Run the tests and the smoke test**
-
-Run: `node --test shell/tests/ && make shaders && scripts/qml-smoke.sh`
-Expected: PASS and `smoke: ok`.
 
 - [ ] **Step 4: Check it visually at two scales**
 
-Take screenshots against the real daemon at the native `u`, and again with `GHOST_FORCE_U=1.0`. Check:
-- it matches the mockup's V1 geometry, with placeholders where Plan 2 panels go;
-- the WD Green shows as a red alert line that blinks in steps;
-- the unmounted WD Blue and Seagate are dim;
+Take screenshots with the real daemon at the native `u` and at `GHOST_FORCE_U=1.0`. Check:
+- the V1 geometry matches the mockup;
+- the WD Green blinks as a red alert line, in held steps;
+- the unmounted drives are dim;
 - the dead NVMe's sensor row shows `--`;
-- nothing overflows at either scale.
+- nothing overflows.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add shell
-git commit -m "feat(shell): add storage and sensors panels and the v1 layout"
+git add widgets/storage widgets/sensors
+git commit -m "feat(widgets): add storage and sensors widgets completing the default v1"
 ```
 
 ---
 
-### Task 17: Install, run as user services, and check the acceptance criteria
+### Task 18: Install, run as user services, and check the acceptance criteria
 
 **Files:**
 - Create: `packaging/systemd/{ghostd.service,ghost-shell.service}`, `scripts/install.sh`, `README.md`, `docs/superpowers/notes/2026-10-20-plan1-acceptance.md`
@@ -1152,42 +1209,42 @@ git commit -m "feat(shell): add storage and sensors panels and the v1 layout"
   - **`scripts/install.sh`** (idempotent):
     1. `cargo build --release`.
     2. Install `ghostd` to `~/.local/bin/`.
-    3. Copy `shell/` to `~/.local/share/ghost-shell/shell/`, including the compiled `.qsb` files.
-    4. If Kode Mono is missing, download `KodeMono[ROND,wdth,wght].ttf` and `OFL.txt` from `https://github.com/google/fonts/raw/main/ofl/kodemono/` into `~/.local/share/fonts/ghost-shell/`, then run `fc-cache -f`.
-    5. Install the units to `~/.config/systemd/user/` and run `systemctl --user daemon-reload`.
+    3. Copy `shell/` to `~/.local/share/ghost-shell/shell/`, with the compiled `.qsb` files.
+    4. Copy `widgets/` to `~/.local/share/ghost-shell/widgets/`, excluding `broken-example`.
+    5. If Kode Mono is missing, download `KodeMono[ROND,wdth,wght].ttf` and `OFL.txt` from `https://github.com/google/fonts/raw/main/ofl/kodemono/` into `~/.local/share/fonts/ghost-shell/`, then run `fc-cache -f`.
+    6. Install the units and run `systemctl --user daemon-reload`.
 
-    It **doesn't** enable anything at login, and it doesn't touch Plasma, gridlock or conky (that's Plan 4).
+    It doesn't enable anything at login, and it doesn't touch Plasma, gridlock or conky (Plan 4).
   - **`ghostd.service`:** `ExecStart=%h/.local/bin/ghostd run`, `Restart=on-failure`, `PartOf=graphical-session.target`.
-  - **`ghost-shell.service`:** `ExecStart=/usr/bin/qs -p %h/.local/share/ghost-shell/shell`, `Wants=ghostd.service`, `After=ghostd.service`, `Restart=on-failure`, `PartOf=graphical-session.target`.
-  - **`README.md`:** build, test, install, run, and where the config lives (`ghostd default-config > ~/.config/ghost-shell/config.toml`).
+  - **`ghost-shell.service`:** `Environment=QML_IMPORT_PATH=%h/.local/share/ghost-shell/shell/kit`, `ExecStart=/usr/bin/qs -p %h/.local/share/ghost-shell/shell`, `Wants=ghostd.service`, `After=ghostd.service`, `Restart=on-failure`, `PartOf=graphical-session.target`.
+  - **`README.md`:** build, test, install, run, the config location (`ghostd default-config > ~/.config/ghost-shell/config.toml`), and a short "write your own widget" stub that points at `widgets/placeholder` as the smallest example.
 
 - [ ] **Step 1: Install and start it**
 
 **Ask the user before stopping gridlock for this session.**
 
 Run: `scripts/install.sh && systemctl --user start ghostd ghost-shell && sleep 5 && systemctl --user is-active ghostd ghost-shell`
-Expected: `active` twice. The V1 machine panels appear on the desktop.
+Expected: `active` twice. V1 appears on the desktop.
 
 - [ ] **Step 2: Measure the budgets**
 
 Run `scripts/measure-cpu.sh` for 60 s on each pid.
-Expected:
-- the combined `cpu_pct` is ≤ 2.00 (the dead-drive alert animates);
-- the combined RSS is ≤ 307200 KiB.
+Expected: a combined `cpu_pct` ≤ 2.00 (the dead-drive alert animates) and a combined RSS ≤ 307200 KiB.
 
-Record the numbers.
+- [ ] **Step 3: Check the live config and the layout**
 
-- [ ] **Step 3: Check the live config**
-
-1. Run `ghostd default-config > ~/.config/ghost-shell/config.toml`. Set `panel_fill = 30` and save.
+1. Write `~/.config/ghost-shell/config.toml` from `ghostd default-config`, and add this machine's specifics: `display.model = "M27Q"`.
+2. Set `panel_fill = 30` and save.
    Expected: the panels become more transparent within 1 s.
-2. Set `warn = "orange"` and save.
-   Expected: a notification reading "appearance.colors.warn: expected #rrggbb, got "orange"", while the colours stay unchanged.
-3. Restore the valid value.
+3. Set `warn = "orange"`.
+   Expected: a notification reading `appearance.colors.warn: expected #rrggbb, got "orange"`, while the colours stay unchanged.
+4. Swap the `storage` and `sensors` slots in `layout.views.v1`.
+   Expected: they move on save.
+5. Restore everything.
 
 - [ ] **Step 4: Write the acceptance note**
 
-Write `docs/superpowers/notes/2026-10-20-plan1-acceptance.md` with the measurements, the screenshot paths and any deviations. Stop the services, and **restart gridlock if the user wants it back**.
+Record the measurements, screenshots and deviations. Stop the services, and restart gridlock if the user wants it back.
 
 - [ ] **Step 5: Commit**
 
