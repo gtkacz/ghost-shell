@@ -162,6 +162,12 @@ canvas.fill { width: 100%; height: 100%; display: block; }
 .dock .fr { z-index: 0; }
 .bar-b .dock { display: flex; }
 .bar-b .layer { bottom: 70px; }
+.flip .bar { top: auto; bottom: 0; border-bottom: 0; border-top: 1px solid var(--hair); }
+.flip .layer { top: 12px; bottom: 42px; }
+.flip.bar-b .dock { bottom: auto; top: 10px; }
+.flip.bar-b .layer { top: 70px; bottom: 42px; }
+.flip .bar .tip { top: auto; bottom: 31px; }
+.flip .dock .tip { bottom: auto; top: 46px; }
 .dock .task { width: 40px; height: 38px; }
 .dock .task .aico { width: 22px; height: 22px; }
 .ico-badge .dock .task .aico { min-width: 30px; height: 18px; font-size: 9.5px; }
@@ -329,11 +335,10 @@ canvas.fill { width: 100%; height: 100%; display: block; }
 <body>
 
 <div class="intro">
-  <div class="kick">GHOST-SHELL // STEP 12 // FONTS · SLIMMER CHEVRONS</div>
+  <div class="kick">GHOST-SHELL // STEP 13 // KODE MONO · FLIPPED BAR</div>
   <h1>Fonts with a zero you can tell from an O</h1>
-  <p>Switch <strong>FONT</strong> to re-skin the whole desktop below. The first option is the one you love with only the zero changed
-  (a diagonal slash drawn into Chakra Petch itself, for every weight); the rest are existing fonts that already ship a slashed zero.
-  Monospace fonts are wider, so expect a few more labels to truncate with them. Everything else is unchanged from the last version.</p>
+  <p>Kode Mono is now the default (the other fonts stay switchable, as they will be in config). Chevrons are a little wider.
+  New <strong>BAR POSITION</strong> setting: BOTTOM moves the bar to the bottom in every layout, and in layout B the dock moves to the top.</p>
   <div class="specimen" id="specimen"></div>
   <div class="controls">
     <div class="grp"><span class="gl">VIEW</span>
@@ -346,7 +351,7 @@ canvas.fill { width: 100%; height: 100%; display: block; }
       <button class="sbtn" data-jp="kana" onclick="setJp('kana')">KATAKANA</button>
       <button class="sbtn on" data-jp="mixed" onclick="setJp('mixed')">MIXED</button></div>
     <div class="grp"><span class="gl">FONT</span>
-      <button class="sbtn on" data-font="cps" onclick="setFont('cps')">CHAKRA PETCH · SLASHED 0</button>
+      <button class="sbtn" data-font="cps" onclick="setFont('cps')">CHAKRA PETCH · SLASHED 0</button>
       <button class="sbtn" data-font="cp" onclick="setFont('cp')">CHAKRA PETCH (NOW)</button>
       <button class="sbtn" data-font="kode" onclick="setFont('kode')">KODE MONO</button>
       <button class="sbtn" data-font="stm" onclick="setFont('stm')">SHARE TECH MONO</button>
@@ -359,6 +364,9 @@ canvas.fill { width: 100%; height: 100%; display: block; }
     <div class="grp"><span class="gl">APP ICONS</span>
       <button class="sbtn on" data-ico="mono" onclick="setIcons('mono')">MONO</button>
       <button class="sbtn" data-ico="colour" onclick="setIcons('colour')">COLOUR</button></div>
+    <div class="grp"><span class="gl">BAR POSITION</span>
+      <button class="sbtn on" data-flip="0" onclick="setFlip(false)">TOP</button>
+      <button class="sbtn" data-flip="1" onclick="setFlip(true)">BOTTOM</button></div>
     <button class="sbtn" onclick="switchStep()">ALT+TAB (T)</button>
     <button class="sbtn" onclick="boot()">▶ BOOT</button>
   </div>
@@ -394,16 +402,16 @@ const chip = k => `<span class="chip" data-chip="${k}"></span>`;
 
 const TICK = 'SYSTEMD // 0 FAILED UNITS // FIREWALLD ACTIVE // KERNEL 7.2.11-200.FC44 // NVIDIA 615.78.08 // ENP14S0 192.168.15.5 1GBE // TAILSCALE0 100.122.159.93 // <span class="crit">NVME1 CONTROLLER DEAD</span> // 16 UPDATES PENDING //';
 const IC = {
-  up: '<svg class="ic st" viewBox="0 0 12 12"><path d="M3.6 7.6 6 4.6l2.4 3"/></svg>',
-  down: '<svg class="ic st" viewBox="0 0 12 12"><path d="M3.6 4.4 6 7.4l2.4-3"/></svg>',
-  swap: '<svg class="ic st" viewBox="0 0 12 12"><path d="M5 3.4 2.8 6 5 8.6M7 3.4 9.2 6 7 8.6"/></svg>',
-  scroll: '<svg class="ic st" viewBox="0 0 12 12"><path d="M4 4.4 6 2.2l2 2.2M4 7.6 6 9.8l2-2.2"/></svg>',
+  up: '<svg class="ic st" viewBox="0 0 12 12"><path d="M2.6 7.6 6 4.6l3.4 3"/></svg>',
+  down: '<svg class="ic st" viewBox="0 0 12 12"><path d="M2.6 4.4 6 7.4l3.4-3"/></svg>',
+  swap: '<svg class="ic st" viewBox="0 0 12 12"><path d="M5.2 2.6 2.2 6l3 3.4M6.8 2.6l3 3.4-3 3.4"/></svg>',
+  scroll: '<svg class="ic st" viewBox="0 0 12 12"><path d="M3 4.6 6 2.2l3 2.4M3 7.4 6 9.8l3-2.4"/></svg>',
 };
 const ICON = {
-  prev: '<svg class="st" viewBox="0 0 12 12"><path d="M3 3v6M8.4 3.4 6 6l2.4 2.6"/></svg>',
+  prev: '<svg class="st" viewBox="0 0 12 12"><path d="M2.6 3v6M9 2.8 5.6 6 9 9.2"/></svg>',
   pause: '<svg viewBox="0 0 12 12"><rect x="2.5" y="2" width="2.4" height="8"/><rect x="7.1" y="2" width="2.4" height="8"/></svg>',
   play: '<svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg>',
-  next: '<svg class="st" viewBox="0 0 12 12"><path d="M9 3v6M3.6 3.4 6 6 3.6 8.6"/></svg>',
+  next: '<svg class="st" viewBox="0 0 12 12"><path d="M9.4 3v6M3 2.8 6.4 6 3 9.2"/></svg>',
 };
 
 /* ---------- components ---------- */
@@ -613,7 +621,7 @@ function printSwap(from, to, ms = 640, steps = 24) {
     const scan = stage.querySelector('.scanline');
     to.classList.add('on'); writeLabels(to);
     scan.style.display = 'block';
-    const top = 42, hgt = 720 - 42 - 12;
+    const top = to.offsetTop, hgt = to.offsetHeight;
     let i = 0;
     const iv = setInterval(() => {
       i++;
@@ -1242,6 +1250,10 @@ function switchStep() {
 }
 document.addEventListener('keydown', e => { if (e.target.tagName !== 'INPUT' && e.key.toLowerCase() === 't') { switchStep(); } });
 renderTasks(); setBar('a'); setIcons('mono');
+function setFlip(on) {
+  stage.classList.toggle('flip', on);
+  document.querySelectorAll('[data-flip]').forEach(b => b.classList.toggle('on', (b.dataset.flip === '1') === on));
+}
 const FONTS = {
   cps: { name: 'Chakra Petch · slashed 0', css: "'Chakra Petch Slashed', sans-serif", note: 'your font, only the zero changed' },
   cp: { name: 'Chakra Petch (now)', css: "'Chakra Petch', sans-serif", note: 'current, for comparison' },
@@ -1263,7 +1275,7 @@ function setFont(k) {
 }
 document.getElementById('specimen').innerHTML = Object.entries(FONTS).map(([k, f]) =>
   `<div data-k="${k}" onclick="setFont('${k}')" style="font-family:${f.css.replace(/"/g, '&quot;')};font-stretch:${f.stretch ?? '100%'}"><b>${f.name.toUpperCase()} — ${f.note}</b><span>0O 19:04:05 · 2026</span><i>WD GREEN 960G · DEAD · STORM WARNING 03:20:00</i></div>`).join('');
-setFont('cps');
+setFont('kode');
 frameRO.observe(stage.querySelector('.dock'));
 setJp('mixed');
 showTrack(false);

@@ -129,17 +129,20 @@ Everything stays teal-grey until it needs the user. Default thresholds: loads �
 
 ### 5.3 Type and text
 
-- **Font:** the Netrunner font, Chakra Petch, everywhere: bold for display, medium for UI. The user loves it, but wants a zero that can be told apart from an O. The font family is a **config setting** (§13).
-  - **[call] Default: "Chakra Petch Slashed".** It is Chakra Petch with a diagonal slash added to the zero glyph in every weight, made during brainstorming. Chakra Petch is SIL OFL 1.1 with no reserved font name, so a modified version under a new name is allowed.
-  - The build must **generate it reproducibly**: a small script in the repo (fontTools) takes the upstream Chakra Petch release and adds the slash. The inner counter's slash is 0.8 of the stroke width, runs bottom-left to top-right, and is sunk 0.45 of a stroke into the walls. Ship the resulting fonts and the OFL licence with ghost-shell, installed to the user's font directory so other apps (and projects 2 and 3) can use them too.
-  - The other candidates the user saw were Kode Mono, Share Tech Mono, Martian Mono (condensed) and Orbitron.
-  - Japanese falls back to a CJK font (e.g. Noto Sans CJK JP). That fallback is configurable too.
-- **Digits that change** (clocks, rates, percentages, countdowns) sit in **fixed-width cells** so nothing shifts. Chakra Petch has no tabular figures. **Known issue to fix:** a leading narrow digit (the "1" in `19:04`) gets too much margin. Use real tabular figures, or metric-aware centring.
-- **Clocks:** big bold Chakra Petch with the seconds as a teal superscript. **No extra scanline or row texture on the clock**; the user rejected both thick and thin variants. Only the global faint scanlines apply.
+- **Font:** the user's pick is **Kode Mono** "for now", everywhere: bold for display, medium for UI. It's SIL OFL, on Google Fonts, with variable weights 400–700. It has the cut-corner shapes of the Netrunner font (Chakra Petch) plus a **slashed zero**, which the user wanted so 0 can be told from O.
+  - The font family is a **config setting** (§13). Kode Mono is the default.
+  - Kode Mono is monospace and wider than Chakra Petch. Check every label at native size; text truncates with "…" and never overflows.
+  - **[call]** Because the user said "for now", also ship **"Chakra Petch Slashed"** as a ready alternative: Chakra Petch with a diagonal added to the zero in every weight, made during brainstorming. Chakra Petch is SIL OFL 1.1 with no reserved font name, so a modified build under a new name is allowed.
+    - Generate it reproducibly: a small script in the repo (fontTools) takes the upstream Chakra Petch release and adds the slash. The slash is 0.8 of the stroke width, runs from the inner bottom-left to the inner top-right, and is sunk 0.45 of a stroke into the walls.
+    - Ship it with the OFL licence, installed to the user's font directory so other apps (and projects 2 and 3) can use it.
+  - Other candidates the user saw: Share Tech Mono, Martian Mono (condensed), Orbitron.
+  - Japanese falls back to a CJK font (e.g. Noto Sans CJK JP). The fallback is configurable too.
+- **Digits that change** (clocks, rates, percentages, countdowns) must never shift. Monospace fonts like Kode Mono handle this natively. With a proportional font set in config, each digit sits in a fixed-width `1ch` cell. **Known issue:** with Chakra Petch, a leading narrow digit (the "1" in `19:04`) got too much margin; use real tabular figures or metric-aware centring.
+- **Clocks:** the big bold display font with the seconds as a teal superscript. **No extra scanline or row texture on the clock**; the user rejected both thick and thin variants. Only the global faint scanlines apply.
 - **Japanese:** setting `kanji | katakana | mixed | off`, default **mixed**: kanji on panel labels (演算, 描画, 記憶, 記録, 温度, 通信, 衛星, 回路, 系譜, 時刻, 気象, 音声, 通知…) and katakana on small status chips (アラート, クリティカル, ライブ, オンライン, プレイ…).
 - **Text scramble:** used **only the first time a text is written**: panel labels at startup, a newly arrived notification, a new track title. **Never** on numbers, the clock, or values that update.
 - **Icons:** drawn vector icons only. **Never use Unicode glyphs as icons** (→ ▲ ⇄ × ↕). **Every arrow-type icon is a chevron**: traffic up/down, the main-view swap, scroll hints, previous/next track.
-  - Chevrons are slim and small: about 4.8 wide by 3 tall in a 12-unit box, drawn at 0.8 em with a 1.6-unit square-capped stroke (as in the reference mockup).
+  - Chevrons are small and fairly flat: about 6.8 wide by 3 tall in a 12-unit box, drawn at 0.8 em with a 1.6-unit square-capped stroke (as in the reference mockup).
   - Play and pause stay as the standard triangle and bars.
 
 ### 5.4 Shapes, bars, motion
@@ -220,13 +223,15 @@ All values at mockup scale: 12 px margins and gutters, a 30 px bar on top.
 | Storage | every drive: model, mounts, used %, temperature; **dead** and **unmounted** states; read/write rates |
 | Sensors | every temperature and fan listed in §3 |
 | Network | traffic block graph, up/down rates, ping, links (LAN + each VPN with state) |
-| Uplink | dotted globe (real landmasses), home marker in São Paulo, **arcs to the endpoints of live connections** with moving packets and hostname labels; endpoint location from an **offline** GeoIP database **[call]** |
+| Uplink | dotted globe with **accurate geography**, home marker in São Paulo, **arcs to the endpoints of live connections** with moving packets and hostname labels; endpoint location from an **offline** GeoIP database **[call]** |
 | Silicon | schematic of the real package: CCD0 and CCD1, each with 8 core tiles (two segmented thread bars each), the L3 strip with the V-Cache hatch on CCD0, Infinity Fabric links with packets whose speed follows load, and I/O-die blocks (DDR5 usage, PCIe ×16 to the GPU with GPU load, NVMe throughput, iGPU). Tile outlines go warn/crit with load. |
 | Process tree | pscircle-style radial tree of the real process table (kernel threads collapsed into one node), dots sized by RSS and coloured by CPU. **Must be traversable: nodes collapse and expand.** |
 | Media | MPRIS: art, title, artist, segmented spectrum, segmented progress, previous / play-pause / next, volume |
 | Notifications | searchable (live filter), scrollable history: app, message, age; warn/crit rows get a coloured left edge; new items scramble in |
 | Weather | temperature, condition, high/low, humidity, wind, rain chance, 6-hour forecast, INMET alert box with countdown |
 | Clock | `HH:MM` plus superscript seconds, `DD.MM.YY`, weekday, uptime, city / UTC offset |
+
+**Uplink geography:** the mockup's continents come from a coarse 10° placeholder mask and look like a "bizarro Earth". The real globe must be geographically right. Sample a proper land dataset, e.g. Natural Earth land polygons (public domain), onto the dot sphere at a density that keeps coastlines recognisable. Check that the São Paulo marker sits on Brazil's south-east coast and that the major continents are unmistakable while the globe rotates.
 
 **Rejected, do not build:**
 - a circular "CORE" reactor (radial data didn't fit the style; the process tree is the one radial exception, as requested);
@@ -269,6 +274,13 @@ The bar is **always on top** and reserves its height. From left to right:
 - **Tray:** Bluetooth, network, volume, KDE Connect, clipboard, and a notification bell with a count (crit colour while anything critical is unread). Also any StatusNotifierItem apps.
 - **View chip:** `MAIN`/`MONITOR` plus the swap chevrons.
 - **Clock:** `HH:MM`, superscript seconds, and the date.
+
+**Bar position setting:** `top` (default) or `bottom`.
+- **bottom** moves the bar to the bottom edge in every layout.
+- In layout **B**, the status bar goes to the bottom and the dock goes to the top.
+- The dashboard re-flows into the remaining space.
+- Tooltips, the launcher, the notification centre and popups open towards the middle of the screen.
+- It works with every bar layout and icon style.
 
 **Bar layout setting**, with every combination built and switchable in config:
 
@@ -364,10 +376,10 @@ Missing or broken sources (the dead NVMe, an offline API) degrade a panel row; t
 - **One config file**, e.g. `~/.config/ghost-shell/config.toml` **[call]**. There is **no settings panel**.
 - **[call]** It reloads live when saved. If the file is invalid, the last good config is kept and a warning notification says what's wrong.
 - **Must cover at least:**
-  - bar layout `a | b | c`;
+  - bar layout `a | b | c` and bar position `top | bottom`;
   - icon style `mono | colour`;
   - Japanese `kanji | katakana | mixed | off`;
-  - **font family** (default Chakra Petch Slashed) and the CJK fallback;
+  - **font family** (default Kode Mono) and the CJK fallback;
   - **every colour token** (§5.2, plus dot grid and scanlines);
   - **panel fill %**;
   - warn/crit thresholds;
