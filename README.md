@@ -226,6 +226,18 @@ The CPU collector reads `/proc/stat` plus one `scaling_cur_freq` per thread. Dri
 - Reading them causes no measurable inter-processor interrupts: `amd-pstate-epp` serves a cached value instead of waking each core.
 - Caching them, or reading one thread per core, would save ≤ 0.01 %, so it is not worth doing.
 
+### Shell skeleton (`qs -p shell`)
+
+This is the desktop surface with the dot grid and scanlines and no panels yet, connected to `ghostd --fake`. Measured over 60 s with `scripts/measure-cpu.sh` on the shell's own `qs` process:
+
+| State | CPU (% of one core) | RSS | Frames in 60 s |
+|---|---|---|---|
+| Idle, no subscriptions | **0.02 %** | 156 MiB | 0 |
+| Subscribed to all six built-in topics | **0.03 %** | 155 MiB | — |
+
+- With no animation running, the surface renders no frames.
+- Most of the RSS is Qt and the scene graph, the same ≈ 155 MiB the rendering spike showed.
+
 #### Not yet measured
 
 - The shell with real panels, and the shell and daemon together. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
