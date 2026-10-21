@@ -33,7 +33,7 @@ drm_dir=/sys/class/drm
 nvidia_drm_driver=nvidia
 
 excluded_widget=broken-example
-required_tools=(cargo fc-list fc-cache kpackagetool6 kreadconfig6 qdbus-qt6)
+required_tools=(cargo fc-list fc-cache kpackagetool6 kreadconfig6)
 
 font_url=https://github.com/google/fonts/raw/main/ofl/kodemono
 # curl treats [] as a glob and GitHub rejects the literal brackets, so each entry is "<local name> <percent-encoded remote name>".
@@ -211,9 +211,9 @@ install_units() {
     fi
 }
 
-# Installs or upgrades the KWin script without ever enabling it or writing kwinrc. KWin keeps
-# running the copy it loaded, so a script that was already enabled is reloaded for the upgrade to
-# take effect; a failed reload leaves the old copy running until the next login.
+# Installs or upgrades the KWin script without ever enabling it, writing kwinrc or calling KWin.
+# KWin keeps the code it compiled for a loaded script, even across an unload and start, so an update
+# to an enabled script takes effect only when KWin next starts.
 install_kwin_script() {
     local was_enabled=
 
@@ -222,13 +222,10 @@ install_kwin_script() {
     fi
     "$kwin_script" install
 
-    if [[ -z $was_enabled ]]; then
-        step "the KWin desktop script is not enabled; enable it with: $kwin_script enable"
-        return
-    fi
-    step "reloading the KWin desktop script, which was enabled"
-    if ! "$kwin_script" reload; then
-        warn "could not reload the KWin desktop script; KWin runs the new copy from the next login, or after '$kwin_script reload'"
+    if [[ -n $was_enabled ]]; then
+        step "the KWin desktop script update takes effect at your next login"
+    else
+        step "the KWin desktop script is installed but not enabled; enable it with: $kwin_script enable"
     fi
 }
 
