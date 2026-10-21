@@ -9,6 +9,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
 
 const WAIT: Duration = Duration::from_secs(2);
+const QUIET_WINDOW: Duration = Duration::from_millis(600);
 const INITIAL_PANEL_FILL: u32 = 55;
 const CONFIG_FILE: &str = "config.toml";
 
@@ -109,4 +110,20 @@ async fn removed_file_keeps_last_good() {
     );
     assert!(!watching.config.has_changed().unwrap());
     assert_eq!(watching.panel_fill(), INITIAL_PANEL_FILL);
+}
+
+#[tokio::test]
+async fn reading_the_config_does_not_retrigger_a_reload() {
+    let mut watching = watch_config_with_panel_fill(INITIAL_PANEL_FILL);
+
+    fs::write(watching.path(), "[appearance\npanel_fi").unwrap();
+    watching.next_error().await;
+
+    // The error repeats on every reload, so a watcher that reacts to its own reads (inotify reports
+    // opens) would report again within a debounce period or two. Absence can only be shown by
+    // waiting, so the window spans several debounce periods.
+    assert!(
+        timeout(QUIET_WINDOW, watching.errors.recv()).await.is_err(),
+        "the watcher reloaded again without any change to the file"
+    );
 }
