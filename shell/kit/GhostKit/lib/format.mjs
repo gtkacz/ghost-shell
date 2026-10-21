@@ -7,6 +7,16 @@ const KIB_PER_GIB = 1024 * 1024;
 const MHZ_PER_GHZ = 1000;
 const DATE_FIELD_WIDTH = 2;
 const ZERO_PAD = '0';
+const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const SECONDS_PER_HOUR = SECONDS_PER_MINUTE * MINUTES_PER_HOUR;
+const SECONDS_PER_DAY = SECONDS_PER_HOUR * HOURS_PER_DAY;
+const CLOCK_HOURS_WIDTH = 2;
+const AGO_NOW = 'NOW';
+const MINUS_SIGN = '\u2212';
+const WEEKDAYS = Object.freeze(['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']);
 
 function isMissing(value) {
   return !Number.isFinite(value);
@@ -71,4 +81,63 @@ export function ddmmyy(date) {
   }
   const year = date.getFullYear() % 100;
   return padded(date.getDate()) + '.' + padded(date.getMonth() + 1) + '.' + padded(year);
+}
+
+// `padded` keeps the last two digits, which would wrap an uptime past 99 hours.
+function paddedHours(hours) {
+  const text = String(hours);
+  return text.length < CLOCK_HOURS_WIDTH ? ZERO_PAD + text : text;
+}
+
+function clockText(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(seconds / SECONDS_PER_HOUR);
+  const minutes = Math.floor(seconds / SECONDS_PER_MINUTE) % MINUTES_PER_HOUR;
+  return paddedHours(hours) + ':' + padded(minutes) + ':' + padded(seconds % SECONDS_PER_MINUTE);
+}
+
+export function countdown(nowMs, startMs, endMs) {
+  const targetMs = nowMs < startMs ? startMs : endMs;
+  if (isMissing(nowMs) || isMissing(targetMs)) {
+    return MISSING;
+  }
+  return clockText((targetMs - nowMs) / MS_PER_SECOND);
+}
+
+export function uptime(seconds) {
+  return isMissing(seconds) ? MISSING : clockText(seconds);
+}
+
+export function ago(seconds) {
+  if (isMissing(seconds)) {
+    return MISSING;
+  }
+  if (seconds < SECONDS_PER_MINUTE) {
+    return AGO_NOW;
+  }
+  if (seconds < SECONDS_PER_HOUR) {
+    return Math.floor(seconds / SECONDS_PER_MINUTE) + 'M';
+  }
+  if (seconds < SECONDS_PER_DAY) {
+    return Math.floor(seconds / SECONDS_PER_HOUR) + 'H';
+  }
+  return Math.floor(seconds / SECONDS_PER_DAY) + 'D';
+}
+
+export function utcOffset(minutesEast) {
+  if (isMissing(minutesEast)) {
+    return MISSING;
+  }
+  const sign = minutesEast < 0 ? MINUS_SIGN : '+';
+  const absolute = Math.abs(minutesEast);
+  const hours = Math.floor(absolute / MINUTES_PER_HOUR);
+  const minutes = absolute % MINUTES_PER_HOUR;
+  return 'UTC' + sign + hours + (minutes === 0 ? '' : ':' + padded(minutes));
+}
+
+export function dow(date) {
+  if (!(date instanceof Date) || isMissing(date.getTime())) {
+    return MISSING;
+  }
+  return WEEKDAYS[date.getDay()];
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cellCount, litCells, level, levelLow, cellColor } from '../kit/GhostKit/lib/segments.mjs';
+import { cellCount, litCells, level, levelLow, levelAbove, cellColor } from '../kit/GhostKit/lib/segments.mjs';
 
 test('cells and levels', () => {
   assert.equal(cellCount(266), 44);
@@ -69,4 +69,18 @@ test('the top lit cell of an ok bar is the highlight colour', () => {
 test('lower lit cells ramp from dim to bright signal', () => {
   assert.equal(cellColor('ok', 0, 5, 10, THEME), '#59A3D4CC');
   assert.equal(cellColor('ok', 2, 5, 10, THEME), '#73A3D4CC');
+});
+
+test('aqi levels are strictly above', () => {
+  assert.equal(levelAbove(100, 100, 150), 'ok');
+  assert.equal(levelAbove(101, 100, 150), 'warn');
+  assert.equal(levelAbove(150, 100, 150), 'warn');
+  assert.equal(levelAbove(151, 100, 150), 'crit');
+  assert.equal(levelAbove(null, 100, 150), 'ok');
+});
+
+test('levelAbove never alarms on an unavailable reading', () => {
+  for (const missing of [null, undefined, NaN]) {
+    assert.equal(levelAbove(missing, 100, 150), 'ok');
+  }
 });

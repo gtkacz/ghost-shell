@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy } from '../kit/GhostKit/lib/format.mjs';
+import {
+  pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow,
+} from '../kit/GhostKit/lib/format.mjs';
 
 test('pct rounds', () => assert.equal(pct(22.6), '23%'));
 
@@ -57,10 +59,70 @@ test('ddmmyy renders an invalid date as dashes', () => {
 });
 
 test('every formatter renders a missing value as dashes', () => {
-  const formatters = [pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy];
+  const formatters = [
+    pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow,
+  ];
   for (const format of formatters) {
     assert.equal(format(null), '--');
     assert.equal(format(undefined), '--');
     assert.equal(format(NaN), '--');
   }
 });
+
+test('countdown to start then end', () => {
+  assert.equal(countdown(0, 3661000, 7200000), '01:01:01');
+  assert.equal(countdown(3661000, 3661000, 7200000), '00:58:59');
+  assert.equal(countdown(9e6, 0, 7200000), '00:00:00');
+  assert.equal(countdown(0, 360000000, 4e8), '100:00:00');
+});
+
+test('countdown drops the partial second so the field never runs ahead', () => {
+  assert.equal(countdown(0, 1999, 7200000), '00:00:01');
+  assert.equal(countdown(0, 999, 7200000), '00:00:00');
+});
+
+test('countdown is dashes without a current time or a target', () => {
+  assert.equal(countdown(0, 5000, NaN), '00:00:05');
+  assert.equal(countdown(10000, 5000, NaN), '--');
+  assert.equal(countdown(NaN, 5000, 9000), '--');
+});
+
+test('ago buckets', () => {
+  assert.equal(ago(59), 'NOW');
+  assert.equal(ago(60), '1M');
+  assert.equal(ago(3599), '59M');
+  assert.equal(ago(3600), '1H');
+  assert.equal(ago(86399), '23H');
+  assert.equal(ago(86400), '1D');
+  assert.equal(ago(86400 * 3 + 5000), '3D');
+});
+
+test('ago treats a time in the future as now', () => assert.equal(ago(-30), 'NOW'));
+
+test('utc offsets', () => {
+  assert.equal(utcOffset(-180), 'UTC\u22123');
+  assert.equal(utcOffset(330), 'UTC+5:30');
+  assert.equal(utcOffset(0), 'UTC+0');
+});
+
+test('utc offsets keep a zero-padded minute and a real minus sign', () => {
+  assert.equal(utcOffset(-210), 'UTC\u22123:30');
+  assert.equal(utcOffset(545), 'UTC+9:05');
+  assert.equal(utcOffset(840), 'UTC+14');
+  assert.notEqual(utcOffset(-180), 'UTC-3');
+});
+
+test('uptime keeps counting hours', () => {
+  assert.equal(uptime(180727), '50:12:07');
+  assert.equal(uptime(0), '00:00:00');
+  assert.equal(uptime(8047), '02:14:07');
+  assert.equal(uptime(360000), '100:00:00');
+});
+
+test('dow is the three-letter weekday of local time', () => {
+  assert.equal(dow(new Date(2026, 9, 21)), 'WED');
+  assert.equal(dow(new Date(2026, 9, 18)), 'SUN');
+  assert.equal(dow(new Date(2026, 9, 24)), 'SAT');
+});
+
+test('dow renders an invalid date as dashes', () => assert.equal(dow(new Date('not a date')), '--'));

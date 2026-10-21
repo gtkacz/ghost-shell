@@ -44,6 +44,21 @@ export function levelLow(value, warnAt, critAt) {
   return 'ok';
 }
 
+// Strictly greater: AQI is warn above 100 and crit above 150, so a reading on a threshold keeps the lower level
+// (spec §5.2).
+export function levelAbove(value, warnAt, critAt) {
+  if (!Number.isFinite(value)) {
+    return 'ok';
+  }
+  if (value > critAt) {
+    return 'crit';
+  }
+  if (value > warnAt) {
+    return 'warn';
+  }
+  return 'ok';
+}
+
 // Rows count from the bottom; `lit` is how many rows from the bottom are on.
 export function cellColor(cellLevel, row, lit, rows, theme) {
   if (row >= lit) {
