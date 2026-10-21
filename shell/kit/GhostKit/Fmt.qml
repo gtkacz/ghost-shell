@@ -6,8 +6,8 @@ import "lib/labels.mjs" as Labels
 
 // Re-exports the formatters so widgets reach them through the GhostKit import instead of by file path.
 Singleton {
-    function pct(value) {
-        return Format.pct(value);
+    function pct(value, dp) {
+        return Format.pct(value, dp);
     }
 
     function tempC(value) {
@@ -32,6 +32,10 @@ Singleton {
 
     function rpm(value) {
         return Format.rpm(value);
+    }
+
+    function watts(value) {
+        return Format.watts(value);
     }
 
     function ddmmyy(date) {

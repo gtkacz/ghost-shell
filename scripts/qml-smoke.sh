@@ -8,10 +8,21 @@ socket=/tmp/ghost-smoke.sock
 shell_log=/tmp/ghost-smoke.log
 daemon_log=/tmp/ghost-smoke-daemon.log
 
-# The last term catches the daemon refusing the shell, which Data logs at error level and which would
-# otherwise only show up as a reconnect loop.
-error_pattern='ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to|ghostd refused the shell'
+# "ghostd refused the shell" catches the daemon refusing the shell, which Data logs at error level and
+# which would otherwise only show up as a reconnect loop. "ghostd config problem" catches a layout
+# naming a widget that is missing or unusable, which the daemon reports instead of refusing.
+error_pattern='ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to|ghostd refused the shell|ghostd config problem'
 connected_line='ghostd connected'
+
+# The two test fixtures exist to show that a broken widget and a missing one are reported, so their
+# lines never count as errors, and a layout that names a fixture must produce its line.
+declare -A fixture_lines=(
+    [broken-example]='widget "broken-example" failed to load'
+    [not-installed]='no widget named "not-installed" is installed'
+)
+# Extra shell-log lines to accept, as an extended regex, e.g. for widgets a layout names before they
+# exist.
+extra_allowed=${GHOST_SMOKE_ALLOW:-}
 required_connects=2
 
 startup_s=6
@@ -25,7 +36,10 @@ poll_s=0.2
 # A bus address that cannot exist keeps the daemon's config warnings off the user's desktop notifications.
 no_session_bus=unix:path=/nonexistent
 
-config=
+# GHOST_CONFIG runs the smoke test against a given config; without it a temporary copy of the
+# defaults is used and removed afterwards.
+config=${GHOST_CONFIG:-}
+temp_config=
 daemon_pid=
 shell_pid=
 
@@ -44,8 +58,8 @@ cleanup() {
     stop shell_pid
     stop daemon_pid
     rm -f "$socket"
-    if [[ -n $config ]]; then
-        rm -f "$config"
+    if [[ -n $temp_config ]]; then
+        rm -f "$temp_config"
     fi
 }
 
@@ -79,8 +93,14 @@ trap 'exit 143' TERM
 
 cargo build -q -p ghostd --manifest-path "$repo/Cargo.toml"
 
-config=$(mktemp --suffix=.toml -t ghost-smoke-config.XXXXXX)
-"$daemon" default-config > "$config"
+if [[ -z $config ]]; then
+    temp_config=$(mktemp --suffix=.toml -t ghost-smoke-config.XXXXXX)
+    "$daemon" default-config > "$temp_config"
+    config=$temp_config
+elif [[ ! -r $config ]]; then
+    echo "smoke: FAIL (cannot read GHOST_CONFIG $config)" >&2
+    exit 1
+fi
 
 : > "$daemon_log"
 start_daemon
@@ -98,15 +118,35 @@ stop shell_pid
 stop daemon_pid
 
 connects=$(connect_count)
-errors=$(grep -cE "$error_pattern" "$shell_log" || true)
+
+allowed_pattern=$(IFS='|'; echo "${fixture_lines[*]}")
+if [[ -n $extra_allowed ]]; then
+    allowed_pattern+="|$extra_allowed"
+fi
+# grep exits 1 when nothing is left, which is the passing case here.
+error_lines=$(grep -E "$error_pattern" "$shell_log" | grep -vE "$allowed_pattern" || true)
+errors=$(grep -c . <<< "$error_lines" || true)
+allowed=$(grep -E "$error_pattern" "$shell_log" | grep -cE "$allowed_pattern" || true)
+
+missing=()
+for fixture in "${!fixture_lines[@]}"; do
+    if grep -qE "widget *= *\"$fixture\"" "$config" && ! grep -qF "${fixture_lines[$fixture]}" "$shell_log"; then
+        missing+=("${fixture_lines[$fixture]}")
+    fi
+done
 
 if (( errors > 0 )); then
     echo "smoke: FAIL ($errors error lines in $shell_log)" >&2
-    grep -E "$error_pattern" "$shell_log" >&2
+    echo "$error_lines" >&2
+    exit 1
+fi
+if (( ${#missing[@]} > 0 )); then
+    echo "smoke: FAIL (the layout names a test fixture, but $shell_log lacks its line)" >&2
+    printf '  missing: %s\n' "${missing[@]}" >&2
     exit 1
 fi
 if (( connects < required_connects )); then
     echo "smoke: FAIL ($connects connects, expected at least $required_connects; see $shell_log)" >&2
     exit 1
 fi
-echo "smoke: ok ($connects connects, $errors errors)"
+echo "smoke: ok ($connects connects, $errors errors, $allowed allowed)"

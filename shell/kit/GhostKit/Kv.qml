@@ -13,6 +13,8 @@ Item {
 
     property string key
     property string value
+    // Defaults to Digits' colour; a widget overrides it to dim a reading that is missing.
+    property alias valueColor: valueText.color
 
     implicitWidth: Math.max(keyText.implicitWidth, valueText.implicitWidth)
     implicitHeight: valueText.y + valueText.implicitHeight

@@ -1,0 +1,8 @@
+# A test fixture, never installed: its Widget.qml does not parse, so a layout that places it shows
+# how a broken third-party widget is reported (an error card in its own slot, every other slot
+# unaffected).
+id = "broken-example"
+name = "Broken example"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]

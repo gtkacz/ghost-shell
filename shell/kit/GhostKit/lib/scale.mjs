@@ -1,7 +1,12 @@
-const DESIGN_WIDTH = 1280;
+export const DESIGN_WIDTH = 1280;
 
 export function designUnit(logicalWidth) {
   return logicalWidth / DESIGN_WIDTH;
+}
+
+// The width is DESIGN_WIDTH by definition; the height follows the screen's aspect ratio.
+export function designHeight(logicalWidth, logicalHeight) {
+  return logicalHeight / designUnit(logicalWidth);
 }
 
 // Indexed loop rather than Array methods because Quickshell exposes screens as a QML list, not always a JS array.

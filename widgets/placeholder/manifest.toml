@@ -1,0 +1,9 @@
+id = "placeholder"
+name = "Placeholder"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+
+[settings.label]
+type = "string"
+default = "Empty"

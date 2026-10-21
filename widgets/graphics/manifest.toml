@@ -1,0 +1,6 @@
+id = "graphics"
+name = "Graphics"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+requires = ["gpu"]

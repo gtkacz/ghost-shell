@@ -1,8 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pct, tempC, tempShort, gib, rate, ghz, rpm, ddmmyy } from '../kit/GhostKit/lib/format.mjs';
+import { pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy } from '../kit/GhostKit/lib/format.mjs';
 
 test('pct rounds', () => assert.equal(pct(22.6), '23%'));
+
+test('pct keeps the requested decimals', () => {
+  assert.equal(pct(12.44, 1), '12.4%');
+  assert.equal(pct(0.06, 1), '0.1%');
+});
 
 test('rate tiers', () => {
   assert.equal(rate(830), '830 B/s');
@@ -40,6 +45,8 @@ test('ghz and rpm append their units', () => {
   assert.equal(rpm(1670), '1670 RPM');
 });
 
+test('watts round to whole watts', () => assert.equal(watts(54.4), '54 W'));
+
 test('ddmmyy is zero-padded local time', () => {
   assert.equal(ddmmyy(new Date(2026, 9, 20)), '20.10.26');
   assert.equal(ddmmyy(new Date(2026, 0, 5)), '05.01.26');
@@ -50,7 +57,7 @@ test('ddmmyy renders an invalid date as dashes', () => {
 });
 
 test('every formatter renders a missing value as dashes', () => {
-  const formatters = [pct, tempC, tempShort, gib, rate, ghz, rpm, ddmmyy];
+  const formatters = [pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy];
   for (const format of formatters) {
     assert.equal(format(null), '--');
     assert.equal(format(undefined), '--');

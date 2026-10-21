@@ -16,8 +16,8 @@ function padded(number) {
   return (ZERO_PAD + number).slice(-DATE_FIELD_WIDTH);
 }
 
-export function pct(value) {
-  return isMissing(value) ? MISSING : Math.round(value) + '%';
+export function pct(value, dp = 0) {
+  return isMissing(value) ? MISSING : value.toFixed(dp) + '%';
 }
 
 export function tempC(value) {
@@ -59,6 +59,10 @@ export function ghz(mhz) {
 
 export function rpm(value) {
   return isMissing(value) ? MISSING : Math.round(value) + ' RPM';
+}
+
+export function watts(value) {
+  return isMissing(value) ? MISSING : Math.round(value) + ' W';
 }
 
 export function ddmmyy(date) {

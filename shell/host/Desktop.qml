@@ -65,9 +65,26 @@ Scope {
             WlrLayershell.layer: root.surfaceLayer
             WlrLayershell.namespace: root.surfaceNamespace
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-            // An empty input region passes every click through to the desktop until the view's tabs
-            // claim regions of their own.
-            mask: Region {}
+            // The input region is the view's tab strips and nothing else, so every other click passes
+            // through to the desktop. This is the one place it is built.
+            mask: Region {
+                regions: inputRegions.instances
+            }
+
+            Variants {
+                id: inputRegions
+
+                model: window.isMain && viewLoader.item && viewLoader.item.inputRects ? viewLoader.item.inputRects : []
+
+                Region {
+                    required property var modelData
+
+                    x: modelData.x
+                    y: modelData.y
+                    width: modelData.width
+                    height: modelData.height
+                }
+            }
 
             // RestoreNone: when the main screen moves, the old main window's binding must not put u
             // back to its default after the new one has set it.
@@ -102,9 +119,24 @@ Scope {
                 }
 
                 Loader {
+                    id: viewLoader
+
                     anchors.fill: parent
                     active: window.isMain
-                    sourceComponent: root.viewOverride === root.galleryView ? galleryComponent : null
+                    sourceComponent: root.viewOverride === root.galleryView ? galleryComponent : layoutComponent
+                }
+
+                Component {
+                    id: layoutComponent
+
+                    LayoutView {
+                        layout: Data.layout
+                        viewName: root.currentView
+                        designWidth: Scale.DESIGN_WIDTH
+                        // From the screen rather than the window, whose size passes through provisional
+                        // values first and would rebuild every widget at each of them.
+                        designHeight: Scale.designHeight(window.modelData.width, window.modelData.height)
+                    }
                 }
 
                 Scanlines {

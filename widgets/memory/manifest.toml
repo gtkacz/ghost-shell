@@ -1,0 +1,11 @@
+id = "memory"
+name = "Memory"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+requires = ["mem"]
+
+# How many of the busiest processes to list. ghostd sends the top 6, so a larger value shows 6.
+[settings.top]
+type = "int"
+default = 6

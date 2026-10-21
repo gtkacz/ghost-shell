@@ -18,6 +18,7 @@ Item {
 
     implicitWidth: monospace ? whole.implicitWidth : cells.implicitWidth
     implicitHeight: whole.implicitHeight
+    baselineOffset: whole.baselineOffset
 
     // TextMetrics rather than FontMetrics.advanceWidth(), whose result a binding would not refresh when the
     // font changes, for example once the surface sets the design unit.
