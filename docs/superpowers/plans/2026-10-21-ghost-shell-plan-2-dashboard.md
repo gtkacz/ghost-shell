@@ -1285,7 +1285,7 @@ Snapshot and check:
 - the progress fills.
 
 Then:
-- **Pause:** the cells go dark, and the frame rate drops to 15 frames/s or 0 (`QSG_RENDER_TIMING`).
+- **Pause:** the bars fall to dark in about 1.4 s (0.7 s at `spectrum_fps = 30`), then the frame rate drops to 15 frames/s or 0, whichever the rest of the view needs (`QSG_RENDER_TIMING`).
 - **Quit the player:** `STOPPED · LAST PLAYED NOW`. Play reopens the player.
 - Measure shell + daemon over 60 s while playing. Expected: ≤ 2.00 % combined.
 
@@ -1478,7 +1478,7 @@ git commit -m "feat(config): default to the v1, v2 and monitor views"
 - On the empty desktop, Meta+M and Meta+Shift+M switch views with the print. With a focused window they do nothing. After Meta+D they work.
 - Covering and uncovering the desktop logs `dashboard covered` and `dashboard visible`, and the dashboard returns with its tab selections.
 - Real weather, sun, moon and AQI appear. An active INMET alert, if any, counts down.
-- Media: pausing darkens the spectrum. Quitting the player gives `STOPPED · LAST PLAYED`. Play reopens it.
+- Media: pausing lets the spectrum fall, then it stays dark. Quitting the player gives `STOPPED · LAST PLAYED`. Play reopens it.
 - MIC LIVE appears with a recorder, and never from the dashboard itself. The shell opens no microphone stream while nothing records.
 
 - [ ] **Step 4: Write the note and update README**
