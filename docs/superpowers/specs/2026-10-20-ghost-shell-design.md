@@ -367,7 +367,7 @@ The user switches apps with the taskbar slightly more than with Alt+Tab, and use
 | Network rates, links, VPNs, ping | netlink / `/proc/net/dev`, NetworkManager D-Bus, Tailscale local API, ICMP to 1.1.1.1 | 1 Hz; ping 5 s |
 | Live connections for the uplink | netlink sock_diag + an offline GeoIP DB **[call]** | 5 s |
 | Media, spectrum | MPRIS (D-Bus); spectrum from the PipeWire monitor (cava-style FFT) **[call]** | spectrum drawn at 15 fps by default, 30 with `appearance.spectrum_fps = 30` (user decision, 2026-10-21), only while playing and visible |
-| Weather alerts | INMET `https://apiprevmet3.inmet.gov.br/avisos/ativos`: `hoje` + `futuro`, filtered by geocode `3550308`; fields `descricao`, `severidade`, `data_inicio`/`hora_inicio`, `data_fim`/`hora_fim`, `riscos` (as in the user's script) | 10 min |
+| Weather alerts | INMET `https://apiprevmet3.inmet.gov.br/avisos/ativos`: `hoje` + `futuro`, filtered by geocode `3550308`; fields `descricao`, `severidade`, `data_inicio`/`hora_inicio`, `data_fim`/`hora_fim`, `riscos` (as in the user's script). The event (`descricao`) and severity (`severidade`) are translated per `[i18n]`, with INMET's own words kept beside them; `riscos` stay in Portuguese. Translations come from a built-in glossary, then from MyMemory (`https://api.mymemory.translated.net/get`, sent only the term), asked once per term and kept in `$XDG_STATE_HOME/ghost-shell/translations.json` (user decision, 2026-10-21) | 10 min; MyMemory only for a term not yet known |
 | Forecast, current weather | Open-Meteo for São Paulo **[call]** | 15 min |
 | Session events | logind (PrepareForSleep, session lock/unlock), ScreenSaver D-Bus | event-driven |
 | Audio devices, volume, mute, mic level, recording apps | PipeWire (native API or WirePlumber) | event-driven; mic level ~15 Hz, only while visible |
@@ -455,6 +455,7 @@ The user plans to open-source ghost-shell, so **every component must be pluggabl
   - the brand block: on/off, text (default `GS//01`), subtitle (default `攻殻`);
   - the **layouts** for V1, V2, MONITOR and the bar (§13), extra widget paths, and external providers;
   - location (city, lat/lon, weather-alert provider and its area code, e.g. INMET `3550308`);
+  - the alerts' language: `[i18n]` `from` and `to` (e.g. `pt-BR` → `en-US`; off by default);
   - history length;
   - notification limits and popup timeout.
 - The user wants it to cover "other simple stuff" too. The builder should expose obvious knobs, but not invent features.

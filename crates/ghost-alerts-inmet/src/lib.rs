@@ -1,5 +1,10 @@
 //! INMET's active weather alerts (`avisos/ativos`), read into the `weather.alerts` shape for one
-//! area, and the provider protocol lines that carry them to ghostd.
+//! area, their wording translated per `[i18n]`, and the provider protocol lines that carry them to
+//! ghostd.
+
+mod glossary;
+mod store;
+mod translate;
 
 use std::collections::HashSet;
 
@@ -9,6 +14,11 @@ use jiff::tz::TimeZone;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use tracing::warn;
+
+use crate::translate::normalise;
+
+pub use store::default_store_path;
+pub use translate::{Fetch, Translator, UnsupportedSource};
 
 /// The name the provider claims its topic under.
 pub const PROVIDER_NAME: &str = "inmet";
@@ -27,9 +37,10 @@ const TIME_SEPARATOR: char = ':';
 const HOUR_MINUTE_DIGITS: [usize; 2] = [2, 2];
 const HOUR_MINUTE_SECOND_DIGITS: [usize; 3] = [2, 2, 2];
 const GEOCODE_SEPARATOR: char = ',';
-const POTENTIAL_DANGER: &str = "PERIGO POTENCIAL";
-const DANGER: &str = "PERIGO";
-const GREAT_DANGER: &str = "GRANDE PERIGO";
+// INMET's severities as `normalise` writes them.
+const POTENTIAL_DANGER: &str = "perigo potencial";
+const DANGER: &str = "perigo";
+const GREAT_DANGER: &str = "grande perigo";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -49,11 +60,17 @@ struct Avisos {
     futuro: Vec<Value>,
 }
 
-/// One alert as INMET sends it; only the fields the dashboard shows are read. Every field but `id`
-/// may be missing or null.
+/// One alert as INMET sends it; only the fields the dashboard shows, and the numbers that name its
+/// wording, are read. Every field but `id` may be missing or null.
 #[derive(Deserialize)]
 struct Aviso {
     id: u64,
+    /// Left untyped, so a number of another type costs only the translation by number, not the
+    /// alert.
+    #[serde(default)]
+    id_condicao_severa: Option<Value>,
+    #[serde(default)]
+    id_severidade: Option<Value>,
     #[serde(default, deserialize_with = "null_as_default")]
     geocodes: String,
     #[serde(default, deserialize_with = "null_as_default")]
@@ -74,7 +91,7 @@ struct Aviso {
     encerrado: bool,
 }
 
-fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+pub(crate) fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
     T: Default + Deserialize<'de>,
@@ -82,11 +99,29 @@ where
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
+/// An alert as INMET issued it: what the dashboard shows, in INMET's words, and what translating
+/// those words needs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IssuedAlert {
+    pub alert: WeatherAlert,
+    /// `descricao` and `id_condicao_severa`.
+    pub event: Wording,
+    /// `severidade` and `id_severidade`.
+    pub severity: Wording,
+}
+
+/// One of INMET's terms: its text, trimmed, and the number INMET gives it, if any.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Wording {
+    pub id: Option<u64>,
+    pub text: String,
+}
+
 /// The alerts of `hoje`, then `futuro`, that cover `area`, an IBGE municipality code such as
 /// `3550308`, and have not ended, sorted by start. An id listed twice keeps its first entry that
 /// can be read, and an entry of an unexpected shape, or whose times cannot be read, is skipped and
 /// logged.
-pub fn parse_alerts(json: &str, area: &str) -> Result<Vec<WeatherAlert>, ParseError> {
+pub fn parse_alerts(json: &str, area: &str) -> Result<Vec<IssuedAlert>, ParseError> {
     let avisos: Avisos = serde_json::from_str(json)?;
     let zone = TimeZone::get(TIME_ZONE).map_err(ParseError::TimeZone)?;
     let current: Vec<Aviso> = avisos
@@ -109,12 +144,12 @@ pub fn parse_alerts(json: &str, area: &str) -> Result<Vec<WeatherAlert>, ParseEr
         );
     }
     let mut seen = HashSet::new();
-    let mut alerts: Vec<WeatherAlert> = current
+    let mut alerts: Vec<IssuedAlert> = current
         .into_iter()
         .filter_map(|aviso| alert(aviso, &zone))
-        .filter(|alert| seen.insert(alert.id.clone()))
+        .filter(|issued| seen.insert(issued.alert.id.clone()))
         .collect();
-    alerts.sort_by_key(|alert| alert.start_s);
+    alerts.sort_by_key(|issued| issued.alert.start_s);
     Ok(alerts)
 }
 
@@ -136,7 +171,7 @@ fn covers(aviso: &Aviso, area: &str) -> bool {
         .any(|code| code.trim() == area)
 }
 
-fn alert(aviso: Aviso, zone: &TimeZone) -> Option<WeatherAlert> {
+fn alert(aviso: Aviso, zone: &TimeZone) -> Option<IssuedAlert> {
     let start_s = instant(&aviso.data_inicio, &aviso.hora_inicio, zone);
     let end_s = instant(&aviso.data_fim, &aviso.hora_fim, zone);
     let (Some(start_s), Some(end_s)) = (start_s, end_s) else {
@@ -149,19 +184,34 @@ fn alert(aviso: Aviso, zone: &TimeZone) -> Option<WeatherAlert> {
         return None;
     };
     let severity = aviso.severidade.trim().to_uppercase();
-    Some(WeatherAlert {
-        id: aviso.id.to_string(),
-        title: aviso.descricao.to_uppercase(),
-        level: level(aviso.id, &severity),
-        severity,
-        start_s,
-        end_s,
-        risks: aviso.riscos,
+    Some(IssuedAlert {
+        event: Wording {
+            id: aviso.id_condicao_severa.as_ref().and_then(Value::as_u64),
+            text: aviso.descricao.trim().to_owned(),
+        },
+        severity: Wording {
+            id: aviso.id_severidade.as_ref().and_then(Value::as_u64),
+            text: aviso.severidade.trim().to_owned(),
+        },
+        alert: WeatherAlert {
+            id: aviso.id.to_string(),
+            title: aviso.descricao.to_uppercase(),
+            level: level(aviso.id, &severity),
+            severity,
+            original_title: None,
+            original_severity: None,
+            auto_translated: false,
+            start_s,
+            end_s,
+            risks: aviso.riscos,
+        },
     })
 }
 
+/// Classified on the severity's normalised text, as the glossary matches it, so that a stray
+/// no-break space or a decomposed accent cannot turn a Grande Perigo amber.
 fn level(id: u64, severity: &str) -> AlertLevel {
-    match severity {
+    match normalise(severity).as_str() {
         POTENTIAL_DANGER => AlertLevel::Warn,
         DANGER | GREAT_DANGER => AlertLevel::Crit,
         unknown => {

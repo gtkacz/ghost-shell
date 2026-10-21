@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use ghost_proto::{
-    Alerts, Appearance, Dashboard, LayoutConfig, LayoutNode, Location, ProviderSpec,
+    Alerts, Appearance, Dashboard, I18n, LayoutConfig, LayoutNode, Location, ProviderSpec,
     ResolvedConfig, Shortcuts, Thresholds,
 };
 
@@ -20,6 +20,9 @@ const MIN_DOT_SPACING: u32 = 1;
 // The shell's two frame clock rates.
 const SPECTRUM_FPS_CHOICES: [u32; 2] = [15, 30];
 const COLOUR_HEX_DIGITS: usize = 6;
+const LANGUAGE_LETTERS: RangeInclusive<usize> = 2..=3;
+const REGION_LETTERS: usize = 2;
+const REGION_SEPARATOR: char = '-';
 const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
 const HOME_ENV: &str = "HOME";
 const CONFIG_HOME_SUBDIR: &str = ".config";
@@ -120,6 +123,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_dashboard(&config.dashboard, &config.layout)?;
     validate_location(&config.location)?;
     validate_alerts(&config.location.alerts)?;
+    validate_i18n(&config.i18n)?;
     validate_shortcuts(&config.shortcuts)?;
     validate_providers(&config.providers)
 }
@@ -375,6 +379,38 @@ fn is_alerts_provider_name(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some('a'..='z'))
         && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
+}
+
+fn validate_i18n(i18n: &I18n) -> Result<(), ConfigError> {
+    if i18n.from.is_empty() != i18n.to.is_empty() {
+        return Err(invalid("i18n", "from and to must be set together"));
+    }
+    for (key, tag) in [("from", &i18n.from), ("to", &i18n.to)] {
+        if !tag.is_empty() && !is_language_tag(tag) {
+            return Err(invalid(
+                format!("i18n.{key}"),
+                format!("{tag:?} is not a language tag such as en-US"),
+            ));
+        }
+    }
+    // Translating a language into itself would only ask the online translator again every hour.
+    if !i18n.from.is_empty() && i18n.from == i18n.to {
+        return Err(invalid("i18n", "from and to must differ"));
+    }
+    Ok(())
+}
+
+/// Matches `^[a-z]{2,3}(-[A-Z]{2})?$`.
+fn is_language_tag(tag: &str) -> bool {
+    let (language, region) = match tag.split_once(REGION_SEPARATOR) {
+        Some((language, region)) => (language, Some(region)),
+        None => (tag, None),
+    };
+    LANGUAGE_LETTERS.contains(&language.len())
+        && language.bytes().all(|byte| byte.is_ascii_lowercase())
+        && region.is_none_or(|region| {
+            region.len() == REGION_LETTERS && region.bytes().all(|byte| byte.is_ascii_uppercase())
+        })
 }
 
 fn validate_shortcuts(shortcuts: &Shortcuts) -> Result<(), ConfigError> {

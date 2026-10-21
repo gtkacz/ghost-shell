@@ -20,6 +20,8 @@ pub const ALERTS_NAME_PREFIX: &str = "alerts-";
 /// Names the alerts provider's program, so another country's plugs in as `ghost-alerts-<name>`.
 const ALERTS_PROGRAM_PREFIX: &str = "ghost-alerts-";
 const ALERTS_AREA_FLAG: &str = "--area";
+const ALERTS_FROM_FLAG: &str = "--from";
+const ALERTS_TO_FLAG: &str = "--to";
 
 const FIRST_RESTART_DELAY: Duration = Duration::from_secs(1);
 const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
@@ -54,19 +56,31 @@ impl Drop for Supervisor {
 
 /// The configured providers, followed by `alerts-<provider>` when `location.alerts` names one.
 ///
-/// That one runs `ghost-alerts-<provider> --area <area>`, from `own_dir` when the program is there
-/// and from PATH otherwise.
+/// That one runs `ghost-alerts-<provider> --area <area>`, followed by `--from <from> --to <to>`
+/// when `i18n` is set, from `own_dir` when the program is there and from PATH otherwise.
 pub fn effective_providers(config: &ResolvedConfig, own_dir: Option<&Path>) -> Vec<ProviderSpec> {
     let alerts = &config.location.alerts;
+    let i18n = &config.i18n;
+    let languages = (!i18n.to.is_empty()).then(|| {
+        [
+            ALERTS_FROM_FLAG.to_owned(),
+            i18n.from.clone(),
+            ALERTS_TO_FLAG.to_owned(),
+            i18n.to.clone(),
+        ]
+    });
     let derived = (!alerts.provider.is_empty()).then(|| {
         let program = format!("{ALERTS_PROGRAM_PREFIX}{}", alerts.provider);
         ProviderSpec {
             name: format!("{ALERTS_NAME_PREFIX}{}", alerts.provider),
-            exec: vec![
+            exec: [
                 installed_beside(own_dir, &program).unwrap_or(program),
                 ALERTS_AREA_FLAG.to_owned(),
                 alerts.area.clone(),
-            ],
+            ]
+            .into_iter()
+            .chain(languages.into_iter().flatten())
+            .collect(),
             restart: true,
         }
     });
@@ -312,7 +326,7 @@ impl Drop for ProcessGroup {
 
 #[cfg(test)]
 mod tests {
-    use ghost_proto::Alerts;
+    use ghost_proto::{Alerts, I18n};
 
     use super::*;
 
@@ -374,6 +388,28 @@ mod tests {
         assert_eq!(
             effective_providers(&config_with_alerts("", ""), None),
             [spec("other", "other-bin")]
+        );
+    }
+
+    #[test]
+    fn the_alerts_provider_is_told_the_languages_when_i18n_is_set() {
+        let mut config = config_with_alerts("inmet", "3550308");
+        config.i18n = I18n {
+            from: "pt-BR".to_owned(),
+            to: "en-US".to_owned(),
+        };
+
+        assert_eq!(
+            effective_providers(&config, None)[1].exec,
+            [
+                "ghost-alerts-inmet",
+                "--area",
+                "3550308",
+                "--from",
+                "pt-BR",
+                "--to",
+                "en-US"
+            ]
         );
     }
 
