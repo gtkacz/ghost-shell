@@ -7,6 +7,8 @@ use ghost_proto::is_valid_topic;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::config::config_dir;
+
 pub const WIDGET_API: u32 = 1;
 
 const MANIFEST_FILE: &str = "manifest.toml";
@@ -16,7 +18,6 @@ const FILE_URL_SCHEME: &str = "file://";
 const URL_UNRESERVED_PUNCTUATION: [u8; 5] = *b"-._~/";
 const BUILTIN_DIR_ENV: &str = "GHOST_WIDGETS_DIR";
 const DATA_HOME_SUBDIR: &str = ".local/share";
-const CONFIG_HOME_SUBDIR: &str = ".config";
 const APP_DIR: &str = "ghost-shell";
 const WIDGETS_DIR: &str = "widgets";
 const HOME_PREFIX: &str = "~/";
@@ -144,10 +145,7 @@ pub fn default_dirs(paths: &[String]) -> Vec<PathBuf> {
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(DATA_HOME_SUBDIR).join(APP_DIR).join(WIDGETS_DIR));
-    let user = home
-        .join(CONFIG_HOME_SUBDIR)
-        .join(APP_DIR)
-        .join(WIDGETS_DIR);
+    let user = config_dir().join(WIDGETS_DIR);
     [builtin, user]
         .into_iter()
         .chain(paths.iter().map(|path| expand_home(path, &home)))

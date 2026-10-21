@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
@@ -11,6 +12,9 @@ const PERCENT: RangeInclusive<u32> = 0..=100;
 const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
 const MIN_DOT_SPACING: u32 = 1;
 const COLOUR_HEX_DIGITS: usize = 6;
+const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
+const HOME_ENV: &str = "HOME";
+const CONFIG_HOME_SUBDIR: &str = ".config";
 const APP_CONFIG_DIR: &str = "ghost-shell";
 const CONFIG_FILE: &str = "config.toml";
 
@@ -85,11 +89,20 @@ pub fn load_path(path: &Path) -> Result<ResolvedConfig, ConfigError> {
 }
 
 pub fn default_path() -> PathBuf {
-    let config_home = env::var_os("XDG_CONFIG_HOME")
+    config_dir().join(CONFIG_FILE)
+}
+
+/// Where the user's config file and widgets live.
+pub(crate) fn config_dir() -> PathBuf {
+    config_dir_in(env::var_os(XDG_CONFIG_HOME_ENV), env::var_os(HOME_ENV))
+}
+
+fn config_dir_in(xdg_config_home: Option<OsString>, home: Option<OsString>) -> PathBuf {
+    xdg_config_home
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".config"));
-    config_home.join(APP_CONFIG_DIR).join(CONFIG_FILE)
+        .unwrap_or_else(|| PathBuf::from(home.unwrap_or_default()).join(CONFIG_HOME_SUBDIR))
+        .join(APP_CONFIG_DIR)
 }
 
 fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
@@ -332,4 +345,39 @@ fn validate_providers(providers: &[ProviderSpec]) -> Result<(), ConfigError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir_in(xdg_config_home: Option<&str>, home: Option<&str>) -> PathBuf {
+        config_dir_in(
+            xdg_config_home.map(OsString::from),
+            home.map(OsString::from),
+        )
+    }
+
+    #[test]
+    fn xdg_config_home_wins_over_home() {
+        assert_eq!(
+            dir_in(Some("/srv/cfg"), Some("/home/u")),
+            Path::new("/srv/cfg/ghost-shell")
+        );
+    }
+
+    #[test]
+    fn an_unset_or_empty_xdg_config_home_falls_back_to_dot_config() {
+        for xdg in [None, Some("")] {
+            assert_eq!(
+                dir_in(xdg, Some("/home/u")),
+                Path::new("/home/u/.config/ghost-shell")
+            );
+        }
+    }
+
+    #[test]
+    fn without_either_variable_the_dir_is_relative() {
+        assert_eq!(dir_in(None, None), Path::new(".config/ghost-shell"));
+    }
 }

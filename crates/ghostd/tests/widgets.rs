@@ -9,6 +9,7 @@ use ghost_proto::{
     Direction, LayoutConfig, LayoutNode, ResolvedLayout, ResolvedNode, ResolvedSlot, ServerMsg,
     TabSpec,
 };
+use ghostd::config::default_path;
 use ghostd::widgets::{default_dirs, discover, resolve};
 use serde_json::{Value, json};
 
@@ -705,10 +706,19 @@ fn default_dirs_expand_a_leading_home_in_extra_paths() {
     let dirs = default_dirs(&["~/extra".to_owned(), "/opt/widgets".to_owned()]);
 
     assert_eq!(dirs.len(), 4);
-    assert_eq!(
-        dirs[1],
-        Path::new(&home).join(".config/ghost-shell/widgets")
-    );
     assert_eq!(dirs[2], Path::new(&home).join("extra"));
     assert_eq!(dirs[3], Path::new("/opt/widgets"));
+}
+
+#[test]
+fn the_user_widget_dir_sits_beside_the_config_file() {
+    let config_dir = default_path();
+
+    let dirs = default_dirs(&[]);
+
+    assert_eq!(
+        dirs[1],
+        config_dir.parent().unwrap().join("widgets"),
+        "the widgets must live in the folder the user edits their config in"
+    );
 }
