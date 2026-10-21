@@ -517,6 +517,27 @@ A V1-like layout with the weather slot, against `ghostd run --fake`, 30 s per st
 - **Without an alert the widget is nearly free.** It holds the seconds clock while visible, so alert expiry, the dropping of past hours and the staleness check can run. That costs about 0.04 % and adds no frames.
 - **An active alert costs what any alert does:** the 15 fps stripes and blink.
 
+### Plan 2a: clock widget
+
+The three styles stacked (hero, band, compact), against a fake daemon, 30 s each after a 10 s warm-up, native scale. The session load average was 0.7–1.1:
+
+| On screen | Shell CPU | Frames/s |
+|---|---|---|
+| Three placeholders | 0.00 % | 0 |
+| Three clocks, no alert | 0.13 / 0.17 % | 1.00 |
+| Three clocks, with the hero and band alerts animating | 0.73 / 0.73 % | 15.93 |
+
+### Plan 2a: alerts hold still after 10 s
+
+An alert blinks when it first appears, then holds still. Measured on the default V1 with the dead drive's alert, against a fake debug daemon, over 60 s starting 20 s after start. `godot-bin` was using ≈ 75 % of a core and `kwin_wayland` ≈ 6 % throughout:
+
+| Build | Frames in 60 s | Shell CPU | Daemon CPU |
+|---|---|---|---|
+| Blinking for as long as the alert lasts | 896 (14.93/s) | 1.30 % | — |
+| Holding still after 10 s | **60** (1/s) | **0.63 %** | 0.07 % |
+
+The remaining 1 frame/s is the data panels repainting with each sample. The held alert adds nothing.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
