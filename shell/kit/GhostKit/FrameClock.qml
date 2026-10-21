@@ -15,8 +15,12 @@ Singleton {
     readonly property var blinkSteps: [1, 0.5, 0, 0.5]
 
     // Stops every animation at once, for example while the desktop is covered, without making each
-    // widget release the clock.
-    property bool suspended: false
+    // widget release the clock. Read-only here so that one widget cannot freeze the whole desktop;
+    // the host writes it through hostControl.
+    readonly property bool suspended: hostControl.suspended
+    readonly property QtObject hostControl: QtObject {
+        property bool suspended: false
+    }
 
     readonly property bool running: ticker.running
     readonly property int frame: ticker.frame

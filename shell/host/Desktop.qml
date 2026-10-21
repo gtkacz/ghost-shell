@@ -91,7 +91,7 @@ Scope {
             Binding {
                 when: window.isMain
                 restoreMode: Binding.RestoreNone
-                target: Theme
+                target: Theme.hostControl
                 property: "u"
                 // The screen's width is the width this full-screen surface is configured to. The window's
                 // own width passes through 100, 0 and 500 first, and every cell grid built at those units

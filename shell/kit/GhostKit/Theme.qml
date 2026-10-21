@@ -48,8 +48,12 @@ Singleton {
     readonly property var appearance: Data.config ? Data.config.appearance : defaultAppearance
     readonly property var thresholds: Data.config ? Data.config.thresholds : defaultThresholds
 
-    // Logical pixels per design pixel, set by the desktop from its screen width.
-    property real u: 1
+    // Logical pixels per design pixel, set by the desktop from its screen width. Read-only here so that
+    // one widget cannot rescale the whole desktop; the host writes it through hostControl.
+    readonly property real u: hostControl.u
+    readonly property QtObject hostControl: QtObject {
+        property real u: 1
+    }
 
     readonly property color ground: appearance.colors.ground
     readonly property color panel: appearance.colors.panel
