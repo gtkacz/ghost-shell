@@ -123,3 +123,9 @@ Five drives: three NVMe, one of them dead, plus two SATA. Thirteen loop devices 
 
 - CPU (`collect/cpu.rs`): `/proc/stat` plus 32 `scaling_cur_freq` reads per sample.
 - The daemon and shell as a whole. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
+
+## License
+
+Copyright (C) 2026 Gabriel Mitelman Tkacz
+
+GPL-3.0-or-later; see [LICENSE](LICENSE).
