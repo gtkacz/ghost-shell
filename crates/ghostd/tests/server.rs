@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use ghost_proto::ProviderSpec;
-use ghostd::server::{self, ConfigFeed, Hub};
+use ghostd::server::{self, BindError, ConfigFeed, Hub, SocketLock};
 use ghostd::{fake, providers};
-use nix::sys::stat::Mode;
+use nix::fcntl::{Flock, FlockArg};
+use nix::sys::stat::{Mode, SFlag, mknod};
 use nix::unistd::mkfifo;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -58,6 +59,7 @@ fn install_widget(widgets: &Path, id: &str) {
 struct Daemon {
     dir: TempDir,
     serve: JoinHandle<()>,
+    _lock: SocketLock,
 }
 
 impl Drop for Daemon {
@@ -96,9 +98,13 @@ impl Daemon {
             widget_dirs: Box::new(move |_| vec![widgets.clone()]),
             on_warning: Box::new(|_, _| {}),
         };
-        let listener = server::bind(&socket).unwrap();
+        let (listener, lock) = server::bind(&socket).unwrap();
         let serve = tokio::spawn(server::serve(listener, hub));
-        Self { dir, serve }
+        Self {
+            dir,
+            serve,
+            _lock: lock,
+        }
     }
 
     fn socket(&self) -> PathBuf {
@@ -665,20 +671,44 @@ async fn dropping_the_supervisor_kills_the_children_of_its_providers() {
 async fn stale_socket_is_replaced_and_live_one_is_kept() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(SOCKET_FILE);
-    drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+    leave_stale_socket(&path);
     assert!(fs::metadata(&path).unwrap().file_type().is_socket());
 
-    let _listener = server::bind(&path).expect("a stale socket file is replaced");
+    let (_listener, _lock) = server::bind(&path).expect("a stale socket file is replaced");
 
     let mode = fs::metadata(&path).unwrap().permissions().mode();
     assert_eq!(mode & PERMISSION_BITS, PRIVATE_SOCKET_MODE);
     assert!(
-        server::bind(&path).is_err(),
+        matches!(server::bind(&path), Err(BindError::InUse(_))),
         "a socket with a live listener must not be taken over"
     );
     UnixStream::connect(&path)
         .await
         .expect("the first listener still owns the path");
+}
+
+/// What an earlier daemon leaves behind when it dies: a socket file nothing listens on. A socket
+/// inode made directly cannot be held open by a child forked while a listener exists.
+fn leave_stale_socket(path: &Path) {
+    mknod(path, SFlag::S_IFSOCK, Mode::S_IRWXU, 0).unwrap();
+}
+
+#[tokio::test]
+async fn a_daemon_holding_the_lock_keeps_the_path_before_it_listens() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(SOCKET_FILE);
+    let lock_file = fs::File::create(dir.path().join(format!("{SOCKET_FILE}.lock"))).unwrap();
+    let _held = Flock::lock(lock_file, FlockArg::LockExclusiveNonblock).unwrap();
+    // The holder has not got as far as binding, so nothing answers on the path yet.
+    leave_stale_socket(&path);
+
+    let result = server::bind(&path);
+
+    assert!(matches!(result, Err(BindError::InUse(_))));
+    assert!(
+        fs::symlink_metadata(&path).unwrap().file_type().is_socket(),
+        "a second daemon replaced the path of one that is still starting"
+    );
 }
 
 #[tokio::test]

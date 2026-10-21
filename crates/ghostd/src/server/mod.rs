@@ -10,14 +10,17 @@ mod session;
 mod state;
 mod widget_watch;
 
+use std::fs::{File, OpenOptions};
 use std::num::NonZeroU32;
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::{fs, io};
 
 use ghost_proto::{ResolvedConfig, ServerMsg, encode_line};
+use nix::errno::Errno;
+use nix::fcntl::{Flock, FlockArg};
 use nix::unistd::gethostname;
 use tokio::net::UnixListener;
 
@@ -31,6 +34,7 @@ use crate::providers::Supervisor;
 use crate::sampler::Sampler;
 
 const OWNER_ONLY_MODE: u32 = 0o600;
+const LOCK_SUFFIX: &str = ".lock";
 
 #[derive(Debug, thiserror::Error)]
 pub enum BindError {
@@ -42,11 +46,23 @@ pub enum BindError {
     Io { path: PathBuf, source: io::Error },
 }
 
+/// The lock that keeps a second daemon from claiming a socket path; held for as long as this is.
+pub struct SocketLock {
+    _flock: Flock<File>,
+}
+
 /// Listens on `path` with a socket only its owner can use, replacing a socket file that nothing
 /// answers on any more.
 ///
+/// Also returns the lock on `<path>.lock`, which must be kept for as long as the socket is in use.
+/// It is taken before the path is looked at, because connecting to see whether another daemon
+/// answers cannot tell a daemon that is still starting from none at all, and two daemons started
+/// together could both pass that check. The lock file itself is left in place when the daemon
+/// stops, since removing it would let a daemon that already opened it lock a file nobody else sees.
+///
 /// Must be called from within a Tokio runtime.
-pub fn bind(path: &Path) -> Result<UnixListener, BindError> {
+pub fn bind(path: &Path) -> Result<(UnixListener, SocketLock), BindError> {
+    let lock = lock_beside(path)?;
     if StdUnixStream::connect(path).is_ok() {
         return Err(BindError::InUse(path.to_owned()));
     }
@@ -67,7 +83,29 @@ pub fn bind(path: &Path) -> Result<UnixListener, BindError> {
     // with files other threads create. Until then the umask's default (022) already keeps other
     // users out, since connecting needs write permission on the socket.
     fs::set_permissions(path, fs::Permissions::from_mode(OWNER_ONLY_MODE)).map_err(io_error)?;
-    Ok(listener)
+    Ok((listener, lock))
+}
+
+fn lock_beside(socket: &Path) -> Result<SocketLock, BindError> {
+    let mut lock_path = socket.as_os_str().to_owned();
+    lock_path.push(LOCK_SUFFIX);
+    let lock_path = PathBuf::from(lock_path);
+    let io_error = |source| BindError::Io {
+        path: lock_path.clone(),
+        source,
+    };
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(OWNER_ONLY_MODE)
+        .open(&lock_path)
+        .map_err(io_error)?;
+    match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
+        Ok(flock) => Ok(SocketLock { _flock: flock }),
+        Err((_, Errno::EWOULDBLOCK)) => Err(BindError::InUse(socket.to_owned())),
+        Err((_, errno)) => Err(io_error(errno.into())),
+    }
 }
 
 /// Called with a summary and a body whenever a config or layout problem appears that was not

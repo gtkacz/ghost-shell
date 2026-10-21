@@ -161,8 +161,10 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
             return ExitCode::FAILURE;
         }
     };
-    let listener = match server::bind(&socket) {
-        Ok(listener) => listener,
+    // Kept until this function returns, which is after the socket file is removed below, so no
+    // second daemon can claim the path in between and then lose its socket to that removal.
+    let (listener, _socket_lock) = match server::bind(&socket) {
+        Ok(bound) => bound,
         Err(error) => {
             error!(%error, "cannot serve");
             return ExitCode::FAILURE;
