@@ -11,6 +11,7 @@ Panel 1.0 Panel.qml
 SegMeter 1.0 SegMeter.qml
 BlockGraph 1.0 BlockGraph.qml
 AlertBox 1.0 AlertBox.qml
+WeatherAlertState 1.0 WeatherAlertState.qml
 Digits 1.0 Digits.qml
 Kv 1.0 Kv.qml
 ScrambleText 1.0 ScrambleText.qml

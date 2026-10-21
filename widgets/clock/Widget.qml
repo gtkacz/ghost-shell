@@ -72,7 +72,6 @@ Panel {
     readonly property string utcText: Fmt.utcOffset(offsetMin)
 
     readonly property var weather: Data.topic("weather").value
-    readonly property var alertsValue: Data.topic("weather.alerts").value
 
     // The daemon publishes the unavailable default until a forecast for a configured place has arrived.
     readonly property bool available: wantsWeather && weather !== null && weather.available === true
@@ -85,19 +84,6 @@ Panel {
     readonly property string hiLoHumText: available ? Fmt.hiLoHum(weather) : ""
     readonly property string hiLoText: available ? Fmt.hiLo(weather) : ""
     readonly property string detailText: available ? Fmt.detailLine(forecast, offsetMin) : ""
-
-    // With no provider configured the topic has nothing to say, so the box is not even considered.
-    readonly property bool alertsConfigured: Fmt.alertsEnabled(Data.config)
-    readonly property var activeList: available && alertsConfigured && alertsValue ? Fmt.activeAlerts(alertsValue.alerts, nowS) : []
-    readonly property var topAlert: activeList.length > 0 ? activeList[0] : null
-    readonly property bool hasAlert: topAlert !== null
-    readonly property string alertKey: hasAlert ? String(topAlert.id) : ""
-    readonly property string alertLevel: hasAlert ? topAlert.level : "warn"
-    readonly property string alertSource: hasAlert && alertsValue.source ? alertsValue.source : ""
-    readonly property string alertCountdown: hasAlert ? Fmt.countdown(nowMs, topAlert.start_s * millisPerSecond, topAlert.end_s * millisPerSecond) : ""
-    // A provider that stopped publishing leaves its last alert up, so the alert dims once the provider is
-    // gone or its data too old to trust.
-    readonly property bool alertLive: Data.topic("weather.alerts").live && !Fmt.alertsStale(alertsValue, nowS)
 
     property bool holdsSeconds: false
     property bool holdsWeather: false
@@ -359,6 +345,13 @@ Panel {
         holdWeather(false);
     }
 
+    WeatherAlertState {
+        id: alertState
+
+        nowS: root.nowS
+        enabled: root.available
+    }
+
     Component {
         id: hero
 
@@ -429,17 +422,17 @@ Panel {
                 // Keyed on the alert, so a different alert arrives with its own flicker while the countdown of
                 // the same one does not restart it.
                 Repeater {
-                    model: root.hasAlert ? [root.alertKey] : []
+                    model: alertState.hasAlert ? [alertState.key] : []
 
                     // The hero has the room for the source, as in the mockup.
                     AlertBox {
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: Math.min(implicitWidth, root.width)
-                        level: root.alertLevel
+                        level: alertState.level
                         chipKey: "alert"
-                        text: Fmt.alertLine(root.topAlert, root.alertSource)
-                        trailing: root.alertCountdown
-                        sourceLive: root.alertLive
+                        text: Fmt.alertLine(alertState.top, alertState.source)
+                        trailing: alertState.countdown
+                        sourceLive: alertState.live
                     }
                 }
             }
@@ -547,15 +540,15 @@ Panel {
                     // The source is left out: with it the severity, which sits at the end, would be the part cut in a
                     // column this narrow, and a config names one provider anyway (the weather band does the same).
                     Repeater {
-                        model: root.hasAlert ? [root.alertKey] : []
+                        model: alertState.hasAlert ? [alertState.key] : []
 
                         AlertBox {
                             width: details.width
-                            level: root.alertLevel
+                            level: alertState.level
                             chipKey: "alert"
-                            text: Fmt.alertLine(root.topAlert, "")
-                            trailing: root.alertCountdown
-                            sourceLive: root.alertLive
+                            text: Fmt.alertLine(alertState.top, "")
+                            trailing: alertState.countdown
+                            sourceLive: alertState.live
                         }
                     }
                 }

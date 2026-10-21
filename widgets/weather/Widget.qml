@@ -43,7 +43,6 @@ Panel {
 
     readonly property var weather: Data.topic("weather").value
     readonly property var sky: Data.topic("sky").value
-    readonly property var alertsValue: Data.topic("weather.alerts").value
 
     // The daemon publishes the unavailable default until a forecast for a configured place has arrived.
     readonly property bool available: weather !== null && weather.available === true
@@ -68,20 +67,9 @@ Panel {
     readonly property string aqiLevel: Fmt.levelAbove(aqi, Theme.aqiWarn, Theme.aqiCrit)
     readonly property color aqiColor: !weatherLive ? Theme.dim : aqiLevel === "crit" ? Theme.crit : aqiLevel === "warn" ? Theme.warn : Theme.dim
 
-    // With no provider configured the topic has nothing to say, so the box is not even considered.
-    readonly property bool alertsConfigured: Fmt.alertsEnabled(Data.config)
-    readonly property var activeList: alertsConfigured && alertsValue ? Fmt.activeAlerts(alertsValue.alerts, nowS) : []
-    readonly property var topAlert: activeList.length > 0 ? activeList[0] : null
-    readonly property bool hasAlert: topAlert !== null
-    readonly property string alertKey: hasAlert ? String(topAlert.id) : ""
-    readonly property string alertLevel: hasAlert ? topAlert.level : "warn"
     // The source is left out: a config names one provider, the chip and the level colour already say "alert",
     // and the mockup's band shows the title alone. The room goes to the severity, which sits at the end.
-    readonly property string alertText: hasAlert ? Fmt.alertLine(topAlert, "") : ""
-    readonly property string alertCountdown: hasAlert ? Fmt.countdown(nowMs, topAlert.start_s * millisPerSecond, topAlert.end_s * millisPerSecond) : ""
-    // A provider that stopped publishing leaves its last alert up, so the alert dims once the provider is
-    // gone or its data too old to trust.
-    readonly property bool alertLive: Data.topic("weather.alerts").live && !Fmt.alertsStale(alertsValue, nowS)
+    readonly property string alertText: alertState.hasAlert ? Fmt.alertLine(alertState.top, "") : ""
 
     property bool holdsSeconds: false
 
@@ -107,6 +95,12 @@ Panel {
     onVisibleChanged: holdSeconds(visible)
     Component.onCompleted: holdSeconds(visible)
     Component.onDestruction: holdSeconds(false)
+
+    WeatherAlertState {
+        id: alertState
+
+        nowS: root.nowS
+    }
 
     FontMetrics {
         id: hourMetrics
@@ -239,15 +233,15 @@ Panel {
             // Keyed on the alert, so a different alert arrives with its own flicker while the countdown of
             // the same one does not restart it.
             Repeater {
-                model: root.hasAlert ? [root.alertKey] : []
+                model: alertState.hasAlert ? [alertState.key] : []
 
                 AlertBox {
                     width: middle.width
-                    level: root.alertLevel
+                    level: alertState.level
                     chipKey: "alert"
                     text: root.alertText
-                    trailing: root.alertCountdown
-                    sourceLive: root.alertLive
+                    trailing: alertState.countdown
+                    sourceLive: alertState.live
                 }
             }
 
