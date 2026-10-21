@@ -21,6 +21,7 @@ shell_src=$repo/shell
 shaders_src=$shell_src/kit/GhostKit/shaders
 widgets_src=$repo/widgets
 units_src=$repo/packaging/systemd
+kwin_script=$repo/scripts/kwin-script.sh
 binary=${CARGO_TARGET_DIR:-$repo/target}/release/ghostd
 alerts_binary=${CARGO_TARGET_DIR:-$repo/target}/release/ghost-alerts-inmet
 
@@ -32,7 +33,7 @@ drm_dir=/sys/class/drm
 nvidia_drm_driver=nvidia
 
 excluded_widget=broken-example
-required_tools=(cargo fc-list fc-cache)
+required_tools=(cargo fc-list fc-cache kpackagetool6 kreadconfig6)
 
 font_url=https://github.com/google/fonts/raw/main/ofl/kodemono
 # curl treats [] as a glob and GitHub rejects the literal brackets, so each entry is "<local name> <percent-encoded remote name>".
@@ -210,6 +211,26 @@ install_units() {
     fi
 }
 
+# Installs or upgrades the KWin script without ever enabling it. KWin keeps running the copy it
+# loaded, so a script that was already enabled is reloaded for the upgrade to take effect.
+install_kwin_script() {
+    local was_enabled=
+
+    if "$kwin_script" enabled; then
+        was_enabled=1
+    fi
+    "$kwin_script" install
+
+    if [[ -z $was_enabled ]]; then
+        step "the KWin desktop script is not enabled; enable it with: $kwin_script enable"
+        return
+    fi
+    step "reloading the KWin desktop script, which was enabled"
+    if ! { "$kwin_script" disable && "$kwin_script" enable; }; then
+        warn "could not reload the KWin desktop script; run '$kwin_script disable' and then '$kwin_script enable'"
+    fi
+}
+
 check_prerequisites
 
 step "building ghostd and ghost-alerts-inmet (release)"
@@ -235,5 +256,8 @@ install_font_if_missing
 
 step "installing the user units into $unit_dir"
 install_units
+
+step "installing the KWin desktop script"
+install_kwin_script
 
 step "done; start with: systemctl --user start ghostd ghost-shell"
