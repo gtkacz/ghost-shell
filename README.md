@@ -391,6 +391,16 @@ The running service grew linearly, by 213 KiB/min (≈ 12.5 MB/h), for 2 h 35 mi
 
 - This first start found the private shader cache empty, so it carries the ≈ 74 MiB compiler block. Later starts read the cache: the same environment measured 189 MB warm against 249 MB cold in a development copy.
 
+### Plan 2a early install (installed services, 2026-10-21 14:01)
+
+The Plan 2a build so far (Tasks 1–14), installed on the live session with the clock in V1. The services were restarted at 14:01. Each process was measured for 30 s, one after the other, at 14:02. The dashboard was visible and the dead drive's alert was holding still. Load average was 1.1–1.7, with other Claude sessions running:
+
+| Process | CPU | RSS |
+|---|---|---|
+| Shell (`qs`) | 0.57 % | 205 824 KiB |
+| Daemon (`ghostd`, with the INMET provider started) | 0.47 % | 38 608 KiB |
+| **Together** | **≈ 1.04 %** (Plan 1's acceptance: 1.32–1.92 %) | **≈ 244 MiB** |
+
 ### Plan 2a: demand-driven sampling (daemon)
 
 The daemon now reads only the sources that some client is subscribed to. It also runs on-demand feeds (desktop state, weather, sky) only while something wants them. Release build, real collectors, 60 s:
