@@ -1,0 +1,10 @@
+[Unit]
+Description=ghost-shell data daemon
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/ghostd run
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

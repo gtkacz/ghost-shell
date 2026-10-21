@@ -2,6 +2,64 @@
 
 A Tron: Legacy / Cyberpunk 2077 / Ghost in the Shell desktop shell for KDE Plasma (Wayland): a Quickshell UI fed by a Rust daemon, `ghostd`.
 
+## Build
+
+Requires a recent stable Rust toolchain, Quickshell (`qs`, Qt 6) and `qsb-qt6` for the shaders.
+
+```sh
+cargo build --release
+```
+
+The daemon is `target/release/ghostd`. The shell's shaders are compiled with `make shaders`.
+
+## Test
+
+Requires Node for the shell's logic tests.
+
+```sh
+cargo test --workspace
+node --test 'shell/tests/*.test.mjs'
+```
+
+## Install
+
+```sh
+scripts/install.sh
+```
+
+The script is idempotent and installs for the current user only:
+
+- `ghostd` into `~/.local/bin/`;
+- `shell/` (with its compiled shaders) and `widgets/` (without `broken-example`) into `~/.local/share/ghost-shell/`;
+- the Kode Mono font into `~/.local/share/fonts/ghost-shell/`, if it is not installed yet;
+- the user units `ghostd.service` and `ghost-shell.service` into `~/.config/systemd/user/`.
+
+It stops with an error if `cargo`, `qsb-qt6`, `shell/` or the compiled shaders are missing. It does not enable or start anything, and it does not touch Plasma.
+
+## Run
+
+```sh
+systemctl --user start ghostd ghost-shell
+systemctl --user stop ghost-shell ghostd
+```
+
+Neither unit is enabled at login.
+
+## Configuration
+
+`ghostd` reads `$XDG_CONFIG_HOME/ghost-shell/config.toml`, or `~/.config/ghost-shell/config.toml` when that variable is unset. Without the file it uses the defaults. To start from them:
+
+```sh
+mkdir -p ~/.config/ghost-shell
+ghostd default-config > ~/.config/ghost-shell/config.toml
+```
+
+Changes are applied when the file is saved. A value that fails validation is reported as a notification, and the previous value stays in effect.
+
+## Write your own widget
+
+A widget is a folder with a `manifest.toml` and a `Widget.qml`. `widgets/placeholder` is the smallest example. `ghostd` finds widgets in `~/.local/share/ghost-shell/widgets/` (the built-in ones) and in `~/.config/ghost-shell/widgets/` (yours). The full widget contract will be written up in `docs/widgets.md`; that document does not exist yet.
+
 ## Performance
 
 ### Budgets

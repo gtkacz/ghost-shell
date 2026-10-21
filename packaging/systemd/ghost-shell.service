@@ -1,0 +1,13 @@
+[Unit]
+Description=ghost-shell Quickshell UI
+Wants=ghostd.service
+After=ghostd.service
+PartOf=graphical-session.target
+
+[Service]
+Environment=QML_IMPORT_PATH=%h/.local/share/ghost-shell/shell/kit
+ExecStart=/usr/bin/qs -p %h/.local/share/ghost-shell/shell
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target
