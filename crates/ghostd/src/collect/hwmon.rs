@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use ghost_proto::{Reading, SensorSnapshot};
 
-use super::Source;
 use super::labels;
+use super::{Source, read_text};
 use crate::sysroot::SysRoot;
 
 const HWMON_DIR: &str = "sys/class/hwmon";
@@ -363,12 +363,6 @@ fn parse_input(file: &str) -> Option<Input> {
             stem: stem.to_owned(),
         })
     })
-}
-
-fn read_text(root: &SysRoot, rel: &str) -> Option<String> {
-    let text = root.read(rel).ok()?;
-    let text = text.trim();
-    (!text.is_empty()).then(|| text.to_owned())
 }
 
 /// Parsed as an integer, which sysfs always reports, so a garbled `nan` or `inf` cannot get through.

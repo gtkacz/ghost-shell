@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use ghost_proto::{DiskSnapshot, Drive, DriveState, SensorSnapshot};
 use nix::sys::statvfs::statvfs;
 
-use super::Source;
+use super::{Source, read_text};
 use crate::sysroot::SysRoot;
 
 const BLOCK_DIR: &str = "sys/block";
@@ -22,6 +22,8 @@ const SERIAL_FILE: &str = "serial";
 const WWID_FILE: &str = "wwid";
 const STATE_FILE: &str = "state";
 const DEAD_STATE: &str = "dead";
+const REMOVABLE_FILE: &str = "removable";
+const REMOVABLE_FLAG: &str = "1";
 const DEVICE_NODE_DIR: &str = "/dev";
 
 const ROOT_MOUNT: &str = "/";
@@ -29,8 +31,8 @@ const ID_SEPARATOR: char = '#';
 // The hwmon collector names an NVMe drive's temperature `nvme/{serial}`.
 const NVME_TEMP_PREFIX: &str = "nvme/";
 
-// The usage cache and the device list both live this long, so a drive that appears or dies is
-// noticed within a minute while ordinary ticks read only `mountinfo` and `diskstats`.
+// The usage cache and the device list both live this long, so a drive that appears or vanishes is
+// noticed within a minute while ordinary ticks skip the `sys/block` walk and the statvfs calls.
 const REFRESH_INTERVAL_SAMPLES: u32 = 60;
 
 // 1-based positions in /proc/diskstats, counting the major number as field 1.
@@ -90,7 +92,9 @@ struct Device {
     model: String,
     id: String,
     label: String,
-    is_dead: bool,
+    is_removable: bool,
+    state_path: String,
+    size_path: String,
     device_numbers: Vec<String>,
     device_nodes: Vec<String>,
     usage: Option<Usage>,
@@ -106,8 +110,16 @@ impl Device {
             || self.device_nodes.iter().any(|node| node == mount.source)
     }
 
+    /// Read on every sample, so a drive that dies is reported at once rather than at the next rescan.
+    fn is_dead(&self, root: &SysRoot) -> bool {
+        read_text(root, &self.state_path).as_deref() == Some(DEAD_STATE)
+            // A removable drive's size is 0 whenever its medium is out, which is no failure.
+            || (!self.is_removable && read_size(root, &self.size_path) == Some(0))
+    }
+
     fn sample(
         &mut self,
+        root: &SysRoot,
         mounts: &[MountEntry],
         sectors: Option<Sectors>,
         elapsed: Duration,
@@ -121,7 +133,7 @@ impl Device {
             state: DriveState::Dead,
             ..Drive::default()
         };
-        if self.is_dead {
+        if self.is_dead(root) {
             // A drive that comes back must not be measured against counters from before it died.
             self.previous_sectors = None;
             return drive;
@@ -185,7 +197,8 @@ fn bytes_per_second(now: u64, before: u64, elapsed: Duration) -> u64 {
 ///
 /// The kernel numbers NVMe drives in probe order, which can change between boots, so a drive's
 /// `id` is `{model}#{serial}`. The device list and each drive's usage are rebuilt every
-/// `REFRESH_INTERVAL_SAMPLES` samples, so ordinary ticks read only `mountinfo` and `diskstats`.
+/// `REFRESH_INTERVAL_SAMPLES` samples; ordinary ticks read `mountinfo`, `diskstats` and each known
+/// drive's `state` and `size`.
 pub struct DiskCollector {
     root: SysRoot,
     fs: Box<dyn FsStat + Send>,
@@ -193,6 +206,7 @@ pub struct DiskCollector {
     devices: Vec<Device>,
     samples_since_refresh: u32,
     last_sampled: Option<Instant>,
+    mountinfo: Vec<u8>,
 }
 
 impl DiskCollector {
@@ -210,6 +224,7 @@ impl DiskCollector {
             // Due immediately, so the first sample enumerates the drives and reads their usage.
             samples_since_refresh: REFRESH_INTERVAL_SAMPLES,
             last_sampled: None,
+            mountinfo: Vec::new(),
         }
     }
 
@@ -221,7 +236,11 @@ impl DiskCollector {
         }
         self.samples_since_refresh += 1;
 
-        let mountinfo = self.root.read(MOUNTINFO).unwrap_or_default();
+        if self.root.read_into(MOUNTINFO, &mut self.mountinfo).is_err() {
+            self.mountinfo.clear();
+        }
+        // One undecodable byte in a mount point must not hide every other mount.
+        let mountinfo = String::from_utf8_lossy(&self.mountinfo);
         let mounts: Vec<MountEntry> = mountinfo.lines().filter_map(parse_mount).collect();
         let diskstats = self.root.read(DISKSTATS).unwrap_or_default();
         let sectors: HashMap<&str, Sectors> = parse_diskstats(&diskstats).collect();
@@ -231,7 +250,13 @@ impl DiskCollector {
             .iter_mut()
             .map(|device| {
                 let device_sectors = sectors.get(device.kernel_name.as_str()).copied();
-                device.sample(&mounts, device_sectors, elapsed, self.fs.as_ref())
+                device.sample(
+                    &self.root,
+                    &mounts,
+                    device_sectors,
+                    elapsed,
+                    self.fs.as_ref(),
+                )
             })
             .collect();
         drives.sort_by(|a, b| {
@@ -259,31 +284,35 @@ impl DiskCollector {
 
     fn scan(&self) -> Option<Vec<Device>> {
         let names = self.root.list(BLOCK_DIR).ok()?;
-        Some(
-            names
-                .iter()
-                .filter(|name| {
-                    !NOT_A_DRIVE_PREFIXES
-                        .iter()
-                        .any(|prefix| name.starts_with(prefix))
-                })
-                .map(|name| self.device(name))
-                .collect(),
-        )
+        Some(names.iter().filter_map(|name| self.device(name)).collect())
     }
 
-    fn device(&self, kernel_name: &str) -> Device {
+    /// `None` for anything that is not a drive worth listing.
+    fn device(&self, kernel_name: &str) -> Option<Device> {
+        if NOT_A_DRIVE_PREFIXES
+            .iter()
+            .any(|prefix| kernel_name.starts_with(prefix))
+        {
+            return None;
+        }
         let dir = format!("{BLOCK_DIR}/{kernel_name}");
+        // Loop, md, nbd and the like have no hardware behind them, which sysfs shows as no `device`.
+        if !self.root.path(&format!("{dir}/{DEVICE_DIR}")).is_dir() {
+            return None;
+        }
+        let size_path = format!("{dir}/{SIZE_FILE}");
+        let is_removable = read_text(&self.root, &format!("{dir}/{REMOVABLE_FILE}")).as_deref()
+            == Some(REMOVABLE_FLAG);
+        // An empty DVD drive or card reader is neither failing nor holding anything.
+        if is_removable && read_size(&self.root, &size_path) == Some(0) {
+            return None;
+        }
         let read_device_file =
             |file: &str| read_text(&self.root, &format!("{dir}/{DEVICE_DIR}/{file}"));
         let model = read_device_file(MODEL_FILE).unwrap_or_else(|| kernel_name.to_owned());
         let serial = read_device_file(SERIAL_FILE)
             .or_else(|| read_device_file(WWID_FILE))
             .unwrap_or_else(|| kernel_name.to_owned());
-        let is_dead = read_device_file(STATE_FILE).as_deref() == Some(DEAD_STATE)
-            || read_text(&self.root, &format!("{dir}/{SIZE_FILE}"))
-                .and_then(|size| size.parse::<u64>().ok())
-                == Some(0);
 
         // A partition's name starts with its disk's; the other entries (`queue`, `power`, ...) do not.
         let partitions: Vec<String> = self
@@ -306,7 +335,7 @@ impl DiskCollector {
             .map(|member| format!("{DEVICE_NODE_DIR}/{member}"))
             .collect();
 
-        Device {
+        Some(Device {
             kernel_name: kernel_name.to_owned(),
             id: format!("{model}{ID_SEPARATOR}{serial}"),
             label: self
@@ -315,12 +344,14 @@ impl DiskCollector {
                 .cloned()
                 .unwrap_or_else(|| model.clone()),
             model,
-            is_dead,
+            is_removable,
+            state_path: format!("{dir}/{DEVICE_DIR}/{STATE_FILE}"),
+            size_path,
             device_numbers,
             device_nodes,
             usage: None,
             previous_sectors: None,
-        }
+        })
     }
 }
 
@@ -451,10 +482,8 @@ fn parse_diskstats(text: &str) -> impl Iterator<Item = (&str, Sectors)> {
     })
 }
 
-fn read_text(root: &SysRoot, rel: &str) -> Option<String> {
-    let text = root.read(rel).ok()?;
-    let text = text.trim();
-    (!text.is_empty()).then(|| text.to_owned())
+fn read_size(root: &SysRoot, rel: &str) -> Option<u64> {
+    read_text(root, rel)?.parse().ok()
 }
 
 #[cfg(test)]

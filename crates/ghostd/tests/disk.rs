@@ -12,8 +12,11 @@ const ONE_SECOND: Duration = Duration::from_secs(1);
 const SERIAL_WIDTH: usize = 20;
 const MODEL_WIDTH: usize = 40;
 const LIVE_SIZE_SECTORS: u64 = 488_397_168;
-const SAMPLES_PER_REFRESH: usize = 60;
+const SAMPLES_PER_REFRESH: u64 = 60;
 const BYTES_PER_SECTOR: u64 = 512;
+const SECTORS_PER_SAMPLE: u64 = 2_000;
+const STEADY_READ_BPS: u64 = SECTORS_PER_SAMPLE * BYTES_PER_SECTOR;
+const OTHER_DRIVES_SECTORS: u64 = 900_000_000;
 
 const KINGSTON_MODEL: &str = "KINGSTON SKC2500M8250G";
 const KINGSTON_SERIAL: &str = "50026B7684E5C533";
@@ -23,6 +26,7 @@ const XPG_MODEL: &str = "XPG GAMMIX S70 BLADE";
 const XPG_SERIAL: &str = "2O412LA45EG7";
 
 const ROOT_USED_PCT: f32 = 42.5;
+const DATA_USED_PCT: f32 = 17.0;
 
 struct FakeDisk {
     name: String,
@@ -32,6 +36,8 @@ struct FakeDisk {
     wwid: Option<&'static str>,
     state: &'static str,
     size_sectors: u64,
+    removable: bool,
+    has_device: bool,
     partitions: Vec<(String, String)>,
 }
 
@@ -45,6 +51,8 @@ impl FakeDisk {
             wwid: None,
             state: "live",
             size_sectors: LIVE_SIZE_SECTORS,
+            removable: false,
+            has_device: true,
             partitions: Vec::new(),
         }
     }
@@ -75,6 +83,21 @@ impl FakeDisk {
         }
     }
 
+    fn removable(self) -> Self {
+        Self {
+            removable: true,
+            ..self
+        }
+    }
+
+    /// Loop, md and nbd devices have no hardware behind them, so sysfs gives them no `device` entry.
+    fn virtual_device(self) -> Self {
+        Self {
+            has_device: false,
+            ..self
+        }
+    }
+
     fn partition(mut self, name: &str, dev: &str) -> Self {
         self.partitions.push((name.to_owned(), dev.to_owned()));
         self
@@ -85,18 +108,24 @@ impl FakeDisk {
         let dir = format!("sys/block/{}", self.name);
         fake.write(&format!("{dir}/dev"), &format!("{}\n", self.dev));
         fake.write(&format!("{dir}/size"), &format!("{}\n", self.size_sectors));
-        fake.write(&format!("{dir}/device/state"), &format!("{}\n", self.state));
         fake.write(
-            &format!("{dir}/device/model"),
-            &format!("{:<MODEL_WIDTH$}\n", self.model),
+            &format!("{dir}/removable"),
+            &format!("{}\n", u8::from(self.removable)),
         );
-        if let Some(serial) = self.serial {
+        if self.has_device {
+            fake.write(&format!("{dir}/device/state"), &format!("{}\n", self.state));
+            fake.write(
+                &format!("{dir}/device/model"),
+                &format!("{:<MODEL_WIDTH$}\n", self.model),
+            );
+        }
+        if let Some(serial) = self.serial.filter(|_| self.has_device) {
             fake.write(
                 &format!("{dir}/device/serial"),
                 &format!("{serial:<SERIAL_WIDTH$}\n"),
             );
         }
-        if let Some(wwid) = self.wwid {
+        if let Some(wwid) = self.wwid.filter(|_| self.has_device) {
             fake.write(&format!("{dir}/device/wwid"), &format!("{wwid}\n"));
         }
         for (name, dev) in &self.partitions {
@@ -134,9 +163,12 @@ struct FakeFs {
 }
 
 impl FakeFs {
-    fn with_usage(mount: &str, used_pct: f32) -> Self {
+    fn with_usage(usage: &[(&str, f32)]) -> Self {
         Self {
-            used_pct: BTreeMap::from([(mount.to_owned(), used_pct)]),
+            used_pct: usage
+                .iter()
+                .map(|(mount, used_pct)| ((*mount).to_owned(), *used_pct))
+                .collect(),
             ..Self::default()
         }
     }
@@ -365,6 +397,52 @@ fn virtual_block_devices_are_not_drives() {
 }
 
 #[test]
+fn devices_without_a_device_entry_are_not_drives() {
+    let fake = FakeRoot::new();
+    FakeDisk::sata("nbd0", "43:0", "nbd", None)
+        .size(0)
+        .virtual_device()
+        .write(&fake);
+    FakeDisk::sata("md0", "9:0", "md", None)
+        .virtual_device()
+        .write(&fake);
+    FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, XPG_SERIAL).write(&fake);
+
+    let snapshot = sample(&fake);
+
+    assert_eq!(kernel_names(&snapshot), ["nvme0n1"]);
+}
+
+#[test]
+fn empty_removable_drives_are_not_drives() {
+    let fake = FakeRoot::new();
+    FakeDisk::sata("sr0", "11:0", "DVD-RW", Some("DVD-1"))
+        .removable()
+        .size(0)
+        .write(&fake);
+    FakeDisk::sata("sdc", "8:32", "USB STICK", Some("USB-1"))
+        .removable()
+        .write(&fake);
+
+    let snapshot = sample(&fake);
+
+    assert_eq!(kernel_names(&snapshot), ["sdc"]);
+    assert_eq!(snapshot.drives[0].state, DriveState::Unmounted);
+}
+
+#[test]
+fn a_fixed_drive_with_no_capacity_is_dead() {
+    let fake = FakeRoot::new();
+    FakeDisk::sata("sda", "8:0", "WDC WD10EZEX-00W", Some("WD-1"))
+        .size(0)
+        .write(&fake);
+
+    let snapshot = sample(&fake);
+
+    assert_eq!(snapshot.drives[0].state, DriveState::Dead);
+}
+
+#[test]
 fn ordering_root_live_dead_unmounted() {
     let fake = FakeRoot::new();
     FakeDisk::sata("sda", "8:0", "WDC WD10EZEX-00W", Some("WD-1"))
@@ -501,13 +579,51 @@ fn io_rates_saturate_when_counters_go_backwards() {
 }
 
 #[test]
+fn io_rate_carries_over_a_rescan_unless_the_drive_changed() {
+    let fake = FakeRoot::new();
+    FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, XPG_SERIAL).write(&fake);
+    let mut disks = collector(&fake);
+
+    // The sample at index `SAMPLES_PER_REFRESH` is the first to rescan the devices.
+    let read_bps: Vec<u64> = (0..2 * SAMPLES_PER_REFRESH)
+        .map(|sample| {
+            write_diskstats(&fake, "nvme0n1", "259:0", sample * SECTORS_PER_SAMPLE, 0);
+            disks.sample_after(ONE_SECOND).drives[0].read_bps
+        })
+        .collect();
+
+    assert_eq!(read_bps[0], 0);
+    assert!(
+        read_bps[1..].iter().all(|bps| *bps == STEADY_READ_BPS),
+        "{read_bps:?}"
+    );
+
+    // A different drive now answers to the same kernel name, with counters of its own.
+    FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, "OTHER-SERIAL").write(&fake);
+    write_diskstats(&fake, "nvme0n1", "259:0", OTHER_DRIVES_SECTORS, 0);
+    let swapped = disks.sample_after(ONE_SECOND);
+    write_diskstats(
+        &fake,
+        "nvme0n1",
+        "259:0",
+        OTHER_DRIVES_SECTORS + SECTORS_PER_SAMPLE,
+        0,
+    );
+    let steady = disks.sample_after(ONE_SECOND);
+
+    assert_eq!(swapped.drives[0].id, "XPG GAMMIX S70 BLADE#OTHER-SERIAL");
+    assert_eq!(swapped.drives[0].read_bps, 0);
+    assert_eq!(steady.drives[0].read_bps, STEADY_READ_BPS);
+}
+
+#[test]
 fn used_pct_is_cached_until_the_refresh_interval() {
     let fake = FakeRoot::new();
     FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, XPG_SERIAL)
         .partition("nvme0n1p1", "259:1")
         .write(&fake);
     write_mounts(&fake, &[mount_line("259:1", "/", "ext4", "/dev/nvme0n1p1")]);
-    let fs = FakeFs::with_usage("/", ROOT_USED_PCT);
+    let fs = FakeFs::with_usage(&[("/", ROOT_USED_PCT)]);
     let calls = Arc::clone(&fs.calls);
     let mut disks = DiskCollector::new(&fake.root(), Box::new(fs), &BTreeMap::new());
 
@@ -544,7 +660,7 @@ fn a_new_mount_is_picked_up_between_rescans() {
     FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, XPG_SERIAL)
         .partition("nvme0n1p1", "259:1")
         .write(&fake);
-    let fs = FakeFs::with_usage("/mnt/data", ROOT_USED_PCT);
+    let fs = FakeFs::with_usage(&[("/mnt/data", ROOT_USED_PCT)]);
     let mut disks = DiskCollector::new(&fake.root(), Box::new(fs), &BTreeMap::new());
 
     let unmounted = disks.sample_after(ONE_SECOND);
@@ -559,6 +675,97 @@ fn a_new_mount_is_picked_up_between_rescans() {
     assert_eq!(mounted.drives[0].state, DriveState::Live);
     assert_eq!(mounted.drives[0].mounts, ["/mnt/data"]);
     assert_eq!(mounted.drives[0].used_pct, Some(ROOT_USED_PCT));
+}
+
+#[test]
+fn a_changed_first_mount_recomputes_used_pct() {
+    let fake = FakeRoot::new();
+    FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, XPG_SERIAL)
+        .partition("nvme0n1p1", "259:1")
+        .partition("nvme0n1p2", "259:2")
+        .write(&fake);
+    let data_mount = mount_line("259:1", "/mnt/data", "ext4", "/dev/nvme0n1p1");
+    let root_mount = mount_line("259:2", "/", "ext4", "/dev/nvme0n1p2");
+    let fs = FakeFs::with_usage(&[("/mnt/data", DATA_USED_PCT), ("/", ROOT_USED_PCT)]);
+    let calls = Arc::clone(&fs.calls);
+    let mut disks = DiskCollector::new(&fake.root(), Box::new(fs), &BTreeMap::new());
+    write_mounts(&fake, std::slice::from_ref(&data_mount));
+
+    let first = disks.sample_after(ONE_SECOND);
+    let cached = disks.sample_after(ONE_SECOND);
+    let calls_before_change = calls.lock().unwrap().len();
+    write_mounts(&fake, &[data_mount, root_mount]);
+    let changed = disks.sample_after(ONE_SECOND);
+
+    assert_eq!(first.drives[0].used_pct, Some(DATA_USED_PCT));
+    assert_eq!(cached.drives[0].used_pct, Some(DATA_USED_PCT));
+    assert_eq!(calls_before_change, 1);
+    assert_eq!(changed.drives[0].mounts, ["/", "/mnt/data"]);
+    assert_eq!(changed.drives[0].used_pct, Some(ROOT_USED_PCT));
+    assert_eq!(calls.lock().unwrap().as_slice(), ["/mnt/data", "/"]);
+}
+
+#[test]
+fn a_non_utf8_mount_point_does_not_hide_other_mounts() {
+    let fake = FakeRoot::new();
+    FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, XPG_SERIAL)
+        .partition("nvme0n1p1", "259:1")
+        .write(&fake);
+    let invalid_utf8_line: &[u8] = b"36 1 0:50 / /mnt/\xff rw - tmpfs tmpfs rw\n";
+    let mut mountinfo = invalid_utf8_line.to_vec();
+    mountinfo.extend(mount_line("259:1", "/", "ext4", "/dev/nvme0n1p1").into_bytes());
+    fake.write_bytes("proc/self/mountinfo", &mountinfo);
+
+    let snapshot = sample(&fake);
+
+    assert_eq!(snapshot.drives[0].state, DriveState::Live);
+    assert_eq!(snapshot.drives[0].mounts, ["/"]);
+}
+
+#[test]
+fn a_drive_that_dies_between_rescans_turns_dead_on_the_next_sample() {
+    let fake = FakeRoot::new();
+    FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, XPG_SERIAL)
+        .partition("nvme0n1p1", "259:1")
+        .write(&fake);
+    write_mounts(&fake, &[mount_line("259:1", "/", "ext4", "/dev/nvme0n1p1")]);
+    let mut disks = collector(&fake);
+
+    let alive = disks.sample_after(ONE_SECOND);
+    fake.write("sys/block/nvme0n1/device/state", "dead\n");
+    let state_dead = disks.sample_after(ONE_SECOND);
+    fake.write("sys/block/nvme0n1/device/state", "live\n");
+    let recovered = disks.sample_after(ONE_SECOND);
+    fake.write("sys/block/nvme0n1/size", "0\n");
+    let size_dead = disks.sample_after(ONE_SECOND);
+
+    assert_eq!(alive.drives[0].state, DriveState::Live);
+    assert_eq!(state_dead.drives[0].state, DriveState::Dead);
+    assert!(state_dead.drives[0].mounts.is_empty());
+    assert_eq!(recovered.drives[0].state, DriveState::Live);
+    assert_eq!(size_dead.drives[0].state, DriveState::Dead);
+}
+
+#[test]
+fn an_ejected_removable_drive_is_unmounted_not_dead() {
+    let fake = FakeRoot::new();
+    FakeDisk::sata("sdc", "8:32", "USB STICK", Some("USB-1"))
+        .removable()
+        .partition("sdc1", "8:33")
+        .write(&fake);
+    write_mounts(
+        &fake,
+        &[mount_line("8:33", "/run/media/usb", "vfat", "/dev/sdc1")],
+    );
+    let mut disks = collector(&fake);
+
+    let inserted = disks.sample_after(ONE_SECOND);
+    fake.write("sys/block/sdc/size", "0\n");
+    write_mounts(&fake, &[]);
+    let ejected = disks.sample_after(ONE_SECOND);
+
+    assert_eq!(inserted.drives[0].state, DriveState::Live);
+    assert_eq!(ejected.drives[0].state, DriveState::Unmounted);
 }
 
 #[test]
