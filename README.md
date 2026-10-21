@@ -270,6 +270,8 @@ Real release daemon, 60 s. The dead WD Green's crit alert animates (stripes plus
 | Daemon (`ghostd`) | 0.33 % | 31 MiB | — |
 | **Together** | **1.58 %** (budget ≤ 2 %) | **245.6 MiB** (budget ≤ 300 MB) | |
 
+A second 60 s run after the next round of fixes measured 1.03 % for the shell (14.92 frames/s) and 0.33 % for the daemon: **1.36 %** together, 245.9 MiB. The runs differ by machine activity rather than by code: those fixes don't touch the render path.
+
 #### Not yet measured
 
 - The installed services on a clean session: the acceptance run at the end of plan 1.
