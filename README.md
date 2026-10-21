@@ -583,6 +583,17 @@ The remaining 1 frame/s is the data panels repainting with each sample. The held
 - With a placeholder clock, the held alert is the only thing on the seconds clock, so its once-a-second frame doesn't line up with the data frame. That costs about 0.035 % of a core.
 - Any widget that already runs once a second (clock, weather, media) absorbs the step, so it adds nothing.
 
+**Stripe speed and step are settings** (`[appearance] alert_stripe_period_s`, default 1.6, and `alert_stripe_step_s`, default 1.0). Held state on the default V1 with the dead drive's alert, counted from 15 s to 35 s after start, fake daemon on a private bus:
+
+| Setting | Held frames/s |
+|---|---|
+| Defaults | 2.05, then 2.00 on a second run (the build before the settings gave 1.10, then 2.05) |
+| `alert_stripe_step_s = 0.5` | 2.45 (2 or 3 in any one second) |
+| `alert_stripe_period_s = 3.2` | 2.00 |
+
+- The defaults vary from launch to launch between about 1 and 2 frames/s, with or without this change. When the daemon's 1 Hz data tick lands in the same vsync as the wall-second boundary, the two share a frame.
+- A step that isn't whole seconds keeps the 15 fps frame clock running while the alert is held. That is about 15 wakeups a second, though Qt still renders only on steps. CPU wasn't measured for this case.
+
 ### Plan 2a: media widget
 
 V1 with the media widget and the user's music playing. Release daemon, read-only on the user's session, rendered into a headless KWin. Load average 0.2–1.5:
