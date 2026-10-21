@@ -16,6 +16,9 @@ japanese = "mixed"
 alert_chips = true
 # How opaque panels are, from 0 (see-through) to 100 (solid).
 panel_fill = 55
+# Frames a second for the media spectrum while music plays: 15, or 30 for smoother bars, which
+# costs more CPU.
+spectrum_fps = 15
 
 # Colours are written as #rrggbb.
 [appearance.colors]

@@ -52,6 +52,30 @@ fn a_non_bool_alert_chips_points_at_its_line_and_the_report_quotes_the_key() {
 }
 
 #[test]
+fn spectrum_fps_defaults_to_15() {
+    assert_eq!(
+        load_str_with_user("", "u").unwrap().appearance.spectrum_fps,
+        15
+    );
+}
+
+#[test]
+fn spectrum_fps_can_be_30() {
+    let c = load_str_with_user("[appearance]\nspectrum_fps = 30\n", "u").unwrap();
+    assert_eq!(c.appearance.spectrum_fps, 30);
+}
+
+#[test]
+fn spectrum_fps_must_be_15_or_30() {
+    for fps in [0, 14, 16, 29, 31, 60] {
+        assert_eq!(
+            rejected(&format!("[appearance]\nspectrum_fps = {fps}\n")),
+            format!("appearance.spectrum_fps: must be 15 or 30, got {fps}")
+        );
+    }
+}
+
+#[test]
 fn brand_can_be_turned_off_and_renamed() {
     let c = load_str_with_user("[bar.brand]\nenabled = false\ntext = \"TKZ//07\"\n", "u").unwrap();
     assert!(!c.bar.brand.enabled);

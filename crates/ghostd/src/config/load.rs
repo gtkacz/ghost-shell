@@ -17,6 +17,8 @@ const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
 const LATITUDE: RangeInclusive<f64> = -90.0..=90.0;
 const LONGITUDE: RangeInclusive<f64> = -180.0..=180.0;
 const MIN_DOT_SPACING: u32 = 1;
+// The shell's two frame clock rates.
+const SPECTRUM_FPS_CHOICES: [u32; 2] = [15, 30];
 const COLOUR_HEX_DIGITS: usize = 6;
 const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
 const HOME_ENV: &str = "HOME";
@@ -130,6 +132,15 @@ fn validate_appearance(appearance: &Appearance) -> Result<(), ConfigError> {
         appearance.scanlines.opacity,
         &PERCENT,
     )?;
+    if !SPECTRUM_FPS_CHOICES.contains(&appearance.spectrum_fps) {
+        return Err(invalid(
+            "appearance.spectrum_fps",
+            format!(
+                "must be {} or {}, got {}",
+                SPECTRUM_FPS_CHOICES[0], SPECTRUM_FPS_CHOICES[1], appearance.spectrum_fps
+            ),
+        ));
+    }
     if appearance.dots.spacing < MIN_DOT_SPACING {
         return Err(invalid(
             "appearance.dots.spacing",

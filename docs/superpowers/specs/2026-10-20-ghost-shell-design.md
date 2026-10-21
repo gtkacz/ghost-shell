@@ -366,7 +366,7 @@ The user switches apps with the taskbar slightly more than with Alt+Tab, and use
 | Disk usage, I/O, drive health | `statvfs`, `/proc/diskstats`, sysfs `nvme*/state`, SMART **[call]** | I/O 1 Hz; usage 60 s; health 10 min |
 | Network rates, links, VPNs, ping | netlink / `/proc/net/dev`, NetworkManager D-Bus, Tailscale local API, ICMP to 1.1.1.1 | 1 Hz; ping 5 s |
 | Live connections for the uplink | netlink sock_diag + an offline GeoIP DB **[call]** | 5 s |
-| Media, spectrum | MPRIS (D-Bus); spectrum from the PipeWire monitor (cava-style FFT) **[call]** | spectrum ~30 fps only while playing and visible |
+| Media, spectrum | MPRIS (D-Bus); spectrum from the PipeWire monitor (cava-style FFT) **[call]** | spectrum drawn at 15 fps by default, 30 with `appearance.spectrum_fps = 30` (user decision, 2026-10-21), only while playing and visible |
 | Weather alerts | INMET `https://apiprevmet3.inmet.gov.br/avisos/ativos`: `hoje` + `futuro`, filtered by geocode `3550308`; fields `descricao`, `severidade`, `data_inicio`/`hora_inicio`, `data_fim`/`hora_fim`, `riscos` (as in the user's script) | 10 min |
 | Forecast, current weather | Open-Meteo for São Paulo **[call]** | 15 min |
 | Session events | logind (PrepareForSleep, session lock/unlock), ScreenSaver D-Bus | event-driven |
@@ -466,7 +466,7 @@ These are measurable targets; the user only said "highly performant".
 - **Frame rate:** the default views are never fully still (the uplink globe, packets, alert stripes and blink), and the monitor runs at 170 Hz, so the dashboard must **never follow the display's refresh rate**.
   - Decorative motion (globe, packets, stripes, ticker, process-tree pulses) runs at a **capped, stepped 15 fps**. Held frames suit the CRT style.
   - The alert blink runs at its own 4 steps per second.
-  - The media spectrum runs at 30 fps, only while music is playing and the spectrum is visible.
+  - The media spectrum runs at 15 fps by default, or 30 with `appearance.spectrum_fps = 30` (user decision, 2026-10-21), only while music is playing and the spectrum is visible.
   - Data panels repaint only when their data changes.
   - The builder chooses how to get there (a frame-paced render loop, separate surfaces for the animated regions, or similar), **before** building panels, because it's expensive to change later.
 - **Desktop visible, default view animating:** shell + daemon ≤ 2 % of one CPU core combined (averaged over 60 s) and ≤ 300 MB RSS combined.

@@ -16,6 +16,7 @@ Singleton {
             japanese: "mixed",
             alert_chips: true,
             panel_fill: 55,
+            spectrum_fps: 15,
             colors: {
                 ground: "#0a0f11",
                 panel: "#0a0f11",
@@ -83,6 +84,8 @@ Singleton {
     readonly property string japanese: appearance.japanese
     // Absent from the config of a daemon older than this key, which must not read as "off".
     readonly property bool alertChips: appearance.alert_chips !== false
+    // Frames a second for the media spectrum, 15 or 30; a daemon older than this key gives none.
+    readonly property int spectrumFps: appearance.spectrum_fps ?? defaultAppearance.spectrum_fps
 
     readonly property real loadWarn: thresholds.load_warn / percent
     readonly property real loadCrit: thresholds.load_crit / percent

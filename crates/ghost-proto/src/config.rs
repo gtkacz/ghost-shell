@@ -41,6 +41,8 @@ pub struct Appearance {
     pub japanese: Japanese,
     pub alert_chips: bool,
     pub panel_fill: u32,
+    /// Frames a second for the media spectrum while music plays: 15 or 30.
+    pub spectrum_fps: u32,
     pub colors: Colors,
     pub dots: Dots,
     pub scanlines: Scanlines,
@@ -54,6 +56,7 @@ impl Default for Appearance {
             japanese: Japanese::default(),
             alert_chips: true,
             panel_fill: 55,
+            spectrum_fps: 15,
             colors: Colors::default(),
             dots: Dots::default(),
             scanlines: Scanlines::default(),

@@ -39,6 +39,7 @@ async fn ui_handshake_then_subscribed_topics_only() {
     assert_eq!(config["t"], "config");
     assert_eq!(config["data"]["appearance"]["panel_fill"], 55);
     assert_eq!(config["data"]["appearance"]["alert_chips"], true);
+    assert_eq!(config["data"]["appearance"]["spectrum_fps"], 15);
     let layout = ui.recv().await;
     assert_eq!(layout["t"], "layout");
     assert_eq!(layout["data"]["views"]["v1"]["widget"], "clock");
