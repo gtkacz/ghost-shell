@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 ghost-proto = { path = "../ghost-proto" }
-nix = { workspace = true, features = ["feature", "fs", "hostname"] }
+nix = { workspace = true, features = ["feature", "fs", "hostname", "signal"] }
 notify.workspace = true
 nvml-wrapper.workspace = true
 serde.workspace = true

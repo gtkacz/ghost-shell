@@ -4,9 +4,13 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use ghost_proto::ProviderSpec;
-use tokio::process::Command;
+use nix::errno::Errno;
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
+use tokio::process::{Child, Command};
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, sleep};
+use tokio::time::{Instant, sleep, timeout};
 use tracing::{info, warn};
 
 /// The environment variable that tells a provider where the daemon's socket is.
@@ -17,8 +21,10 @@ const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
 const RESTART_DELAY_GROWTH: u32 = 2;
 // A provider that ran this long was healthy, so its next exit starts the backoff over.
 const HEALTHY_RUN: Duration = Duration::from_secs(30);
+// How long a provider being stopped may take to exit after SIGTERM before its group is killed.
+const STOP_GRACE: Duration = Duration::from_secs(2);
 
-/// Keeps the configured providers running; dropping it kills them.
+/// Keeps the configured providers running; dropping it kills them and everything they started.
 pub struct Supervisor {
     socket: PathBuf,
     running: BTreeMap<String, Running>,
@@ -27,11 +33,12 @@ pub struct Supervisor {
 struct Running {
     spec: ProviderSpec,
     task: JoinHandle<()>,
+    stop: oneshot::Sender<()>,
 }
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        // Aborting a task drops its child handle, and `kill_on_drop` then kills the process.
+        // Aborting a task drops its `ProcessGroup`, which kills the provider and its children.
         for running in self.running.values() {
             running.task.abort();
         }
@@ -54,16 +61,21 @@ pub fn supervise(specs: &[ProviderSpec], socket: &Path) -> Supervisor {
 }
 
 impl Supervisor {
-    /// Brings the running providers in line with `specs`: starts the new ones, kills the removed
+    /// Brings the running providers in line with `specs`: starts the new ones, stops the removed
     /// ones, restarts those whose spec changed, and leaves the rest, backoff included, alone.
+    ///
+    /// A provider is stopped with SIGTERM to its whole process group, then SIGKILL once
+    /// `STOP_GRACE` has passed, and this returns only after the provider has exited.
     pub async fn reconcile(&mut self, specs: &[ProviderSpec]) {
         let running: Vec<&ProviderSpec> = self.running.values().map(|run| &run.spec).collect();
         let plan = plan(&running, specs);
         for name in plan.stop {
             if let Some(stopped) = self.running.remove(&name) {
-                stopped.task.abort();
-                // Awaited so a restarted provider never runs alongside the one it replaces.
-                let _cancelled = stopped.task.await;
+                // A task that already finished has dropped its receiver, and has nothing to stop.
+                let _ = stopped.stop.send(());
+                // Awaited so a replacement never runs, or holds topics, alongside the process it
+                // replaces.
+                let _exited = stopped.task.await;
                 info!(provider = %name, "provider stopped");
             }
         }
@@ -73,9 +85,14 @@ impl Supervisor {
     }
 
     fn start(&mut self, spec: ProviderSpec) {
-        let task = tokio::spawn(keep_running(spec.clone(), self.socket.clone()));
+        let (stop, stop_requested) = oneshot::channel();
+        let task = tokio::spawn(keep_running(
+            spec.clone(),
+            self.socket.clone(),
+            stop_requested,
+        ));
         let name = spec.name.clone();
-        if let Some(replaced) = self.running.insert(name, Running { spec, task }) {
+        if let Some(replaced) = self.running.insert(name, Running { spec, task, stop }) {
             replaced.task.abort();
         }
     }
@@ -102,11 +119,22 @@ fn plan<'a>(running: &[&ProviderSpec], wanted: &'a [ProviderSpec]) -> Plan<'a> {
     }
 }
 
-async fn keep_running(spec: ProviderSpec, socket: PathBuf) {
+enum RunEnd {
+    Exited,
+    Stopped,
+}
+
+async fn keep_running(
+    spec: ProviderSpec,
+    socket: PathBuf,
+    mut stop_requested: oneshot::Receiver<()>,
+) {
     let mut delay = FIRST_RESTART_DELAY;
     loop {
         let started = Instant::now();
-        run_once(&spec, &socket).await;
+        if let RunEnd::Stopped = run_once(&spec, &socket, &mut stop_requested).await {
+            return;
+        }
         if !spec.restart {
             return;
         }
@@ -114,33 +142,108 @@ async fn keep_running(spec: ProviderSpec, socket: PathBuf) {
             delay = FIRST_RESTART_DELAY;
         }
         info!(provider = %spec.name, "restarting in {delay:?}");
-        sleep(delay).await;
+        tokio::select! {
+            () = sleep(delay) => {}
+            _ = &mut stop_requested => return,
+        }
         delay = (delay * RESTART_DELAY_GROWTH).min(MAX_RESTART_DELAY);
     }
 }
 
-async fn run_once(spec: &ProviderSpec, socket: &Path) {
+async fn run_once(
+    spec: &ProviderSpec,
+    socket: &Path,
+    stop_requested: &mut oneshot::Receiver<()>,
+) -> RunEnd {
     let Some((program, args)) = spec.exec.split_first() else {
         warn!(provider = %spec.name, "provider has an empty exec");
-        return;
+        return RunEnd::Exited;
     };
     let spawned = Command::new(program)
         .args(args)
         .env(SOCKET_ENV, socket)
         .stdin(Stdio::null())
+        // A group of its own, so stopping the provider can reach what it started, such as the
+        // program an `sh -c` wrapper runs, which `kill_on_drop` alone would leave behind.
+        .process_group(0)
         .kill_on_drop(true)
         .spawn();
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
             warn!(provider = %spec.name, %error, "cannot start provider");
-            return;
+            return RunEnd::Exited;
         }
     };
     info!(provider = %spec.name, pid = child.id(), "provider started");
-    match child.wait().await {
-        Ok(status) => warn!(provider = %spec.name, %status, "provider exited"),
-        Err(error) => warn!(provider = %spec.name, %error, "lost track of provider"),
+    let mut group = ProcessGroup::of(&child);
+    tokio::select! {
+        waited = child.wait() => {
+            match waited {
+                Ok(status) => warn!(provider = %spec.name, %status, "provider exited"),
+                Err(error) => warn!(provider = %spec.name, %error, "lost track of provider"),
+            }
+            // A provider that left on its own may have handed its work to a background program,
+            // as `sh -c "prog &"` does, and that program stays.
+            group.release();
+            RunEnd::Exited
+        }
+        _ = stop_requested => {
+            group.terminate(&mut child).await;
+            RunEnd::Stopped
+        }
+    }
+}
+
+/// The process group a provider leads, which holds the provider and whatever it started.
+///
+/// Dropping it kills the group, so a task that is aborted takes the provider's children down with
+/// it; [`ProcessGroup::release`] hands the group back once nothing is left to stop.
+struct ProcessGroup(Option<Pid>);
+
+impl ProcessGroup {
+    /// A provider is its group's leader, so the group's id is the provider's pid.
+    fn of(child: &Child) -> Self {
+        Self(
+            child
+                .id()
+                .and_then(|pid| i32::try_from(pid).ok())
+                .map(Pid::from_raw),
+        )
+    }
+
+    fn release(&mut self) {
+        self.0 = None;
+    }
+
+    fn signal(&self, signal: Signal) {
+        let Some(group) = self.0 else {
+            return;
+        };
+        match killpg(group, signal) {
+            // Nothing left in the group is what stopping wanted.
+            Ok(()) | Err(Errno::ESRCH) => {}
+            Err(error) => warn!(%error, %signal, "cannot signal a provider's process group"),
+        }
+    }
+
+    /// Asks the group to exit, kills it when `STOP_GRACE` runs out, and reaps the provider.
+    async fn terminate(&mut self, child: &mut Child) {
+        self.signal(Signal::SIGTERM);
+        // Only the leader is waited for, but the kill below follows either way, so a child that
+        // outlived it does not outlive the stop.
+        let _ = timeout(STOP_GRACE, child.wait()).await;
+        self.signal(Signal::SIGKILL);
+        if let Err(error) = child.kill().await {
+            warn!(%error, "lost track of a stopped provider");
+        }
+        self.release();
+    }
+}
+
+impl Drop for ProcessGroup {
+    fn drop(&mut self) {
+        self.signal(Signal::SIGKILL);
     }
 }
 

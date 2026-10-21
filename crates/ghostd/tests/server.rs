@@ -589,6 +589,78 @@ async fn supervised_provider_restarts() {
     );
 }
 
+/// A provider that leaves `sleep` running in the background and waits on it, as an `sh -c "prog"`
+/// wrapper does. Both hold the write end of a FIFO, so the returned reader reaches end of file
+/// only once the shell and the sleep are all gone. `preamble` is run by the shell first.
+async fn provider_with_a_child(preamble: &str) -> (providers::Supervisor, pipe::Receiver, TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let starts = dir.path().join("starts");
+    let held = dir.path().join("held");
+    mkfifo(&starts, Mode::S_IRWXU).unwrap();
+    mkfifo(&held, Mode::S_IRWXU).unwrap();
+    let mut started = BufReader::new(
+        pipe::OpenOptions::new()
+            .read_write(true)
+            .open_receiver(&starts)
+            .unwrap(),
+    )
+    .lines();
+    let lifeline = pipe::OpenOptions::new().open_receiver(&held).unwrap();
+    // The sleep is forked before the start is announced, so it exists whenever the test acts.
+    let script = format!(r#"{preamble}exec 3>"$1"; sleep 1000 & echo started > "$0"; wait"#);
+    let spec = ProviderSpec {
+        name: "wrapper".into(),
+        exec: vec![
+            "sh".into(),
+            "-c".into(),
+            script,
+            starts.to_str().unwrap().into(),
+            held.to_str().unwrap().into(),
+        ],
+        restart: false,
+    };
+    let supervisor = providers::supervise(&[spec], &dir.path().join(SOCKET_FILE));
+    next_start(&mut started).await;
+    (supervisor, lifeline, dir)
+}
+
+async fn expect_every_process_gone(lifeline: &mut pipe::Receiver) {
+    let mut leftover = Vec::new();
+    timeout(WAIT, lifeline.read_to_end(&mut leftover))
+        .await
+        .expect("a process of the provider's group is still running")
+        .unwrap();
+}
+
+#[tokio::test]
+async fn removing_a_provider_stops_the_children_it_started() {
+    let (mut supervisor, mut lifeline, _dir) = provider_with_a_child("").await;
+
+    supervisor.reconcile(&[]).await;
+
+    expect_every_process_gone(&mut lifeline).await;
+}
+
+#[tokio::test]
+async fn a_provider_that_ignores_sigterm_is_killed_after_the_grace_period() {
+    let (mut supervisor, mut lifeline, _dir) = provider_with_a_child("trap '' TERM; ").await;
+
+    timeout(WAIT, supervisor.reconcile(&[]))
+        .await
+        .expect("the stop never finished");
+
+    expect_every_process_gone(&mut lifeline).await;
+}
+
+#[tokio::test]
+async fn dropping_the_supervisor_kills_the_children_of_its_providers() {
+    let (supervisor, mut lifeline, _dir) = provider_with_a_child("").await;
+
+    drop(supervisor);
+
+    expect_every_process_gone(&mut lifeline).await;
+}
+
 #[tokio::test]
 async fn stale_socket_is_replaced_and_live_one_is_kept() {
     let dir = tempfile::tempdir().unwrap();
