@@ -1,3 +1,5 @@
 .superpowers/
 target/
 *.qsb
+.serena/
+.claude/

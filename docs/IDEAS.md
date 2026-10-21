@@ -3,3 +3,5 @@
 - Filelight-like component OR an interactable tree viewer of disks
 - Agent usage component
 - Toggleable icons on notifications
+- Alarms/stopwatches
+- Calendar
