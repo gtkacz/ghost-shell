@@ -61,3 +61,14 @@ test("a restarted daemon's first action is not dropped", () => {
   ({ seen } = acceptAction(seen, { action: null, action_seq: 0 }, 2));
   assert.equal(acceptAction(seen, { action: 'swap', action_seq: 1 }, 2).action, 'swap');
 });
+
+test('a wall clock stepped back mid-print waits only for the step, not for the size of the step', () => {
+  assert.equal(stepDelay(12, PRINT_STEPS, MONITOR_MS, -3_600_000), 347);
+  assert.equal(stepDelay(0, PRINT_STEPS, MAIN_MS, -5), 16);
+});
+
+test('a view missing from the layout falls back even while main_views still lists it', () => {
+  const withoutV2 = ['v1', 'monitor'];
+  assert.deepEqual(reconcileViews({ current: 'v2', lastMain: 'v2' }, dash, withoutV2), { current: 'v1', lastMain: 'v1' });
+  assert.deepEqual(reconcileViews({ current: 'monitor', lastMain: 'v2' }, dash, withoutV2), { current: 'monitor', lastMain: 'v1' });
+});

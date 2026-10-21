@@ -52,9 +52,10 @@ export function applyAction(state, action, dashboard, busy = false) {
 
 // After a config or layout change. A view that has gone, or that no shortcut could leave or come
 // back to, is replaced at once, without a print, by the last main view, or the default one if that
-// has gone too.
+// has gone too. The config and the layout arrive separately, so main_views may still list a view the
+// new layout has dropped, which has gone even so.
 export function reconcileViews(state, dashboard, viewNames) {
-  const lastMain = dashboard.main_views.includes(state.lastMain) ? state.lastMain : dashboard.default_view;
+  const lastMain = dashboard.main_views.includes(state.lastMain) && viewNames.includes(state.lastMain) ? state.lastMain : dashboard.default_view;
   const isReachable = dashboard.main_views.includes(state.current) || state.current === dashboard.monitor_view;
   return {
     current: isReachable && viewNames.includes(state.current) ? state.current : lastMain,
@@ -68,9 +69,11 @@ export function revealRows(step, steps, height) {
 
 // The wait, from elapsedMs into the print, before step + 1, which is due at a whole millisecond
 // rounded from its exact time. Measured from the start rather than from the last tick, because timers
-// fire on the animation driver's ticks, a little late, and 24 late ticks would add up.
+// fire on the animation driver's ticks, a little late, and 24 late ticks would add up. elapsedMs is
+// wall-clock time, and below 0 the clock has stepped back past the print's start: waiting for it to
+// catch up would keep the views busy for the size of the step.
 export function stepDelay(step, steps, durationMs, elapsedMs) {
-  return Math.max(1, Math.round((step + 1) * durationMs / steps) - elapsedMs);
+  return Math.max(1, Math.round((step + 1) * durationMs / steps) - Math.max(0, elapsedMs));
 }
 
 // `seen` is the connection the last desktop value arrived on and its action_seq, or null before the
