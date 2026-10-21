@@ -17,7 +17,11 @@ export function litCells(value, lo, hi, cells, min = 0) {
   return Math.max(min, Math.round(clamped * cells));
 }
 
+// Comparisons coerce null to 0, so an unavailable reading must be screened out or it would read as a low-battery alarm.
 export function level(fraction, warnAt, critAt) {
+  if (!Number.isFinite(fraction)) {
+    return 'ok';
+  }
   if (fraction >= critAt) {
     return 'crit';
   }
@@ -28,6 +32,9 @@ export function level(fraction, warnAt, critAt) {
 }
 
 export function levelLow(value, warnAt, critAt) {
+  if (!Number.isFinite(value)) {
+    return 'ok';
+  }
   if (value <= critAt) {
     return 'crit';
   }

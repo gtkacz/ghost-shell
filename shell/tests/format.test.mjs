@@ -21,6 +21,14 @@ test('temperatures round to whole degrees', () => {
   assert.equal(tempShort(64), '64°');
 });
 
+test('rate picks the tier from the rounded value so the field never widens', () => {
+  assert.equal(rate(999.4), '999 B/s');
+  assert.equal(rate(999.6), '1.0 KB/s');
+  assert.equal(rate(999949), '999.9 KB/s');
+  assert.equal(rate(999950), '1.0 MB/s');
+  assert.equal(rate(999999), '1.0 MB/s');
+});
+
 test('gib converts kibibytes to a bare number string', () => {
   assert.equal(gib(96388184), '91.9');
   assert.equal(gib(96388184, 0), '92');
@@ -35,6 +43,10 @@ test('ghz and rpm append their units', () => {
 test('ddmmyy is zero-padded local time', () => {
   assert.equal(ddmmyy(new Date(2026, 9, 20)), '20.10.26');
   assert.equal(ddmmyy(new Date(2026, 0, 5)), '05.01.26');
+});
+
+test('ddmmyy renders an invalid date as dashes', () => {
+  assert.equal(ddmmyy(new Date('not a date')), '--');
 });
 
 test('every formatter renders a missing value as dashes', () => {

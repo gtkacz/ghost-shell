@@ -16,6 +16,13 @@ test('amd gpu names lose the vendor prefix', () => {
   assert.equal(gpuNameShort('AMD Radeon RX 7900 XTX'), 'RX 7900 XTX');
 });
 
+test('short names are empty before the daemon has reported a model', () => {
+  for (const missing of [null, undefined]) {
+    assert.equal(cpuModelShort(missing), '');
+    assert.equal(gpuNameShort(missing), '');
+  }
+});
+
 test('the non-vcache die is titled FREQ', () => {
   assert.equal(ccdTitle({ id: 1, vcache: false }), 'CCD1 · FREQ');
 });

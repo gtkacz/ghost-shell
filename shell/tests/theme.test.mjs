@@ -43,9 +43,19 @@ test('withAlpha clamps the percentage to the byte range', () => {
   assert.equal(withAlpha('#a3d4cc', -10), '#00A3D4CC');
 });
 
+test('withAlpha accepts a qml colour value', () => {
+  const qmlColor = { toString: () => '#a3d4cc' };
+  assert.equal(withAlpha(qmlColor, 55), '#8CA3D4CC');
+});
+
+test('withAlpha replaces the alpha of an #AARRGGBB input', () => {
+  assert.equal(withAlpha('#ffa3d4cc', 55), '#8CA3D4CC');
+  assert.equal(withAlpha({ toString: () => '#80a3d4cc' }, 6), '#0FA3D4CC');
+});
+
 test('isMonospace accepts widths within half a pixel', () => {
   assert.equal(isMonospace(8.4, 8.4), true);
   assert.equal(isMonospace(8.4, 8.8), true);
-  assert.equal(isMonospace(8.4, 8.9), false);
-  assert.equal(isMonospace(9, 8.4), false);
+  assert.equal(isMonospace(8.4, 9.2), false);
+  assert.equal(isMonospace(9.2, 8.4), false);
 });

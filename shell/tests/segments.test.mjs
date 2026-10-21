@@ -15,6 +15,13 @@ test('level is ok below the warn threshold and levelLow above it', () => {
   assert.equal(levelLow(21, 20, 10), 'ok');
 });
 
+test('an unavailable reading is never an alarm', () => {
+  for (const missing of [null, undefined, NaN]) {
+    assert.equal(level(missing, .75, .9), 'ok');
+    assert.equal(levelLow(missing, 20, 10), 'ok');
+  }
+});
+
 test('cellCount never goes negative for a width narrower than one cell', () => {
   assert.equal(cellCount(0), 0);
   assert.equal(cellCount(3), 0);

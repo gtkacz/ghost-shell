@@ -1,6 +1,8 @@
 const MISSING = '--';
 const BYTES_PER_KB = 1e3;
 const BYTES_PER_MB = 1e6;
+const KB_PER_MB = BYTES_PER_MB / BYTES_PER_KB;
+const TENTHS_PER_UNIT = 10;
 const KIB_PER_GIB = 1024 * 1024;
 const MHZ_PER_GHZ = 1000;
 const DATE_FIELD_WIDTH = 2;
@@ -30,17 +32,25 @@ export function gib(kib, dp = 1) {
   return isMissing(kib) ? MISSING : (kib / KIB_PER_GIB).toFixed(dp);
 }
 
+// Rounding to a tenth happens before the tier is chosen, otherwise 999.95 KB/s would print as "1000.0 KB/s" and
+// widen a field whose numbers must never shift.
+function tenthsOf(bps, unitBytes) {
+  return Math.round(bps / (unitBytes / TENTHS_PER_UNIT));
+}
+
 export function rate(bps) {
   if (isMissing(bps)) {
     return MISSING;
   }
-  if (bps < BYTES_PER_KB) {
-    return Math.round(bps) + ' B/s';
+  const bytes = Math.round(bps);
+  if (bytes < BYTES_PER_KB) {
+    return bytes + ' B/s';
   }
-  if (bps < BYTES_PER_MB) {
-    return (bps / BYTES_PER_KB).toFixed(1) + ' KB/s';
+  const kbTenths = tenthsOf(bps, BYTES_PER_KB);
+  if (kbTenths < KB_PER_MB * TENTHS_PER_UNIT) {
+    return (kbTenths / TENTHS_PER_UNIT).toFixed(1) + ' KB/s';
   }
-  return (bps / BYTES_PER_MB).toFixed(1) + ' MB/s';
+  return (tenthsOf(bps, BYTES_PER_MB) / TENTHS_PER_UNIT).toFixed(1) + ' MB/s';
 }
 
 export function ghz(mhz) {

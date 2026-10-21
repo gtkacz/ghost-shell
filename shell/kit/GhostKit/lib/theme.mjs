@@ -4,6 +4,7 @@ const ALPHA_PER_PERCENT = ALPHA_BYTE_MAX / OPAQUE_PERCENT;
 const MONOSPACE_TOLERANCE_PX = 0.5;
 const NO_TAG = '';
 const HEX_BYTE_WIDTH = 2;
+const RGB_HEX_LENGTH = 6;
 const ZERO_PAD = '0';
 
 const FIELD_BY_MODE = Object.freeze({ mixed: 'kanji', kanji: 'kanji', katakana: 'katakana' });
@@ -28,10 +29,13 @@ export function tag(key, mode) {
   return TAGS[key][FIELD_BY_MODE[mode]];
 }
 
+// QML hands over a `color` whose string form is #RRGGBB, or #AARRGGBB when translucent; keeping the last six digits
+// replaces any existing alpha.
 export function withAlpha(hex, pct) {
+  const rgb = String(hex).replace('#', '').slice(-RGB_HEX_LENGTH);
   const alpha = Math.min(ALPHA_BYTE_MAX, Math.max(0, Math.round(pct * ALPHA_PER_PERCENT)));
   const alphaHex = (ZERO_PAD + alpha.toString(16)).slice(-HEX_BYTE_WIDTH);
-  return ('#' + alphaHex + hex.replace('#', '')).toUpperCase();
+  return ('#' + alphaHex + rgb).toUpperCase();
 }
 
 // Digits of unequal advance width mean the configured font is proportional, so numbers would shift.
