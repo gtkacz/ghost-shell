@@ -1,0 +1,7 @@
+module GhostKit
+singleton Data 1.0 Data.qml
+singleton Theme 1.0 Theme.qml
+singleton FrameClock 1.0 FrameClock.qml
+singleton Fmt 1.0 Fmt.qml
+DotGrid 1.0 DotGrid.qml
+Scanlines 1.0 Scanlines.qml
