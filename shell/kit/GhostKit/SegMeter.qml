@@ -15,8 +15,10 @@ Item {
     property bool low: false
     property real warnAt: low ? Theme.batteryWarn / Theme.percent : Theme.loadWarn
     property real critAt: low ? Theme.batteryCrit / Theme.percent : Theme.loadCrit
+    // Whether the reading's own source is live, such as Data.topic(name).live.
+    property bool sourceLive: true
 
-    readonly property bool live: Data.connected && !Data.stale
+    readonly property bool live: Data.connected && !Data.stale && sourceLive
     readonly property bool available: live && Number.isFinite(value)
     readonly property real cellStep: Theme.d(cellPx + gapPx)
     readonly property int cells: Segments.cellCount(width, Theme.d(cellPx), Theme.d(gapPx))

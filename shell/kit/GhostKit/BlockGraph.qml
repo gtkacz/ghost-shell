@@ -18,8 +18,10 @@ Item {
     property real warnAt: Theme.loadWarn
     property real critAt: Theme.loadCrit
     property int minLit: 1
+    // Whether the samples' own source is live, such as Data.topic(name).live.
+    property bool sourceLive: true
 
-    readonly property bool live: Data.connected && !Data.stale
+    readonly property bool live: Data.connected && !Data.stale && sourceLive
     readonly property real gapSize: Theme.d(gap)
     readonly property real cellHeight: Theme.d(cellH)
     readonly property int columnCount: cols > 0 ? cols : Segments.cellCount(width, Theme.d(cellW), gapSize)

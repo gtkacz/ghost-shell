@@ -36,8 +36,10 @@ Item {
     property string level: "warn"
     // A Theme.chip() key; the chip is hidden when the key has no chip in the current Japanese mode.
     property string chipKey
+    // Whether the alert's own source is live, such as Data.topic(name).live.
+    property bool sourceLive: true
 
-    readonly property bool live: Data.connected && !Data.stale
+    readonly property bool live: Data.connected && !Data.stale && sourceLive
     // A stale alert stands still: the daemon is gone, so nothing it reported is current.
     readonly property bool animating: visible && live
     readonly property bool truncated: messageText.truncated

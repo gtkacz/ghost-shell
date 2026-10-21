@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "lib/history.mjs" as HistoryLib
+import "lib/liveness.mjs" as Liveness
 import "lib/subscriptions.mjs" as Subscriptions
 
 Singleton {
@@ -76,6 +77,8 @@ Singleton {
         // Each topic's seq last received on this connection. Every subscribe makes the daemon replay
         // each topic's last message with its seq unchanged, which is not new data.
         property var receivedSeqs: new Map()
+        // Each topic's last topic_state on this connection, kept by liveness.mjs.
+        property var topicStates: Liveness.atConnect()
 
         // Each topic's TopicValue. Filled in place rather than replaced: every binding that calls
         // topic() reads this property, so replacing it would re-run all of them.
@@ -83,8 +86,9 @@ Singleton {
         // What widgets see of the history, replaced as a whole on publish so bindings fire.
         property var history: ({})
         // The latest received state, published on the next frame clock tick while the clock runs:
-        // each topic's newest message, and the history with its gap bookkeeping.
+        // each topic's newest message and source liveness, and the history with its gap bookkeeping.
         property var staged: new Map()
+        property var stagedLiveness: new Map()
         property var track: HistoryLib.fromHistory({})
         property bool historyStaged: false
 
@@ -129,6 +133,7 @@ Singleton {
             connected = true;
             subscribed = null;
             receivedSeqs.clear();
+            resetTopicStates();
             console.info("ghostd connected");
             send({
                 t: "hello",
@@ -184,6 +189,9 @@ Singleton {
                 break;
             case "data":
                 takeData(message);
+                break;
+            case "topic_state":
+                takeTopicState(message);
                 break;
             case "config_error":
                 console.warn("ghostd config problem: " + message.message);
@@ -290,6 +298,24 @@ Singleton {
             publishUnlessAnimating();
         }
 
+        function takeTopicState(message) {
+            topicStates = Liveness.withTopicState(topicStates, message);
+            stageLiveness(message.topic);
+            publishUnlessAnimating();
+        }
+
+        // A topic a dead provider dimmed is live again until the new connection's replay says otherwise.
+        function resetTopicStates() {
+            const previous = topicStates;
+            topicStates = Liveness.atConnect();
+            previous.forEach((_, name) => stageLiveness(name));
+            publishUnlessAnimating();
+        }
+
+        function stageLiveness(name) {
+            stagedLiveness.set(name, Liveness.sourceLive(topicStates, name));
+        }
+
         function historyLength() {
             const minutes = config ? config.dashboard.history_minutes : defaultHistoryMinutes;
             return Math.max(1, Math.floor(minutes * msPerMinute / stepMs));
@@ -305,8 +331,16 @@ Singleton {
         }
 
         // Only the topics that received a message are written, each once with its newest message, so
-        // only their bindings re-run.
+        // only their bindings re-run. Liveness goes first, so a handler on a value already sees whether
+        // its source is live.
         function publish() {
+            if (stagedLiveness.size > 0) {
+                const pendingLiveness = stagedLiveness;
+                stagedLiveness = new Map();
+                pendingLiveness.forEach((live, name) => {
+                    topicValue(name).dataControl.sourceLive = live;
+                });
+            }
             if (staged.size > 0) {
                 const pending = staged;
                 staged = new Map();

@@ -11,7 +11,10 @@ Item {
     property string text
     required property real pixelSize
     property int weight: Font.Bold
-    property color color: Data.connected && !Data.stale ? Theme.hi : Theme.dim
+    // Whether the value's own source is live, such as Data.topic(name).live.
+    property bool sourceLive: true
+    readonly property bool live: Data.connected && !Data.stale && sourceLive
+    property color color: live ? Theme.hi : Theme.dim
 
     readonly property bool monospace: ThemeLib.isMonospace(zero.advanceWidth, one.advanceWidth)
     readonly property real cellWidth: zero.advanceWidth
