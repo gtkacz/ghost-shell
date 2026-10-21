@@ -403,6 +403,29 @@ The daemon now reads only the sources that some client is subscribed to. It also
 - While the dashboard is covered (Plan 2a's occlusion work), the daemon can drop to the first or second row.
 - The history graphs show the skipped time as a gap, not as joined-up lines.
 
+### Plan 2a: weather feed (Open-Meteo)
+
+Three HTTPS requests per 30 min while the `weather` topic is wanted: the forecast every 15 min and air quality every 30 min. None while nothing subscribes. Release build, São Paulo:
+
+| Fetch | Wall | CPU |
+|---|---|---|
+| Forecast, first in the process (cold) | 888 ms | 1.76 ms |
+| Air quality, right after it | 868 ms | 1.41 ms |
+| Forecast, warm, on a new connection | 880 ms | 1.17 ms |
+| Air quality, warm, on a new connection | 859 ms | 0.98 ms |
+
+- **Per 30 min:** ≈ 3.3 ms of CPU, ≈ 0.0002 % of a core. Parsing a response takes ≈ 10 µs.
+- **While wanted:** the feed also wakes once a minute to compare the wall clock with the last fetch, so a system suspend can't leave old weather looking current. Each wake is a clock read.
+- **Daemon, 60 s:**
+
+  | State | CPU | RSS |
+  |---|---|---|
+  | Before the weather feed | 0.00 % | 32 324 KiB |
+  | Weather feed present, not wanted | 0.00 % | 32 884 KiB |
+  | After a fetch | 0.02 % | 36 032 KiB |
+
+  The HTTP client (ureq with rustls) adds ≈ 3.1 MiB of RSS once used, and the binary grows by 2.69 MiB (8 345 008 → 11 165 144 bytes).
+
 ### Plan 2a: per-topic data in the shell
 
 `Data` now keeps one object per topic, so a message re-evaluates only the bindings on its own topic. Previously every message re-ran every topic binding. Default V1 against `ghostd run --fake`, six interleaved 60 s runs; the installed services and several other sessions were running:
