@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use ghost_proto::ResolvedConfig;
@@ -31,7 +31,9 @@ impl Drop for WatchHandle {
 /// last good config stays published. The error channel is unbounded so that reporting never
 /// stalls the reload task or notify's thread.
 ///
-/// Must be called from within a Tokio runtime, because the debounce runs as a spawned task.
+/// Must be called from within a Tokio runtime with the time driver enabled, because the debounce
+/// runs as a spawned task that waits on `tokio::time::timeout`; without the driver that task
+/// panics on the first event.
 pub fn spawn_watcher(
     path: PathBuf,
     initial: ResolvedConfig,
@@ -99,10 +101,12 @@ async fn reload_when_quiet(
     while events.recv().await.is_some() {
         while let Ok(Some(())) = timeout(DEBOUNCE, events.recv()).await {}
 
-        // load_path maps a missing file to the defaults, so existence is checked after loading:
-        // a removal that races the read must not publish those defaults.
+        // load_path maps a missing file to the defaults, so existence is checked on both sides of
+        // the read: a removal racing the read must not publish those defaults, and neither must a
+        // creation racing it.
+        let missing_before_load = is_missing(&path);
         let loaded = load_path(&path);
-        if matches!(path.try_exists(), Ok(false)) {
+        if is_missing(&path) {
             if !removal_reported {
                 // A dropped error receiver only means nobody wants reports; config updates still
                 // publish.
@@ -113,6 +117,10 @@ async fn reload_when_quiet(
             removal_reported = true;
             continue;
         }
+        if missing_before_load {
+            // The creation's own event starts another pass that reads the real contents.
+            continue;
+        }
         removal_reported = false;
         match loaded {
             Ok(config) => publish_if_changed(&config_tx, config),
@@ -121,6 +129,10 @@ async fn reload_when_quiet(
             }
         }
     }
+}
+
+fn is_missing(path: &Path) -> bool {
+    matches!(path.try_exists(), Ok(false))
 }
 
 fn publish_if_changed(config_tx: &watch::Sender<ResolvedConfig>, config: ResolvedConfig) {
