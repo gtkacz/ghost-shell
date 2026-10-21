@@ -179,3 +179,26 @@ fn sky_snapshot_wire_form() {
         )
     );
 }
+#[test]
+fn topic_state_exact_wire_form() {
+    for (live, wire) in [
+        (
+            true,
+            "{\"t\":\"topic_state\",\"topic\":\"weather.alerts\",\"live\":true}\n",
+        ),
+        (
+            false,
+            "{\"t\":\"topic_state\",\"topic\":\"weather.alerts\",\"live\":false}\n",
+        ),
+    ] {
+        let state = ServerMsg::TopicState {
+            topic: topics::WEATHER_ALERTS.into(),
+            live,
+        };
+
+        let line = encode_line(&state);
+
+        assert_eq!(line, wire);
+        assert_eq!(serde_json::from_str::<ServerMsg>(&line).unwrap(), state);
+    }
+}

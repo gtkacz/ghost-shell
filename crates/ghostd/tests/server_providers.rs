@@ -1,14 +1,16 @@
 mod common;
 
 use std::fs;
+use std::future::pending;
 use std::time::{Duration, Instant};
 
 use common::server::*;
-use ghost_proto::ProviderSpec;
-use ghostd::providers;
+use ghost_proto::{ProviderSpec, topics};
+use ghostd::server::{Feed, FeedContext};
+use ghostd::{feeds, providers};
 use nix::sys::stat::Mode;
 use nix::unistd::mkfifo;
-use serde_json::json;
+use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader, Lines};
 use tokio::net::unix::pipe;
@@ -97,6 +99,7 @@ async fn provider_crash_does_not_affect_others() {
     ui.recv_data("w.t").await;
 
     drop(provider);
+    assert_eq!(ui.recv_topic_state("w.t").await["live"], false);
     ui.recv_data("cpu").await;
     ui.recv_data("cpu").await;
 
@@ -107,12 +110,138 @@ async fn provider_crash_does_not_affect_others() {
     assert_eq!(stale.recv_data("w.t").await["data"]["n"], 1);
 
     let mut replacement = daemon.provider("second", &["w.t"]).await;
+    assert_eq!(ui.recv_topic_state("w.t").await["live"], true);
     replacement
         .send(json!({"t": "publish", "topic": "w.t", "data": {"n": 2}}))
         .await;
     let relayed = ui.recv_data("w.t").await;
     assert_eq!(relayed["data"]["n"], 2);
     assert_eq!(relayed["seq"], 2);
+}
+
+#[tokio::test]
+async fn a_claim_and_a_release_send_topic_state() {
+    let daemon = Daemon::start().await;
+    let mut ui = daemon.subscribed_ui(&["w.t"]).await;
+
+    let provider = daemon.provider("first", &["w.t"]).await;
+    assert_eq!(ui.recv_topic_state("w.t").await["live"], true);
+
+    drop(provider);
+    assert_eq!(ui.recv_topic_state("w.t").await["live"], false);
+}
+
+#[tokio::test]
+async fn a_late_subscriber_gets_the_last_value_then_not_live() {
+    let daemon = Daemon::start().await;
+    let mut witness = daemon.subscribed_ui(&["w.t"]).await;
+    let mut provider = daemon.provider("first", &["w.t"]).await;
+    provider
+        .send(json!({"t": "publish", "topic": "w.t", "data": {"n": 1}}))
+        .await;
+    witness.recv_data("w.t").await;
+    drop(provider);
+    assert_eq!(witness.recv_topic_state("w.t").await["live"], false);
+
+    let mut late = daemon.ui().await;
+    late.send(json!({"t": "subscribe", "topics": ["w.t"]}))
+        .await;
+
+    let cached = late.recv().await;
+    assert_eq!(cached["t"], "data");
+    assert_eq!(cached["data"]["n"], 1);
+    assert_eq!(
+        late.recv().await,
+        json!({"t": "topic_state", "topic": "w.t", "live": false})
+    );
+}
+
+#[tokio::test]
+async fn a_claimed_topic_without_a_value_still_replays_its_state() {
+    let daemon = Daemon::start().await;
+    let mut witness = daemon.subscribed_ui(&["w.t"]).await;
+    let _quiet = daemon.provider("quiet", &["w.t"]).await;
+    witness.recv_topic_state("w.t").await;
+
+    let mut late = daemon.ui().await;
+    late.send(json!({"t": "subscribe", "topics": ["w.t"]}))
+        .await;
+
+    assert_eq!(
+        late.recv().await,
+        json!({"t": "topic_state", "topic": "w.t", "live": true})
+    );
+}
+
+/// A feed that publishes `{"n": 1}` on `topic` once some client wants it. On `weather.alerts`, which
+/// is not built in, it stands for a fake-mode alert feed.
+fn feed_when_wanted(topic: &'static str) -> Feed {
+    Feed::new(topic, move |mut context: FeedContext| async move {
+        feeds::until_wanted(&mut context.demand, topic).await;
+        context.publisher.publish(topic, &json!({"n": 1}));
+        pending::<()>().await;
+    })
+}
+
+/// Every message up to and including the first one `last` picks.
+async fn recv_through(client: &mut Client, last: impl Fn(&Value) -> bool) -> Vec<Value> {
+    timeout(WAIT, async {
+        let mut seen = Vec::new();
+        loop {
+            let message = client.recv().await;
+            let done = last(&message);
+            seen.push(message);
+            if done {
+                return seen;
+            }
+        }
+    })
+    .await
+    .expect("the awaited message never arrived")
+}
+
+fn is_data_of(message: &Value, topic: &str) -> bool {
+    message["t"] == "data" && message["topic"] == topic
+}
+
+#[tokio::test]
+async fn built_in_topics_never_get_topic_state() {
+    let daemon = Daemon::start_with_feeds(vec![
+        feed_when_wanted(topics::HOST),
+        feed_when_wanted(topics::WEATHER_ALERTS),
+    ])
+    .await;
+    let sentinel = "x.y";
+    let subscribe = json!({"t": "subscribe", "topics": [
+        topics::CPU, topics::MEM, topics::HOST, topics::WEATHER_ALERTS, sentinel,
+    ]});
+    let mut ui = daemon.ui().await;
+
+    ui.send(subscribe.clone()).await;
+    // A value of each, so that the replay below has one of each to send.
+    let mut seen = Vec::new();
+    for valued in [topics::CPU, topics::HOST, topics::WEATHER_ALERTS] {
+        if !seen.iter().any(|m| is_data_of(m, valued)) {
+            seen.extend(recv_through(&mut ui, |m| is_data_of(m, valued)).await);
+        }
+    }
+    // The replay is queued whole, behind its history, so it has all arrived before the sentinel's
+    // claim is announced.
+    ui.send(subscribe).await;
+    seen.extend(recv_through(&mut ui, |m| m["t"] == "history").await);
+    let _provider = daemon.provider("sentinel", &[sentinel]).await;
+    seen.extend(recv_through(&mut ui, |m| m["t"] == "topic_state").await);
+
+    let states: Vec<&Value> = seen.iter().filter(|m| m["t"] == "topic_state").collect();
+    assert_eq!(
+        states,
+        [&json!({"t": "topic_state", "topic": sentinel, "live": true})]
+    );
+    let alerts = seen
+        .iter()
+        .filter(|m| is_data_of(m, topics::WEATHER_ALERTS))
+        .count();
+    assert_eq!(alerts, 2, "the live value and its replay; got {seen:?}");
 }
 
 /// The `GHOST_SOCKET` value the next provider run wrote into the FIFO.

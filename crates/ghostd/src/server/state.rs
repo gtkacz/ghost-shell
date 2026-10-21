@@ -25,12 +25,41 @@ pub(super) struct LayoutLines {
 struct Topic {
     last: Option<Arc<str>>,
     seq: u64,
-    provider: Option<Provider>,
+    claim: Claim,
+}
+
+/// Where a topic stands with providers, which decides whether it has a live state at all.
+#[derive(Default)]
+enum Claim {
+    /// No provider has claimed it: a built-in, or a topic only fed or subscribed to so far.
+    #[default]
+    Never,
+    Held(Provider),
+    /// Its provider is gone, so its last value is no longer current.
+    Released,
+}
+
+impl Claim {
+    /// Whether a provider publishes the topic, or `None` for one no provider ever claimed.
+    fn live(&self) -> Option<bool> {
+        match self {
+            Self::Never => None,
+            Self::Held(_) => Some(true),
+            Self::Released => Some(false),
+        }
+    }
 }
 
 struct Provider {
     id: u64,
     name: String,
+}
+
+fn topic_state(topic: &str, live: bool) -> Arc<str> {
+    line(&ServerMsg::TopicState {
+        topic: topic.to_owned(),
+        live,
+    })
 }
 
 struct UiClient {
@@ -135,7 +164,8 @@ impl State {
     }
 
     /// Replaces the client's subscriptions, then queues the history of the subscribed built-ins
-    /// and the last value of each subscribed topic.
+    /// and the last value of each subscribed topic, followed by its state if a provider ever
+    /// claimed it.
     pub(super) fn subscribe(&mut self, id: u64, topics: Vec<String>) {
         let mut wanted = HashSet::new();
         let mut replies = Vec::new();
@@ -156,10 +186,11 @@ impl State {
             }));
         }
         for topic in topics {
-            if let Some(last) = self.topics.get(&topic).and_then(|t| t.last.clone())
-                && !wanted.contains(&topic)
+            if !wanted.contains(&topic)
+                && let Some(entry) = self.topics.get(&topic)
             {
-                replies.push(last);
+                replies.extend(entry.last.clone());
+                replies.extend(entry.claim.live().map(|live| topic_state(&topic, live)));
             }
             wanted.insert(topic);
         }
@@ -189,7 +220,7 @@ impl State {
             if topics::BUILTIN.contains(&topic.as_str()) {
                 return Err(format!("topic {topic:?} is built in"));
             }
-            if let Some(owner) = self.topics.get(topic).and_then(|t| t.provider.as_ref()) {
+            if let Some(Claim::Held(owner)) = self.topics.get(topic).map(|t| &t.claim) {
                 return Err(format!(
                     "topic {topic:?} is already provided by {:?}",
                     owner.name
@@ -198,23 +229,32 @@ impl State {
         }
         let id = self.allocate_id();
         for topic in wanted {
-            self.topics.entry(topic.clone()).or_default().provider = Some(Provider {
+            self.topics.entry(topic.clone()).or_default().claim = Claim::Held(Provider {
                 id,
                 name: name.to_owned(),
             });
+            self.announce(topic, true);
         }
         Ok(id)
     }
 
-    /// Frees the provider's topics, which keep their last value for later subscribers.
+    /// Frees the provider's topics, which keep their last value for later subscribers but are no
+    /// longer live.
     pub(super) fn release(&mut self, id: u64, claimed: &[String]) {
         for topic in claimed {
             if let Some(entry) = self.topics.get_mut(topic)
-                && entry.provider.as_ref().is_some_and(|owner| owner.id == id)
+                && matches!(&entry.claim, Claim::Held(owner) if owner.id == id)
             {
-                entry.provider = None;
+                entry.claim = Claim::Released;
+                self.announce(topic, false);
             }
         }
+    }
+
+    /// Tells the topic's subscribers whether a provider publishes it now.
+    fn announce(&mut self, topic: &str, live: bool) {
+        let line = topic_state(topic, live);
+        self.deliver(&line, |client| client.topics.contains(topic));
     }
 
     /// Wraps `data` in the topic's next `Data` message, then caches and relays it.

@@ -214,6 +214,20 @@ impl Client {
         .unwrap_or_else(|_| panic!("no {topic} data arrived in time"))
     }
 
+    pub async fn recv_topic_state(&mut self, topic: &str) -> Value {
+        // One deadline for the whole search, since other topics may keep streaming meanwhile.
+        timeout(WAIT, async {
+            loop {
+                let message = self.recv().await;
+                if message["t"] == "topic_state" && message["topic"] == topic {
+                    return message;
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("no {topic} topic_state arrived in time"))
+    }
+
     /// Skips ahead to a `layout` whose single `v1` slot satisfies `wanted`.
     pub async fn recv_layout_where(&mut self, wanted: impl Fn(&Value) -> bool) -> Value {
         timeout(WAIT, async {

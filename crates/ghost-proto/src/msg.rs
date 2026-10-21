@@ -53,6 +53,12 @@ pub enum ServerMsg {
         seq: u64,
         data: serde_json::Value,
     },
+    /// Whether a provider is publishing the topic. Sent only for topics a provider has claimed, so
+    /// a topic without one is as live as the daemon.
+    TopicState {
+        topic: String,
+        live: bool,
+    },
     Config {
         data: ResolvedConfig,
     },
