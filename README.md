@@ -563,6 +563,17 @@ An alert blinks when it first appears, then holds still. Measured on the default
 
 The remaining 1 frame/s is the data panels repainting with each sample. The held alert adds nothing.
 
+**Held stripes step once a second.** Once an alert has held for its first 10 s, its stripes keep moving in one small jump a second, at the same average speed as the scroll. The text stays still. Held state, 20 s with `QSG_RENDER_TIMING=1`, fake daemon on a private bus:
+
+| Config | Before | After |
+|---|---|---|
+| Default V1, placeholder Clock | 1.05 frames/s | 2.05 frames/s |
+| V1 with the clock widget | 2.05 frames/s | 2.05 frames/s |
+
+- Shell CPU read 0.60–0.70 % in every run.
+- With a placeholder clock, the held alert is the only thing on the seconds clock, so its once-a-second frame doesn't line up with the data frame. That costs about 0.035 % of a core.
+- Any widget that already runs once a second (clock, weather, media) absorbs the step, so it adds nothing.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
