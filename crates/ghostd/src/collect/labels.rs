@@ -1,6 +1,6 @@
 const K10TEMP_CHIP: &str = "k10temp";
 const NUVOTON_CHIP_PREFIX: &str = "nct";
-const ITE_CHIP_PREFIX: &str = "it87";
+const ITE_CHIP_PREFIX: &str = "it8";
 const REALTEK_NIC_CHIP_PREFIX: &str = "r8169";
 
 struct LabelRule {

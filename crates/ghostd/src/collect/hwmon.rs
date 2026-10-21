@@ -103,7 +103,7 @@ impl Sensor {
 ///
 /// Chips are listed in hwmon index order and each chip's inputs in numeric order. The sensor list
 /// is rebuilt every `RESCAN_INTERVAL_SAMPLES` samples, so ordinary ticks only read value files.
-/// Super-I/O chips (`nct*`, `it87*`) are read every `SUPERIO_READ_EVERY` samples, repeating their
+/// Super-I/O chips (`nct*`, `it8*`) are read every `SUPERIO_READ_EVERY` samples, repeating their
 /// last values in between, and list only temperatures that carry a built-in or override label.
 pub struct SensorCollector {
     root: SysRoot,

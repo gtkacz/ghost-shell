@@ -541,28 +541,34 @@ fn rescan_that_finds_no_chips_keeps_the_previous_sensors() {
 }
 
 #[test]
-fn it87_chips_are_super_io_chips_too() {
+fn every_it8xxx_chip_is_a_super_io_chip() {
     let fake = FakeRoot::new();
-    write_chip(
-        &fake,
-        0,
-        "it8728",
-        &[("temp1_input", "40000"), ("fan1_input", "1200")],
-    );
+    for (index, name, rpm) in [(0, "it8728", "1200"), (1, "it8628", "1500")] {
+        write_chip(
+            &fake,
+            index,
+            name,
+            &[("temp1_input", "40000"), ("fan1_input", rpm)],
+        );
+    }
     let mut sensors = collector(&fake);
     let first = sensors.sample();
     fake.write(&format!("{}/fan1_input", chip_dir(0)), "1300\n");
+    fake.write(&format!("{}/fan1_input", chip_dir(1)), "1600\n");
 
     let second = sensors.sample();
 
     assert!(first.temps.is_empty(), "unnamed super-I/O temps are hidden");
     assert_eq!(
         first.fans,
-        vec![reading("it8728/fan1", "IT8728 FAN1", Some(1200.0))]
+        vec![
+            reading("it8728/fan1", "IT8728 FAN1", Some(1200.0)),
+            reading("it8628/fan1", "IT8628 FAN1", Some(1500.0)),
+        ]
     );
     assert_eq!(
         fan_values(&second),
-        [Some(1200.0)],
+        [Some(1200.0), Some(1500.0)],
         "read on a slow cadence"
     );
 }
