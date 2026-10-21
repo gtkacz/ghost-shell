@@ -1,0 +1,76 @@
+use ghost_proto::*;
+
+#[test]
+fn hello_exact_wire_form() {
+    assert_eq!(
+        encode_line(&ServerMsg::Hello {
+            proto: 1,
+            host: "tkacz-workstation".into()
+        }),
+        "{\"t\":\"hello\",\"proto\":1,\"host\":\"tkacz-workstation\"}\n"
+    );
+}
+#[test]
+fn data_envelope_wraps_snapshot() {
+    let v: serde_json::Value = serde_json::from_str(&encode_line(&data_msg(
+        topics::GPU,
+        3,
+        &GpuSnapshot {
+            present: true,
+            ..Default::default()
+        },
+    )))
+    .unwrap();
+    assert_eq!(v["t"], "data");
+    assert_eq!(v["topic"], "gpu");
+    assert_eq!(v["seq"], 3);
+    assert_eq!(v["data"]["present"], true);
+}
+#[test]
+fn provider_messages_decode() {
+    assert_eq!(
+        decode_client_line(
+            r#"{"t":"provide","proto":1,"name":"inmet","topics":["weather.alerts"]}"#
+        )
+        .unwrap(),
+        ClientMsg::Provide {
+            proto: 1,
+            name: "inmet".into(),
+            topics: vec!["weather.alerts".into()]
+        }
+    );
+    assert!(matches!(
+        decode_client_line(r#"{"t":"publish","topic":"weather.alerts","data":{"n":1}}"#).unwrap(),
+        ClientMsg::Publish { .. }
+    ));
+}
+#[test]
+fn topic_names() {
+    assert!(is_valid_topic("weather.alerts"));
+    assert!(is_valid_topic("cpu"));
+    assert!(!is_valid_topic("Weather"));
+    assert!(!is_valid_topic("a..b"));
+    assert!(!is_valid_topic(&"a".repeat(65)));
+}
+#[test]
+fn unavailable_reading_is_null() {
+    assert_eq!(
+        serde_json::to_value(Reading {
+            value: None,
+            ..Default::default()
+        })
+        .unwrap()["value"],
+        serde_json::Value::Null
+    );
+}
+#[test]
+fn drive_state_wire_names() {
+    assert_eq!(
+        serde_json::to_string(&DriveState::Dead).unwrap(),
+        "\"dead\""
+    );
+}
+#[test]
+fn rejects_garbage() {
+    assert!(decode_client_line("{nope").is_err());
+}
