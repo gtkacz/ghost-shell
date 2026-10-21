@@ -298,9 +298,21 @@ Real release daemon, 60 s. The dead WD Green's crit alert animates (stripes plus
 
 A second 60 s run after the next round of fixes measured 1.03 % for the shell (14.92 frames/s) and 0.33 % for the daemon: **1.36 %** together, 245.9 MiB. The runs differ by machine activity rather than by code: those fixes don't touch the render path.
 
-#### Not yet measured
+### Plan 1 acceptance: installed services (`ghostd` + `ghost-shell` user units)
 
-- The installed services on a clean session: the acceptance run at the end of plan 1.
+These measurements are of the installed release build on the live session, with gridlock stopped, Kode Mono installed and the default config plus this machine's settings. The dead drive's crit alert animates throughout. `scripts/measure-cpu.sh` ran on both service PIDs at once:
+
+| Run | Shell CPU | Daemon CPU | **Combined CPU** (≤ 2 %) | **Combined RSS** (≤ 300 MB = 307 200 KiB) |
+|---|---|---|---|---|
+| 1 (60 s) | 0.95 % | 0.37 % | 1.32 % | **313 604 KiB, over budget** |
+| 2 (60 s) | 1.50 % | 0.42 % | 1.92 % | 253 880 KiB |
+| 3 (300 s) | 1.49 % | 0.40 % | 1.89 % | 254 936 KiB |
+
+- **Memory.** Run 1's overrun came from one ≈ 74 MiB anonymous memory block. It appeared in only 3 of 13 shell instances. It is not the font and not shader compilation, and its cause is still under investigation. Without it, shell + daemon use ≈ 254 MB.
+- **CPU.** The margin is thin. The installed shell measured ≈ 1.5 %, against 1.0–1.25 % for the development copy in Task 17, and the reason is also under investigation.
+- **The "nothing animating" budget (≤ 1 %) can't be measured on this machine.** Its dead drive keeps a crit alert animating permanently.
+- **Frames.** They were not counted on the service itself, because that needs a restart with a render-timing variable. An identical copy rendered 15.04 frames/s.
+- **Live config.** All four checks passed: panel fill 30, an invalid colour, swapping two slots, and restoring. Each reload took ≈ 150 ms.
 
 ## License
 
