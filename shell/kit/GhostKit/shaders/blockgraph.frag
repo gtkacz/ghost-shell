@@ -125,9 +125,11 @@ float component(vec4 word, int i) {
 }
 
 // Each component holds an integer below 2^24, which a 32-bit float holds exactly, and each range is a power of two,
-// so dividing by it is exact and the fields come back unchanged.
+// so dividing by it is exact and the fields come back unchanged. The slot and word indices divide by 2, 3, 8 or 12,
+// which GLSL may get a few ULP wrong, so they divide the index plus a half: the quotient then stays at least 1/24 from
+// a whole number, and no such error can move its floor.
 float fieldIn(vec4 word, float index, float fieldsPerComponent, float range) {
-    float slot = floor(index / fieldsPerComponent);
+    float slot = floor((index + 0.5) / fieldsPerComponent);
     float shift = index - slot * fieldsPerComponent;
     float divisor = shift == 0.0 ? 1.0 : (shift == 1.0 ? range : range * range);
     return mod(floor(component(word, int(slot)) / divisor), range);
@@ -135,13 +137,13 @@ float fieldIn(vec4 word, float index, float fieldsPerComponent, float range) {
 
 float columnField(float column) {
     float perWord = COLUMN_FIELDS_PER_COMPONENT * COMPONENTS_PER_WORD;
-    float word = floor(column / perWord);
+    float word = floor((column + 0.5) / perWord);
     return fieldIn(columnWordAt(int(word)), column - word * perWord, COLUMN_FIELDS_PER_COMPONENT, COLUMN_FIELD_RANGE);
 }
 
 float rowAlpha(float row) {
     float perWord = ROW_FIELDS_PER_COMPONENT * COMPONENTS_PER_WORD;
-    float word = floor(row / perWord);
+    float word = floor((row + 0.5) / perWord);
     return fieldIn(rowWordAt(int(word)), row - word * perWord, ROW_FIELDS_PER_COMPONENT, ROW_FIELD_RANGE) / BYTE_MAX;
 }
 

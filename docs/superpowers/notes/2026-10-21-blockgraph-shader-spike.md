@@ -157,7 +157,9 @@ remains:
 - **Limits (ruling R44a).** A full-height graphics slot has up to 181 rows, which a 63-row limit would cap at a wrong
   value. A column is now a 12-bit field (lit count × 4 + level), two to a component: 48 column words and 22 row
   words, 70 in all, hold 384 columns and 264 rows. The packing is in `lib/blockgraph.mjs`, tested in node at both
-  limits, and the ramp's alpha bytes come from `segments.mjs`'s `rampAlphaByte()`.
+  limits, and the ramp's alpha bytes come from `segments.mjs`'s `rampAlphaByte()`. Past 384 columns the oldest stay
+  unlit, which only shortens the history. A slot taller than 264 rows, as on a 4:3, 5:4 or portrait screen, draws
+  its bottom 264 rows with the values scaled to them, leaves the height above empty, and warns once.
 - **Edges on a pixel centre.** The rasteriser snaps a Rectangle's edges to its 1/256 sub-pixel grid, and in
   OpenGL's y-up framebuffer it keeps left and *bottom* edges, not top ones as the spike's comment assumed. Edges land
   exactly on pixel centres at 1.5 and 2.3 design units per pixel. The shader evaluates 1/512 px right of and above

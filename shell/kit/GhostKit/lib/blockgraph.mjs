@@ -5,6 +5,7 @@ import { level, litCells, rampAlphaByte } from './segments.mjs';
 // lowest bits. A column's field is its lit count times LEVELS plus its level code, in 12 bits; a row's is the
 // ramp's alpha byte there.
 const LEVEL_CODES = Object.freeze({ ok: 0, warn: 1, crit: 2 });
+// Four slots for three codes: a power of two keeps the shader's division by it exact.
 const LEVELS = 4;
 const COMPONENTS_PER_WORD = 4;
 const COLUMN_FIELD_RANGE = 4096;
@@ -39,27 +40,35 @@ export function skippedColumns(columns) {
   return Math.max(0, columns - MAX_COLUMNS);
 }
 
-// The column words of a graph `columns` wide and `rows` high; `graph` holds BlockGraph's lo, hi, warnAt, critAt,
-// minLit and live. A series shorter than the graph fills it from the right, and the columns before it read as missing.
+// A slot taller than MAX_ROWS rows gets its bottom MAX_ROWS, with the values scaled to them, so a column never stops
+// short of the value it shows; the height above stays empty.
+export function drawnRows(rows) {
+  return Math.min(rows, MAX_ROWS);
+}
+
+// The column words of a graph `columns` wide whose slot fits `rows`; `graph` holds BlockGraph's lo, hi, warnAt,
+// critAt, minLit and live. A series shorter than the graph fills it from the right, and the columns before it read as
+// missing.
 export function columnWords(series, columns, rows, graph) {
   const samples = series || [];
+  const drawn = drawnRows(rows);
   const fields = [];
   for (let at = skippedColumns(columns); at < columns; at += 1) {
     const index = samples.length - columns + at;
     const sample = index >= 0 ? samples[index] : undefined;
     // A missing sample lights nothing, even below minLit, so it reads as unavailable rather than idle.
-    const lit = graph.live && Number.isFinite(sample) ? litCells(sample, graph.lo, graph.hi, rows, graph.minLit) : 0;
+    const lit = graph.live && Number.isFinite(sample) ? litCells(sample, graph.lo, graph.hi, drawn, graph.minLit) : 0;
     const code = LEVEL_CODES[level((sample - graph.lo) / (graph.hi - graph.lo), graph.warnAt, graph.critAt)];
-    fields.push(Math.min(lit, MAX_ROWS) * LEVELS + code);
+    fields.push(lit * LEVELS + code);
   }
   return pack(fields, COLUMN_WORDS, COLUMN_FIELDS_PER_COMPONENT, COLUMN_FIELD_RANGE);
 }
 
-// Rows past MAX_ROWS are the top ones, and never light.
 export function rowWords(rows) {
+  const drawn = drawnRows(rows);
   const fields = [];
-  for (let row = 0; row < Math.min(rows, MAX_ROWS); row += 1) {
-    fields.push(rampAlphaByte(row, rows));
+  for (let row = 0; row < drawn; row += 1) {
+    fields.push(rampAlphaByte(row, drawn));
   }
   return pack(fields, ROW_WORDS, ROW_FIELDS_PER_COMPONENT, ROW_FIELD_RANGE);
 }

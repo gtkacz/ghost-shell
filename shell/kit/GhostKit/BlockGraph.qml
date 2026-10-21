@@ -6,8 +6,7 @@ import "lib/segments.mjs" as Segments
 // A history graph drawn as an LED matrix: one column of cells per sample, the newest on the right. One shader draws
 // every cell: with a Rectangle per cell, six full-width graphs cost 4 % of a core and 190 MiB and took 185 ms to
 // create, against 0.3 %, 6 MiB and 5 ms (docs/superpowers/notes/2026-10-21-blockgraph-shader-spike.md). The
-// per-column work stays in JavaScript and reaches the shader packed into uniforms, so an update is one uniform change
-// and renders one frame.
+// per-column work stays in JavaScript, and a new sample repacks the uniforms there and renders one frame.
 ShaderEffect {
     id: root
 
@@ -34,7 +33,9 @@ ShaderEffect {
     // reads as almost zero and draws nothing (measured).
     readonly property real columnCount: cols > 0 ? cols : Segments.cellCount(width, Theme.d(cellW), gapSize)
     readonly property real columnWidth: cols > 0 ? (width - (cols - 1) * gapSize) / cols : Theme.d(cellW)
-    readonly property real rowCount: Segments.cellCount(height, cellHeight, gapSize)
+    readonly property real fittedRows: Segments.cellCount(height, cellHeight, gapSize)
+    // The rows drawn: the bottom ones of a slot taller than the packing holds, with the values scaled to them.
+    readonly property real rowCount: Packing.drawnRows(fittedRows)
     // Leftover width goes on the left, so the newest sample always sits on the right edge.
     readonly property real firstColumnX: width - columnCount * (columnWidth + gapSize) + gapSize
     readonly property real skippedColumns: Packing.skippedColumns(columnCount)
@@ -75,10 +76,10 @@ ShaderEffect {
             console.warn("BlockGraph draws at most " + Packing.MAX_COLUMNS + " columns, got " + columnCount + "; the oldest stay unlit");
         }
     }
-    onRowCountChanged: {
-        if (rowCount > Packing.MAX_ROWS && !warnedRows) {
+    onFittedRowsChanged: {
+        if (fittedRows > Packing.MAX_ROWS && !warnedRows) {
             warnedRows = true;
-            console.warn("BlockGraph draws at most " + Packing.MAX_ROWS + " rows, got " + rowCount + "; the top ones stay unlit");
+            console.warn("BlockGraph draws only the bottom " + Packing.MAX_ROWS + " rows of a slot that fits " + fittedRows + "; the height above stays empty");
         }
     }
 

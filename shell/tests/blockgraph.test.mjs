@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { COLUMN_WORDS, MAX_COLUMNS, MAX_ROWS, ROW_WORDS, columnWords, rowWords, skippedColumns } from '../kit/GhostKit/lib/blockgraph.mjs';
+import { COLUMN_WORDS, MAX_COLUMNS, MAX_ROWS, ROW_WORDS, columnWords, drawnRows, rowWords, skippedColumns } from '../kit/GhostKit/lib/blockgraph.mjs';
 import { litCells, rampAlphaByte } from '../kit/GhostKit/lib/segments.mjs';
 
 const GRAPH = Object.freeze({ lo: 0, hi: 100, warnAt: 0.75, critAt: 0.9, minLit: 1, live: true });
@@ -12,20 +12,20 @@ const FLOAT_EXACT_LIMIT = 2 ** 24;
 // blockgraph.frag's unpacking, in 32-bit float arithmetic as the shader does it.
 const f32 = Math.fround;
 function fieldIn(word, index, perComponent, range) {
-  const slot = Math.floor(index / perComponent);
+  const slot = Math.floor(f32((index + 0.5) / perComponent));
   const shift = index - slot * perComponent;
   const divisor = shift === 0 ? 1 : shift === 1 ? range : range * range;
   const shifted = Math.floor(f32(f32(word[slot]) / divisor));
   return f32(shifted - range * Math.floor(f32(shifted / range)));
 }
 function column(words, at) {
-  const word = Math.floor(at / 8);
+  const word = Math.floor(f32((at + 0.5) / 8));
   const field = fieldIn(words[word], at - word * 8, 2, 4096);
   const lit = Math.floor(field / 4);
   return { lit, level: field - lit * 4 };
 }
 function rowAlphaByte(words, row) {
-  const word = Math.floor(row / 12);
+  const word = Math.floor(f32((row + 0.5) / 12));
   return fieldIn(words[word], row - word * 12, 3, 256);
 }
 
@@ -86,17 +86,31 @@ test('past 384 columns only the newest 384 are packed', () => {
   }
 });
 
-test('past 264 rows a full column lights only the lowest 264', () => {
-  const words = columnWords([100], 1, MAX_ROWS + 36, GRAPH);
-  assert.equal(column(words, 0).lit, MAX_ROWS);
+test('past 264 rows the graph draws its bottom 264 and scales its values to them', () => {
+  const fitted = MAX_ROWS + 36;
+  assert.equal(drawnRows(fitted), MAX_ROWS);
+  assert.equal(drawnRows(20), 20);
+  assert.equal(column(columnWords([100], 1, fitted, GRAPH), 0).lit, MAX_ROWS);
+  assert.equal(column(columnWords([50], 1, fitted, GRAPH), 0).lit, MAX_ROWS / 2);
+  assert.ok(column(columnWords([88], 1, fitted, GRAPH), 0).lit < MAX_ROWS);
 });
 
-test('the row words hold the ramp\'s alpha byte for each row up to 264', () => {
+test('the row words hold the ramp\'s alpha byte for each row drawn', () => {
   for (const rows of [1, 17, MAX_ROWS, MAX_ROWS + 36]) {
     const words = rowWords(rows);
-    for (let row = 0; row < Math.min(rows, MAX_ROWS); row += 1) {
-      assert.equal(rowAlphaByte(words, row), rampAlphaByte(row, rows), `row ${row} of ${rows}`);
+    const drawn = drawnRows(rows);
+    for (let row = 0; row < drawn; row += 1) {
+      assert.equal(rowAlphaByte(words, row), rampAlphaByte(row, drawn), `row ${row} of ${rows}`);
     }
+  }
+});
+
+test('a series longer than the graph shows its newest samples, the newest on the right', () => {
+  const history = series(300);
+  const words = columnWords(history, 69, 13, GRAPH);
+  for (let at = 0; at < 69; at += 1) {
+    const value = history[300 - 69 + at];
+    assert.equal(column(words, at).lit, Number.isFinite(value) ? litCells(value, 0, 100, 13, 1) : 0, `column ${at}`);
   }
 });
 
