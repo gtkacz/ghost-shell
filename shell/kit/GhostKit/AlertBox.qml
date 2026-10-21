@@ -1,10 +1,12 @@
 import QtQuick
 import Quickshell
+import "lib/attention.mjs" as Attention
 import "lib/theme.mjs" as ThemeLib
 
 // A boxed alert: a coloured left edge, scrolling stripes, and text that flickers in on arrival and then
-// blinks like the boot cursor. That lasts ATTENTION_MS from the first time the alert is shown, and then the box
-// holds still at full colour. Every step lands on a FrameClock tick, so it adds no frames of its own.
+// blinks like the boot cursor. That lasts ATTENTION_MS from the first time the alert is shown, and then the text
+// holds still at full colour while the stripes step once a second. Every step lands on a FrameClock tick or
+// second, so it adds no frames of its own.
 Item {
     id: root
 
@@ -59,6 +61,7 @@ Item {
 
     property real appearedAt: 0
     property bool holdsClock: false
+    property bool holdsSeconds: false
 
     readonly property real contentOpacity: {
         if (!holdsClock) {
@@ -93,6 +96,19 @@ Item {
         holdsClock = wanted;
     }
 
+    // Past its window a shown alert needs the clock only at second boundaries, for its stripes' steps.
+    function holdSeconds(wanted) {
+        if (wanted === holdsSeconds) {
+            return;
+        }
+        if (wanted) {
+            FrameClock.acquireSeconds();
+        } else {
+            FrameClock.releaseSeconds();
+        }
+        holdsSeconds = wanted;
+    }
+
     // Rounded up: a box at exactly its implicit width gives the message its measured width less a floating-point
     // error, which is enough for the text to elide its last characters.
     implicitWidth: Math.ceil(Theme.d(edgePx + 2 * sidePaddingPx) + (hasChip ? chip.width + gap : 0) + messageText.implicitWidth
@@ -110,6 +126,7 @@ Item {
         } else {
             attentionTimer.stop();
         }
+        holdSeconds(shown && !attracting);
     }
 
     onShownChanged: claimAttention()
@@ -120,8 +137,13 @@ Item {
         claimAttention();
     }
     onAnimatingChanged: holdClock(animating)
+    // The attention timer ends the window without a change of `shown`, so claimAttention() does not run.
+    onAttractingChanged: holdSeconds(shown && !attracting)
     Component.onCompleted: claimAttention()
-    Component.onDestruction: holdClock(false)
+    Component.onDestruction: {
+        holdClock(false);
+        holdSeconds(false);
+    }
 
     Timer {
         id: attentionTimer
@@ -133,7 +155,8 @@ Item {
         property color stripeColor: ThemeLib.withAlpha(root.levelColor, root.stripeAlphaPct)
         // Whole physical pixels, so every stripe has the same staircase edge.
         property real tile: Math.max(1, Math.round(Theme.d(root.tilePx) * root.pixelRatio))
-        property real phase: root.holdsClock ? tile * (FrameClock.elapsedMs % root.stripePeriodMs) / root.stripePeriodMs : 0
+        property real phase: root.holdsClock ? tile * (FrameClock.elapsedMs % root.stripePeriodMs) / root.stripePeriodMs
+            : root.holdsSeconds ? Attention.heldStripePhase(FrameClock.epochSecond, tile, root.stripePeriodMs) : 0
         property size resolution: Qt.size(width * root.pixelRatio, height * root.pixelRatio)
 
         anchors.fill: parent

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ATTENTION_MS, attentionLeftMs, firstShown } from '../kit/GhostKit/lib/attention.mjs';
+import { ATTENTION_MS, attentionLeftMs, firstShown, heldStripePhase } from '../kit/GhostKit/lib/attention.mjs';
 
 const T0 = 1_000_000;
 
@@ -40,4 +40,44 @@ test('a new alert gets its own window while an old one stays still', () => {
 
 test('a clock that steps back to before the first showing leaves nothing to blink', () => {
   assert.equal(attentionLeftMs(T0, T0 - 5_000), 0);
+});
+
+const TILE_PX = 16;
+const STRIPE_PERIOD_MS = 1600;
+const phaseAt = (epochSecond, tilePx = TILE_PX) => heldStripePhase(epochSecond, tilePx, STRIPE_PERIOD_MS);
+
+test('a held alert steps its stripes 10 px a second on a 16 px tile', () => {
+  const phases = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((second) => phaseAt(second));
+  assert.deepEqual(phases, [0, 10, 4, 14, 8, 2, 12, 6, 0]);
+});
+
+test('the held phase follows the wall clock second, not when the box appeared', () => {
+  assert.equal(phaseAt(1_800_000_003), 14);
+  assert.equal(phaseAt(1_800_000_004), 8);
+});
+
+test('the held phase wraps at the tile and repeats every eight seconds', () => {
+  for (let second = 0; second < 64; second += 1) {
+    assert.ok(phaseAt(second) >= 0 && phaseAt(second) < TILE_PX);
+    assert.equal(phaseAt(second + 8), phaseAt(second));
+  }
+});
+
+test('the held phase keeps the scroll speed of one tile per 1.6 seconds', () => {
+  const advancedPx = Array.from({ length: 8 }, (_, second) => (phaseAt(second + 1) - phaseAt(second) + TILE_PX) % TILE_PX);
+  assert.equal(advancedPx.reduce((total, step) => total + step, 0), 5 * TILE_PX);
+});
+
+test('the held phase is in whole pixels at any scale', () => {
+  for (const tilePx of [1, 13, 16, 21, 24, 32]) {
+    for (let second = 0; second < 16; second += 1) {
+      const phase = phaseAt(second, tilePx);
+      assert.ok(Number.isInteger(phase), `tile ${tilePx}, second ${second}: ${phase}`);
+      assert.ok(phase >= 0 && phase < tilePx);
+    }
+  }
+});
+
+test('the held phase scales with the tile', () => {
+  assert.equal(phaseAt(1, 32), 20);
 });

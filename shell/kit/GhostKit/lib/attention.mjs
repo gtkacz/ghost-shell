@@ -19,3 +19,13 @@ export function attentionLeftMs(shownMs, nowMs) {
   }
   return Math.max(0, ATTENTION_MS - (nowMs - shownMs));
 }
+
+const MS_PER_SECOND = 1000;
+
+// A held alert's stripes advance once per wall-clock second instead of scrolling, which keeps the scroll's average
+// speed (one tile per period) without a frame clock of their own. Floored, so the phase is whole pixels and stays
+// below the tile.
+export function heldStripePhase(epochSecond, tilePx, periodMs) {
+  const intoPeriodMs = (epochSecond * MS_PER_SECOND) % periodMs;
+  return Math.floor(tilePx * intoPeriodMs / periodMs);
+}
