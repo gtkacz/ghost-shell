@@ -11,6 +11,7 @@ mod session;
 mod state;
 mod widget_watch;
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::num::NonZeroU32;
 use std::os::unix::fs::{FileTypeExt, OpenOptionsExt, PermissionsExt};
@@ -24,7 +25,7 @@ use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
 use nix::unistd::gethostname;
 use tokio::net::UnixListener;
-use tokio::task::{JoinError, JoinSet};
+use tokio::task::{self, JoinError, JoinSet};
 
 pub use feed::ConfigFeed;
 use feed::{ProblemReporter, Reloader, follow_config};
@@ -138,8 +139,8 @@ pub enum ServeError {
     #[error("sampling stopped: {0}")]
     Sampling(#[from] JoinError),
     // Feeds never end by design, so one that did has left its topics frozen just the same.
-    #[error("a feed stopped: {0}")]
-    Feed(FeedEnd),
+    #[error("feed {name:?} stopped: {end}")]
+    Feed { name: &'static str, end: FeedEnd },
 }
 
 /// How a feed ended.
@@ -185,7 +186,7 @@ pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
     let shared = reloader.shared();
     let updates = config.subscribe();
     let demand = shared.lock().demand();
-    let mut running_feeds = start_feeds(feeds, &shared, &config);
+    let mut running_feeds = RunningFeeds::start(feeds, &shared, &config);
 
     let clients = {
         let shared = shared.clone();
@@ -199,29 +200,49 @@ pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
     };
     tokio::select! {
         error = sample_forever(shared, collectors, tick_ms, updates, demand) => error,
-        Some(ended) = running_feeds.join_next() => ServeError::Feed(match ended {
-            Ok(()) => FeedEnd::Returned,
-            Err(error) => FeedEnd::Failed(error),
-        }),
+        Some(error) = running_feeds.ended() => error,
         never = clients => match never {},
     }
 }
 
-/// Spawns every feed with a publisher into the hub, in a set that aborts them when dropped.
-fn start_feeds(feeds: Vec<Feed>, shared: &Shared, config: &ConfigFeed) -> JoinSet<()> {
-    let publisher = {
-        let shared = shared.clone();
-        Publisher::new(move |topic, data| shared.lock().publish(topic, data))
-    };
-    let mut running = JoinSet::new();
-    for feed in feeds {
-        running.spawn(feed(FeedContext {
-            publisher: publisher.clone(),
-            demand: shared.lock().demand(),
-            config: config.subscribe(),
-        }));
+/// The feeds' tasks, which are aborted when this is dropped, and the feed each one runs.
+struct RunningFeeds {
+    tasks: JoinSet<()>,
+    names: HashMap<task::Id, &'static str>,
+}
+
+impl RunningFeeds {
+    /// Spawns every feed with a publisher into the hub.
+    fn start(feeds: Vec<Feed>, shared: &Shared, config: &ConfigFeed) -> Self {
+        let publisher = {
+            let shared = shared.clone();
+            Publisher::new(move |topic, data| shared.lock().publish(topic, data))
+        };
+        let mut tasks = JoinSet::new();
+        let mut names = HashMap::new();
+        for feed in feeds {
+            let name = feed.name();
+            let running = tasks.spawn(feed.run(FeedContext {
+                publisher: publisher.clone(),
+                demand: shared.lock().demand(),
+                config: config.subscribe(),
+            }));
+            names.insert(running.id(), name);
+        }
+        Self { tasks, names }
     }
-    running
+
+    /// Waits for a feed to end, or returns `None` at once when there are none.
+    async fn ended(&mut self) -> Option<ServeError> {
+        let (id, end) = match self.tasks.join_next_with_id().await? {
+            Ok((id, ())) => (id, FeedEnd::Returned),
+            Err(error) => (error.id(), FeedEnd::Failed(error)),
+        };
+        Some(ServeError::Feed {
+            name: self.names[&id],
+            end,
+        })
+    }
 }
 
 fn host_name() -> String {

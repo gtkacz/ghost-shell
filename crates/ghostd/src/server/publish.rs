@@ -31,6 +31,9 @@ impl Publisher {
 }
 
 /// The union of every UI client's subscriptions, sent only when it changes.
+///
+/// Never hold a `borrow()` of it across [`Publisher::publish`]: the hub updates the demand while
+/// holding the lock that publishing takes, so the two would deadlock.
 pub type Demand = watch::Receiver<BTreeSet<String>>;
 
 pub struct FeedContext {
@@ -39,8 +42,38 @@ pub struct FeedContext {
     pub config: watch::Receiver<ResolvedConfig>,
 }
 
+type FeedTask = Pin<Box<dyn Future<Output = ()> + Send>>;
+
 /// A built-in source that publishes from an async task instead of being sampled every tick.
 ///
-/// Its future must never complete: one that has nothing to do publishes its fallback and waits
+/// Its task must never complete: one that has nothing to do publishes its fallback and waits
 /// forever, because `serve` stops with [`super::ServeError::Feed`] when a feed ends or panics.
-pub type Feed = Box<dyn FnOnce(FeedContext) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>;
+pub struct Feed {
+    name: &'static str,
+    start: Box<dyn FnOnce(FeedContext) -> FeedTask + Send>,
+}
+
+impl Feed {
+    /// `name` identifies the feed in the error `serve` stops with should it end.
+    pub fn new<Task>(
+        name: &'static str,
+        start: impl FnOnce(FeedContext) -> Task + Send + 'static,
+    ) -> Self
+    where
+        Task: Future<Output = ()> + Send + 'static,
+    {
+        Self {
+            name,
+            start: Box::new(move |context| Box::pin(start(context))),
+        }
+    }
+
+    pub(super) fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// The feed's task, started with `context`; `serve` runs it once.
+    pub fn run(self, context: FeedContext) -> impl Future<Output = ()> + Send + 'static {
+        (self.start)(context)
+    }
+}

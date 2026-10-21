@@ -464,21 +464,19 @@ const KERNEL: &str = "7.2.11-200.fc44.x86_64";
 const UPTIME_S: u64 = 8047;
 
 fn host() -> Feed {
-    Box::new(|context| {
-        Box::pin(async move {
-            let now_s = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |since_epoch| since_epoch.as_secs());
-            context.publisher.publish(
-                topics::HOST,
-                &HostSnapshot {
-                    hostname: HOSTNAME.to_owned(),
-                    kernel: KERNEL.to_owned(),
-                    boot_time_s: now_s.saturating_sub(UPTIME_S),
-                },
-            );
-            pending::<()>().await;
-        })
+    Feed::new(topics::HOST, |context| async move {
+        let now_s = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since_epoch| since_epoch.as_secs());
+        context.publisher.publish(
+            topics::HOST,
+            &HostSnapshot {
+                hostname: HOSTNAME.to_owned(),
+                kernel: KERNEL.to_owned(),
+                boot_time_s: now_s.saturating_sub(UPTIME_S),
+            },
+        );
+        pending::<()>().await;
     })
 }
 

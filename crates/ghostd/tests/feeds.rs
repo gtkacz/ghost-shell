@@ -22,6 +22,8 @@ const NEW_BUILTINS: [&str; 5] = [
     topics::SPECTRUM,
 ];
 const BOOT_TIME_S: u64 = 1_792_500_000;
+const RETURNING_FEED: &str = "returning";
+const PANICKING_FEED: &str = "panicking";
 
 fn ticks(count: u64) -> Duration {
     Duration::from_millis(u64::from(TICK_MS) * count)
@@ -51,15 +53,13 @@ fn topic_set(names: &[&str]) -> BTreeSet<String> {
 
 /// Forwards every demand it sees, starting with the one in place when it starts.
 fn forwarding_feed(demands: mpsc::UnboundedSender<BTreeSet<String>>) -> Feed {
-    Box::new(move |mut context: FeedContext| {
-        Box::pin(async move {
-            loop {
-                let current = context.demand.borrow_and_update().clone();
-                if demands.send(current).is_err() || context.demand.changed().await.is_err() {
-                    pending::<()>().await;
-                }
+    Feed::new("forwarding", move |mut context: FeedContext| async move {
+        loop {
+            let current = context.demand.borrow_and_update().clone();
+            if demands.send(current).is_err() || context.demand.changed().await.is_err() {
+                pending::<()>().await;
             }
-        })
+        }
     })
 }
 
@@ -83,21 +83,19 @@ fn sample_host() -> HostSnapshot {
 
 /// Publishes `host` once, as soon as some client wants it.
 fn host_when_wanted() -> Feed {
-    Box::new(|mut context: FeedContext| {
-        Box::pin(async move {
-            feeds::until_wanted(&mut context.demand, topics::HOST).await;
-            context.publisher.publish(topics::HOST, &sample_host());
-            pending::<()>().await;
-        })
+    Feed::new("host when wanted", |mut context: FeedContext| async move {
+        feeds::until_wanted(&mut context.demand, topics::HOST).await;
+        context.publisher.publish(topics::HOST, &sample_host());
+        pending::<()>().await;
     })
 }
 
 fn returning_feed() -> Feed {
-    Box::new(|_| Box::pin(async {}))
+    Feed::new(RETURNING_FEED, |_| async {})
 }
 
 fn panicking_feed() -> Feed {
-    Box::new(|_| Box::pin(async { panic!("the feed hit a bug") }))
+    Feed::new(PANICKING_FEED, |_| async { panic!("the feed hit a bug") })
 }
 
 /// Runs `feed` on its own and returns the first value it publishes.
@@ -112,7 +110,7 @@ async fn first_publish(feed: Feed) -> (String, Value) {
         demand,
         config,
     };
-    let _running = tokio::spawn(feed(context));
+    let _running = tokio::spawn(feed.run(context));
     timeout(WAIT, values.recv())
         .await
         .expect("the feed published nothing in time")
@@ -239,7 +237,13 @@ async fn serving_stops_with_an_error_when_a_feed_returns() {
         .expect("the daemon kept serving after a feed returned")
         .unwrap();
     assert!(
-        matches!(error, ServeError::Feed(FeedEnd::Returned)),
+        matches!(
+            error,
+            ServeError::Feed {
+                name: RETURNING_FEED,
+                end: FeedEnd::Returned
+            }
+        ),
         "{error}"
     );
 }
@@ -253,9 +257,14 @@ async fn serving_stops_with_an_error_when_a_feed_panics() {
     let error = stopped
         .expect("the daemon kept serving after a feed panicked")
         .unwrap();
-    let ServeError::Feed(FeedEnd::Failed(failure)) = &error else {
+    let ServeError::Feed {
+        name,
+        end: FeedEnd::Failed(failure),
+    } = &error
+    else {
         panic!("expected a failed feed, got {error}");
     };
+    assert_eq!(*name, PANICKING_FEED);
     assert!(failure.is_panic(), "{error}");
     assert!(error.to_string().contains("the feed hit a bug"), "{error}");
 }

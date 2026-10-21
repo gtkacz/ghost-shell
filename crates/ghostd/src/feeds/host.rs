@@ -17,14 +17,12 @@ const BOOT_TIME_PREFIX: &str = "btime ";
 /// Publishes the host once at start, since none of its values changes without a reboot or an
 /// explicit `hostnamectl`. A value that cannot be read is published as `""` or 0.
 pub fn feed(root: SysRoot) -> Feed {
-    Box::new(move |context| {
-        Box::pin(async move {
-            let host = spawn_blocking(move || read_host(&root))
-                .await
-                .expect("reading the host files never panics");
-            context.publisher.publish(topics::HOST, &host);
-            pending::<()>().await;
-        })
+    Feed::new(topics::HOST, move |context| async move {
+        let host = spawn_blocking(move || read_host(&root))
+            .await
+            .expect("reading the host files never panics");
+        context.publisher.publish(topics::HOST, &host);
+        pending::<()>().await;
     })
 }
 
