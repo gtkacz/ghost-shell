@@ -11,6 +11,8 @@ Singleton {
 
     // 67 ms is 14.93 frames/s; 66 ms would be 15.15 and break the 15 frames/s ceiling.
     readonly property int intervalMs: 67
+    // 33 ms is 30.30 frames/s, for the one thing that needs it: a visible, playing spectrum (spike decision 3).
+    readonly property int fastIntervalMs: 33
     readonly property int blinkStepMs: 250
     readonly property var blinkSteps: [1, 0.5, 0, 0.5]
 
@@ -26,6 +28,8 @@ Singleton {
     readonly property int frame: ticker.frame
     readonly property real elapsedMs: ticker.elapsedMs
     readonly property real blinkOpacity: blinkSteps[Math.floor(elapsedMs / blinkStepMs) % blinkSteps.length]
+    // Whole seconds since the epoch, kept current only while something holds acquireSeconds().
+    readonly property double epochSecond: seconds.epoch
 
     function acquire() {
         ticker.users += 1;
@@ -39,19 +43,91 @@ Singleton {
         ticker.users -= 1;
     }
 
+    // Runs the clock like acquire(), at the fast interval for as long as any fast holder remains.
+    function acquireFast() {
+        ticker.fastUsers += 1;
+    }
+
+    function releaseFast() {
+        if (ticker.fastUsers === 0) {
+            console.warn("FrameClock.releaseFast() called without a matching acquireFast()");
+            return;
+        }
+        ticker.fastUsers -= 1;
+    }
+
+    function acquireSeconds() {
+        seconds.users += 1;
+        seconds.sync();
+    }
+
+    function releaseSeconds() {
+        if (seconds.users === 0) {
+            console.warn("FrameClock.releaseSeconds() called without a matching acquireSeconds()");
+            return;
+        }
+        seconds.users -= 1;
+    }
+
     Timer {
         id: ticker
 
         property int users: 0
+        property int fastUsers: 0
         property int frame: 0
         property real elapsedMs: 0
 
-        interval: root.intervalMs
+        interval: fastUsers > 0 ? root.fastIntervalMs : root.intervalMs
         repeat: true
-        running: users > 0 && !root.suspended
+        running: users + fastUsers > 0 && !root.suspended
         onTriggered: {
             frame += 1;
             elapsedMs += interval;
+            // The tick that crosses a second boundary carries the new second, so a held clock needs no
+            // timer of its own.
+            if (seconds.users > 0) {
+                seconds.sync();
+            }
         }
+    }
+
+    QtObject {
+        id: seconds
+
+        readonly property int msPerSecond: 1000
+
+        property int users: 0
+        property double epoch: Math.floor(Date.now() / msPerSecond)
+
+        // True while the ticker is stopped and a seconds holder remains: the single-shot timer below is
+        // then the only source of frames, and it stops the moment the ticker resumes.
+        readonly property bool aloneWanted: users > 0 && !ticker.running && !root.suspended
+
+        function sync() {
+            epoch = Math.floor(Date.now() / msPerSecond);
+        }
+
+        onAloneWantedChanged: {
+            if (aloneWanted) {
+                alone.arm();
+            } else {
+                alone.stop();
+            }
+        }
+    }
+
+    // Re-armed to each wall-clock second boundary rather than repeating at 1000 ms, which would drift
+    // away from the boundary and show a second late.
+    Timer {
+        id: alone
+
+        function arm() {
+            seconds.sync();
+            interval = seconds.msPerSecond - Date.now() % seconds.msPerSecond;
+            restart();
+        }
+
+        repeat: false
+        onTriggered: arm()
     }
 }

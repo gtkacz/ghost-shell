@@ -21,7 +21,6 @@ test('every key in the constraints table resolves in both scripts', () => {
     mem: ['記憶', 'メモリ'],
     disk: ['記録', 'ストレージ'],
     sens: ['温度', 'センサー'],
-    crit: ['危険', 'クリティカル'],
   };
   for (const [key, [kanji, katakana]] of Object.entries(expected)) {
     assert.equal(tag(key, 'kanji'), kanji);
@@ -54,6 +53,12 @@ test('new tags', () => {
   assert.equal(tag('clock', 'mixed'), '時刻');
   assert.equal(tag('wx', 'katakana'), 'ウェザー');
   assert.equal(tag('core', 'mixed'), '');
+});
+
+test('crit is a chip and not a panel tag', () => {
+  assert.equal(tag('crit', 'mixed'), '');
+  assert.equal(tag('crit', 'kanji'), '');
+  assert.equal(tag('crit', 'katakana'), '');
 });
 
 test('chips are katakana in mixed', () => {

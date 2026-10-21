@@ -14,13 +14,10 @@ Item {
     readonly property real verticalPaddingPx: 3
     readonly property real gapPx: 8
     readonly property real textPx: 9.5
-    readonly property real chipTextPx: 9
     readonly property real chipLinePx: 14
-    readonly property real chipSidePx: 5
     readonly property real chipBorderPx: 1
     // Letter spacing in em.
     readonly property real textTracking: 0.08
-    readonly property real chipTracking: 0.04
     // The mockup's stripe strength, as a percentage like withAlpha() takes.
     readonly property real stripeAlphaPct: 13
 
@@ -37,14 +34,14 @@ Item {
     property string trailing
     // "warn" or "crit".
     property string level: "warn"
-    // A Theme.tag() key; the chip is hidden when the key has no tag in the current Japanese mode.
+    // A Theme.chip() key; the chip is hidden when the key has no chip in the current Japanese mode.
     property string chipKey
 
     readonly property bool live: Data.connected && !Data.stale
     // A stale alert stands still: the daemon is gone, so nothing it reported is current.
     readonly property bool animating: visible && live
     readonly property bool truncated: messageText.truncated
-    readonly property bool hasChip: chipText.text !== ""
+    readonly property bool hasChip: chip.hasText
     readonly property bool hasTrailing: trailing !== ""
     readonly property color levelColor: !live ? Theme.dim : level === "crit" ? Theme.crit : Theme.warn
     readonly property real gap: Theme.d(gapPx)
@@ -129,32 +126,13 @@ Item {
             fragmentShader: Qt.resolvedUrl("shaders/blink.frag.qsb")
         }
 
-        Rectangle {
+        Chip {
             id: chip
 
             anchors.verticalCenter: parent.verticalCenter
-            visible: root.hasChip
-            width: chipText.implicitWidth + Theme.d(2 * (root.chipSidePx + root.chipBorderPx))
-            height: Theme.d(root.chipLinePx + 2 * root.chipBorderPx)
-            color: "transparent"
-            border {
-                width: Theme.d(root.chipBorderPx)
-                color: root.levelColor
-            }
-
-            Text {
-                id: chipText
-
-                anchors.centerIn: parent
-                text: Theme.tag(root.chipKey)
-                color: root.levelColor
-                font {
-                    family: Theme.fontCjk
-                    pixelSize: Theme.d(root.chipTextPx)
-                    weight: Font.Medium
-                    letterSpacing: Theme.d(root.chipTextPx) * root.chipTracking
-                }
-            }
+            key: root.chipKey
+            color: root.levelColor
+            borderColor: root.levelColor
         }
 
         Text {

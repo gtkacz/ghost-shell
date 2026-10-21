@@ -3,6 +3,7 @@ singleton Data 1.0 Data.qml
 singleton Theme 1.0 Theme.qml
 singleton FrameClock 1.0 FrameClock.qml
 singleton Fmt 1.0 Fmt.qml
+singleton FirstWrite 1.0 FirstWrite.qml
 DotGrid 1.0 DotGrid.qml
 Scanlines 1.0 Scanlines.qml
 Panel 1.0 Panel.qml
@@ -11,4 +12,7 @@ BlockGraph 1.0 BlockGraph.qml
 AlertBox 1.0 AlertBox.qml
 Digits 1.0 Digits.qml
 Kv 1.0 Kv.qml
+ScrambleText 1.0 ScrambleText.qml
+Chip 1.0 Chip.qml
+Glyph 1.0 Glyph.qml
 internal TopicValue TopicValue.qml

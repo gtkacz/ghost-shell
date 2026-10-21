@@ -27,7 +27,6 @@ export const TAGS = Object.freeze({
   tree: Object.freeze({ kanji: '系譜', katakana: 'プロセス' }),
   telem: Object.freeze({ kanji: '遠隔', katakana: 'テレメトリ' }),
   switch: Object.freeze({ kanji: '窓切替', katakana: 'スイッチ' }),
-  crit: Object.freeze({ kanji: '危険', katakana: 'クリティカル' }),
 });
 
 export const CHIPS = Object.freeze({

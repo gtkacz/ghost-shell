@@ -42,7 +42,9 @@ Singleton {
             temp_warn: 80,
             temp_crit: 90,
             battery_warn: 20,
-            battery_crit: 10
+            battery_crit: 10,
+            aqi_warn: 100,
+            aqi_crit: 150
         })
 
     readonly property var appearance: Data.config ? Data.config.appearance : defaultAppearance
@@ -85,6 +87,8 @@ Singleton {
     readonly property real tempCrit: thresholds.temp_crit
     readonly property real batteryWarn: thresholds.battery_warn
     readonly property real batteryCrit: thresholds.battery_crit
+    readonly property real aqiWarn: thresholds.aqi_warn
+    readonly property real aqiCrit: thresholds.aqi_crit
 
     function d(px) {
         return px * u;
@@ -92,5 +96,9 @@ Singleton {
 
     function tag(key) {
         return ThemeLib.tag(key, japanese);
+    }
+
+    function chip(key) {
+        return ThemeLib.chip(key, japanese);
     }
 }

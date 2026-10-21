@@ -27,7 +27,13 @@ Item {
     readonly property real tagTracking: 0.06
     readonly property real metaTracking: 0.1
     readonly property real tagOpacity: 0.85
+    // The mockup's writeLabels(): each label scrambles for between 500 and 800 ms.
+    readonly property real labelScrambleMinMs: 500
+    readonly property real labelScrambleSpanMs: 300
 
+    // The mockup's headerless panels (the time bands) and frameless ones (the time hero).
+    property bool header: true
+    property bool framed: true
     property string label
     property string tagKey
     property string meta
@@ -43,6 +49,7 @@ Item {
 
     Shape {
         anchors.fill: parent
+        visible: root.framed
         // The default renderer leaves the 45° cuts and thin strokes without antialiasing.
         preferredRendererType: Shape.CurveRenderer
 
@@ -145,14 +152,15 @@ Item {
     }
 
     Item {
-        id: header
+        id: headerItem
 
         anchors {
             top: parent.top
             left: parent.left
             right: parent.right
         }
-        height: Theme.d(root.headerHeightPx)
+        visible: root.header
+        height: root.header ? Theme.d(root.headerHeightPx) : 0
 
         Item {
             id: headerLine
@@ -178,7 +186,7 @@ Item {
             color: Theme.signal
         }
 
-        Text {
+        ScrambleText {
             id: labelText
 
             anchors {
@@ -190,6 +198,8 @@ Item {
             text: root.label
             // Widgets set the label and meta from their own data, which AutoText would render as markup.
             textFormat: Text.PlainText
+            scrambleKey: "panel:" + root.label
+            durationMs: root.labelScrambleMinMs + Math.random() * root.labelScrambleSpanMs
             color: Theme.hi
             elide: Text.ElideRight
             font {
@@ -248,12 +258,12 @@ Item {
         id: body
 
         anchors {
-            top: header.bottom
+            top: headerItem.bottom
             left: parent.left
             right: parent.right
             bottom: parent.bottom
             margins: root.padding
-            topMargin: Theme.d(root.bodyTopPx)
+            topMargin: root.header ? Theme.d(root.bodyTopPx) : root.padding
         }
     }
 }
