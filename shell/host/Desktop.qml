@@ -18,7 +18,8 @@ Scope {
     readonly property bool debug: Quickshell.env("GHOST_DEBUG") === "1"
     readonly property string snapshotPath: Quickshell.env("GHOST_SNAPSHOT") || ""
     readonly property string forcedUText: Quickshell.env("GHOST_FORCE_U") || ""
-    readonly property real forcedU: parseFloat(forcedUText)
+    // Number() rather than parseFloat() so a value with trailing junk is rejected, not truncated.
+    readonly property real forcedU: Number(forcedUText)
     readonly property bool hasForcedU: Number.isFinite(forcedU) && forcedU > 0
 
     readonly property string currentView: Data.config ? Data.config.dashboard.default_view : ""
@@ -56,8 +57,11 @@ Scope {
             // claim regions of their own.
             mask: Region {}
 
+            // RestoreNone: when the main screen moves, the old main window's binding must not put u
+            // back to its default after the new one has set it.
             Binding {
                 when: window.isMain
+                restoreMode: Binding.RestoreNone
                 target: Theme
                 property: "u"
                 value: root.hasForcedU ? root.forcedU : Scale.designUnit(window.width)

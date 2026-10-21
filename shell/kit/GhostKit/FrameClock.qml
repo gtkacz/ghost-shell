@@ -14,6 +14,11 @@ Singleton {
     readonly property int blinkStepMs: 250
     readonly property var blinkSteps: [1, 0.5, 0, 0.5]
 
+    // Stops every animation at once, for example while the desktop is covered, without making each
+    // widget release the clock.
+    property bool suspended: false
+
+    readonly property bool running: ticker.running
     readonly property int frame: ticker.frame
     readonly property real elapsedMs: ticker.elapsedMs
     readonly property real blinkOpacity: blinkSteps[Math.floor(elapsedMs / blinkStepMs) % blinkSteps.length]
@@ -39,7 +44,7 @@ Singleton {
 
         interval: root.intervalMs
         repeat: true
-        running: users > 0
+        running: users > 0 && !root.suspended
         onTriggered: {
             frame += 1;
             elapsedMs += interval;
