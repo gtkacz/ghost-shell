@@ -15,8 +15,6 @@ Panel {
     readonly property real textPx: 9.5
     readonly property real footerPx: 10
     readonly property real footerGapPx: 4
-    // The mockup's .alert: 3 px of padding around a 14 px chip line inside a 1 px border.
-    readonly property real alertPx: 22
     // Fractions of the drive, for the used-space meter.
     readonly property real usedWarn: 0.85
     readonly property real usedCrit: 0.95
@@ -42,7 +40,7 @@ Panel {
         case "live":
             return 2 * lineHeight + Theme.d(lineGapPx);
         case "dead":
-            return Theme.d(alertPx);
+            return alertMetrics.implicitHeight;
         default:
             return lineHeight;
         }
@@ -87,6 +85,14 @@ Panel {
 
         font: line.font
         text: Fmt.pct(Theme.percent)
+    }
+
+    // Never shown, so it never runs the frame clock: it gives the alert row's height before any
+    // alert row exists, from AlertBox itself rather than a copy of its metrics.
+    AlertBox {
+        id: alertMetrics
+
+        visible: false
     }
 
     Item {
@@ -222,7 +228,6 @@ Panel {
 
                 y: list.deadRows[index].y
                 width: list.width
-                height: Theme.d(root.alertPx)
                 level: "crit"
                 chipKey: "crit"
                 text: drive.label + " · " + drive.kernel_name
