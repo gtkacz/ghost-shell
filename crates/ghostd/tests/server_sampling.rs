@@ -4,7 +4,7 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::time::Duration;
 
-use common::server::{CONFIG_FILE, Client, SOCKET_FILE, TICK_MS, WAIT};
+use common::server::{CONFIG_FILE, Client, Daemon, SOCKET_FILE, TICK_MS, WAIT};
 use ghost_proto::{CpuSnapshot, topics};
 use ghostd::collect::Source;
 use ghostd::providers;
@@ -14,6 +14,7 @@ use serde_json::json;
 use tokio::time::timeout;
 
 const SAMPLES_BEFORE_THE_PANIC: usize = 2;
+const TICKS_WITHOUT_PERF: usize = 5;
 const SAMPLED_TOPICS: [&str; 5] = [
     topics::CPU,
     topics::MEM,
@@ -116,4 +117,20 @@ async fn serving_goes_on_while_every_collector_keeps_sampling() {
     let stopped = timeout(Duration::from_millis(u64::from(TICK_MS) * 6), serving).await;
 
     assert!(stopped.is_err(), "serve returned with {:?}", stopped.ok());
+}
+
+#[tokio::test]
+async fn perf_is_not_sampled_while_nobody_wants_it() {
+    let daemon = Daemon::start().await;
+    let mut witness = daemon.subscribed_ui(&[]).await;
+    for _ in 0..TICKS_WITHOUT_PERF {
+        witness.recv_data(topics::CPU).await;
+    }
+
+    let mut late = daemon.ui().await;
+    late.send(json!({"t": "subscribe", "topics": [topics::PERF]}))
+        .await;
+
+    // Every perf sample would have been relayed and counted, and the last one replayed at once.
+    assert_eq!(late.recv_data(topics::PERF).await["seq"], 1);
 }
