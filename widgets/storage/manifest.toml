@@ -1,0 +1,13 @@
+id = "storage"
+name = "Storage"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+requires = ["disks"]
+# A dead drive is shown as a boxed alert, whose stripes scroll and whose text blinks.
+animates = true
+
+# Whether drives with nothing mounted are listed.
+[settings.show_unmounted]
+type = "bool"
+default = true
