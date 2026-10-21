@@ -86,3 +86,25 @@ fn a_missing_history_sample_round_trips_as_null() {
 fn rejects_garbage() {
     assert!(decode_client_line("{nope").is_err());
 }
+#[test]
+fn desktop_snapshot_wire_form() {
+    let snapshot = DesktopSnapshot {
+        covered_outputs: vec!["DP-1".into()],
+        active: true,
+        action: Some(ViewAction::Monitor),
+        action_seq: 1,
+    };
+
+    assert_eq!(
+        serde_json::to_string(&snapshot).unwrap(),
+        r#"{"covered_outputs":["DP-1"],"active":true,"action":"monitor","action_seq":1}"#
+    );
+    assert_eq!(
+        serde_json::to_value(DesktopSnapshot::default()).unwrap()["action"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        serde_json::to_value(ViewAction::Swap).unwrap(),
+        serde_json::json!("swap")
+    );
+}
