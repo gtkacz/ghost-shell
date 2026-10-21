@@ -29,10 +29,11 @@ make smoke          # the default configuration
 make smoke-layout   # scripts/layout-test.toml: a broken widget, a missing one and a tabs node
 ```
 
-Two environment variables adjust a smoke run:
+Three environment variables adjust a smoke run:
 
 - `GHOST_CONFIG=<path>` runs it against that config file instead of a temporary copy of the defaults (this is how `make smoke-layout` works).
 - `GHOST_SMOKE_ALLOW=<extended regex>` accepts extra shell-log lines, for example a widget the layout names before it exists. A pattern that does not compile, or that matches an empty line, fails the run instead of hiding every error.
+- `GHOST_SMOKE_SOCKET=<path>` runs it on that socket instead of `/tmp/ghost-smoke.sock`, with its logs beside it (`<path without .sock>.log` and `-daemon.log`), so two smokes can run at once.
 
 The smoke tests run their daemon without a session bus, so they never raise desktop notifications.
 

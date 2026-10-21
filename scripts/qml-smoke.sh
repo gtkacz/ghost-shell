@@ -69,9 +69,10 @@ fi
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 daemon=$repo/target/debug/ghostd
 
-socket=/tmp/ghost-smoke.sock
-shell_log=/tmp/ghost-smoke.log
-daemon_log=/tmp/ghost-smoke-daemon.log
+# Two smokes at once, such as one per worktree, each need a socket of their own; the logs sit beside it.
+socket=${GHOST_SMOKE_SOCKET:-/tmp/ghost-smoke.sock}
+shell_log=${socket%.sock}.log
+daemon_log=${socket%.sock}-daemon.log
 
 # "ghostd refused the shell" catches the daemon refusing the shell, which Data logs at error level and
 # which would otherwise only show up as a reconnect loop. "ghostd config problem" catches a layout
