@@ -208,6 +208,9 @@ wait "$shell_meter_pid" || fail "could not measure the shell; see $shell_log"
 shell_meter_pid=
 wait "$daemon_meter_pid" || fail "could not measure the daemon; see $daemon_log"
 daemon_meter_pid=
+# qs's log reaches the file late, so a frame drawn near the end of the window would go uncounted. The dashboard is
+# still covered during this wait, so any frame it adds is a defect too.
+sleep "$settle_s"
 frames=$(( $(line_count "$frame_line") - frames_before ))
 
 shell_cpu=$(cpu_of "$run_dir/shell.cpu")
