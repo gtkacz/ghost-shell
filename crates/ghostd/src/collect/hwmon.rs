@@ -21,9 +21,12 @@ const NVME_CHIP: &str = "nvme";
 const SPD5118_CHIP: &str = "spd5118";
 // An NVMe controller's further temperatures would share its serial-based id, and a DIMM has no others.
 const SINGLE_READING_TEMP: u32 = 1;
-const FIRST_DIMM_POSITION: usize = 1;
+const FIRST_ORDINAL: usize = 1;
 
 const RESCAN_INTERVAL_SAMPLES: u32 = 30;
+// The nct6775 driver refreshes its whole register bank on any read once its 1.5 s cache is stale
+// (~6 ms of CPU), so any cadence at or above the cache lifetime pays a full refresh per read.
+const SUPERIO_READ_EVERY: u32 = 5;
 const MILLIDEGREES_PER_DEGREE: f32 = 1000.0;
 
 // Temps sort before fans, which keeps each kind in input order once they are split apart.
@@ -47,6 +50,18 @@ impl Kind {
 struct Chip {
     dir: String,
     name: String,
+    ordinal: usize,
+}
+
+impl Chip {
+    // Repeated chip names would share ids; the first keeps the bare name so lone chips keep theirs.
+    fn reference(&self) -> String {
+        if self.ordinal == FIRST_ORDINAL {
+            self.name.clone()
+        } else {
+            format!("{}#{}", self.name, self.ordinal)
+        }
+    }
 }
 
 struct Input {
@@ -61,9 +76,7 @@ enum Naming {
         serial: String,
         model: Option<String>,
     },
-    Dimm {
-        position: usize,
-    },
+    Dimm,
     Generic,
 }
 
@@ -72,6 +85,8 @@ struct Sensor {
     id: String,
     label: String,
     input_path: String,
+    is_super_io: bool,
+    value: Option<f32>,
 }
 
 impl Sensor {
@@ -88,6 +103,8 @@ impl Sensor {
 ///
 /// Chips are listed in hwmon index order and each chip's inputs in numeric order. The sensor list
 /// is rebuilt every `RESCAN_INTERVAL_SAMPLES` samples, so ordinary ticks only read value files.
+/// Super-I/O chips (`nct*`, `it87*`) are read every `SUPERIO_READ_EVERY` samples, repeating their
+/// last values in between, and list only temperatures that carry a built-in or override label.
 pub struct SensorCollector {
     root: SysRoot,
     overrides: BTreeMap<String, String>,
@@ -115,7 +132,10 @@ impl SensorCollector {
             .map(|sensor| sensor.id.as_str())
             .collect();
         let rescanned = Scan::new(&self.root, &self.overrides, listed_fans).sensors();
-        self.sensors = rescanned;
+        // A transient sysfs failure would otherwise blank every row for a whole window.
+        if !rescanned.is_empty() {
+            self.sensors = rescanned;
+        }
         self.samples_since_scan = 0;
     }
 }
@@ -125,14 +145,18 @@ impl Source<SensorSnapshot> for SensorCollector {
         if self.samples_since_scan >= RESCAN_INTERVAL_SAMPLES {
             self.rescan();
         }
+        let reads_super_io = self.samples_since_scan.is_multiple_of(SUPERIO_READ_EVERY);
         self.samples_since_scan += 1;
 
         let mut snapshot = SensorSnapshot::default();
-        for sensor in &self.sensors {
+        for sensor in &mut self.sensors {
+            if reads_super_io || !sensor.is_super_io {
+                sensor.value = sensor.read(&self.root);
+            }
             let reading = Reading {
                 id: sensor.id.clone(),
                 label: sensor.label.clone(),
-                value: sensor.read(&self.root),
+                value: sensor.value,
             };
             match sensor.kind {
                 Kind::Temp => snapshot.temps.push(reading),
@@ -163,11 +187,9 @@ impl<'a> Scan<'a> {
     }
 
     fn sensors(&self) -> Vec<Sensor> {
-        let chips = self.chips();
-        let dimm_positions = self.dimm_positions(&chips);
-        chips
+        self.chips()
             .iter()
-            .filter_map(|chip| Some((chip, self.naming(chip, &dimm_positions)?)))
+            .filter_map(|chip| Some((chip, self.naming(chip)?)))
             .flat_map(|(chip, naming)| self.chip_sensors(chip, &naming))
             .collect()
     }
@@ -184,36 +206,56 @@ impl<'a> Scan<'a> {
             .collect();
         // Entry names sort lexically (hwmon10 before hwmon2), so restore numeric order.
         indexed.sort_unstable();
-        indexed
+        let named: Vec<(String, String)> = indexed
             .into_iter()
             .filter_map(|(_, entry)| {
                 let dir = format!("{HWMON_DIR}/{entry}");
                 let name = read_text(self.root, &format!("{dir}/{CHIP_NAME_FILE}"))?;
-                Some(Chip { dir, name })
-            })
-            .collect()
-    }
-
-    /// 1-based DIMM positions keyed by hwmon dir, ordered by the DIMM's device path.
-    fn dimm_positions<'c>(&self, chips: &'c [Chip]) -> HashMap<&'c str, usize> {
-        let mut devices: Vec<(PathBuf, &str)> = chips
-            .iter()
-            .filter(|chip| chip.name == SPD5118_CHIP)
-            .filter_map(|chip| {
-                let link = self.root.path(&format!("{}/{DEVICE_LINK}", chip.dir));
-                Some((fs::canonicalize(link).ok()?, chip.dir.as_str()))
+                Some((dir, name))
             })
             .collect();
-        // hwmonN follows probe order, whereas the i2c address is fixed by the slot the DIMM sits in.
-        devices.sort();
-        devices
+        let ordinals = self.ordinals(&named);
+        named
             .into_iter()
-            .enumerate()
-            .map(|(index, (_, dir))| (dir, FIRST_DIMM_POSITION + index))
+            .filter_map(|(dir, name)| {
+                let ordinal = *ordinals.get(&dir)?;
+                Some(Chip { dir, name, ordinal })
+            })
             .collect()
     }
 
-    fn naming(&self, chip: &Chip, dimm_positions: &HashMap<&str, usize>) -> Option<Naming> {
+    fn ordinals(&self, named: &[(String, String)]) -> HashMap<String, usize> {
+        let mut by_name: BTreeMap<&str, Vec<(PathBuf, &str)>> = BTreeMap::new();
+        for (dir, name) in named {
+            if let Some(device) = self.device_path(dir) {
+                by_name
+                    .entry(name.as_str())
+                    .or_default()
+                    .push((device, dir.as_str()));
+            }
+        }
+        by_name
+            .into_values()
+            .flat_map(|mut group| {
+                // hwmonN follows probe order; the device path is fixed by where the hardware sits.
+                group.sort();
+                group
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (_, dir))| (dir.to_owned(), FIRST_ORDINAL + index))
+            })
+            .collect()
+    }
+
+    fn device_path(&self, dir: &str) -> Option<PathBuf> {
+        // Hwmon devices registered without a parent have no `device` link, but their own path
+        // still orders them.
+        fs::canonicalize(self.root.path(&format!("{dir}/{DEVICE_LINK}")))
+            .or_else(|_| fs::canonicalize(self.root.path(dir)))
+            .ok()
+    }
+
+    fn naming(&self, chip: &Chip) -> Option<Naming> {
         match chip.name.as_str() {
             // Without a serial the id would collide between drives, so the chip is left out.
             NVME_CHIP => Some(Naming::Drive {
@@ -226,9 +268,7 @@ impl<'a> Scan<'a> {
                     &format!("{}/{DEVICE_LINK}/{MODEL_FILE}", chip.dir),
                 ),
             }),
-            SPD5118_CHIP => dimm_positions
-                .get(chip.dir.as_str())
-                .map(|&position| Naming::Dimm { position }),
+            SPD5118_CHIP => Some(Naming::Dimm),
             _ => Some(Naming::Generic),
         }
     }
@@ -256,29 +296,37 @@ impl<'a> Scan<'a> {
         let override_label = self.overrides.get(&id);
 
         let is_named = override_label.is_some() || builtin_label.is_some();
-        // Unplugged fan headers read 0 rpm forever, so an unnamed fan has to prove it is wired up.
-        if input.kind == Kind::Fan
-            && !is_named
-            && !self.listed_fans.contains(id.as_str())
-            && !read_raw(self.root, &input_path).is_some_and(|rpm| rpm > 0)
-        {
+        if !is_named && !self.is_worth_listing(chip, input, &id, &input_path) {
             return None;
         }
 
         let label = override_label
             .cloned()
             .or(builtin_label)
-            .unwrap_or_else(|| labels::fallback_label(&chip.name, sensor_name));
+            .unwrap_or_else(|| labels::fallback_label(&chip.reference(), sensor_name));
         Some(Sensor {
             kind: input.kind,
             id,
             label,
             input_path,
+            is_super_io: labels::is_super_io(&chip.name),
+            value: None,
         })
+    }
+
+    fn is_worth_listing(&self, chip: &Chip, input: &Input, id: &str, input_path: &str) -> bool {
+        match input.kind {
+            // Super-I/O chips expose a dozen virtual or unwired temps beside the few real ones.
+            Kind::Temp => !labels::is_super_io(&chip.name),
+            // Unplugged fan headers read 0 rpm forever, so an unnamed fan must prove it is wired.
+            Kind::Fan => {
+                self.listed_fans.contains(id)
+                    || read_raw(self.root, input_path).is_some_and(|rpm| rpm > 0)
+            }
+        }
     }
 }
 
-/// The sensor's id and built-in label; `None` drops inputs that would only duplicate an id.
 fn identify(
     chip: &Chip,
     naming: &Naming,
@@ -293,14 +341,14 @@ fn identify(
                 model.as_deref().map(labels::drive_label),
             )
         }),
-        Naming::Dimm { position } => is_single_reading.then(|| {
+        Naming::Dimm => is_single_reading.then(|| {
             (
-                format!("{}/{position}", chip.name),
-                Some(labels::dimm_label(*position)),
+                format!("{}/{}", chip.name, chip.ordinal),
+                Some(labels::dimm_label(chip.ordinal)),
             )
         }),
         Naming::Generic => Some((
-            format!("{}/{sensor_name}", chip.name),
+            format!("{}/{sensor_name}", chip.reference()),
             labels::known_label(&chip.name, sensor_name).map(str::to_owned),
         )),
     }
@@ -317,7 +365,6 @@ fn parse_input(file: &str) -> Option<Input> {
     })
 }
 
-/// Trimmed file content, or `None` when the file is unreadable or blank.
 fn read_text(root: &SysRoot, rel: &str) -> Option<String> {
     let text = root.read(rel).ok()?;
     let text = text.trim();

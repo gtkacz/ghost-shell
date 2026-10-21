@@ -1,10 +1,10 @@
 const K10TEMP_CHIP: &str = "k10temp";
 const NUVOTON_CHIP_PREFIX: &str = "nct";
+const ITE_CHIP_PREFIX: &str = "it87";
 const REALTEK_NIC_CHIP_PREFIX: &str = "r8169";
 
 struct LabelRule {
     chip_prefix: &'static str,
-    // `None` matches every sensor of the chip.
     sensor: Option<&'static str>,
     label: &'static str,
 }
@@ -46,6 +46,12 @@ const LABEL_RULES: &[LabelRule] = &[
         label: "NIC",
     },
 ];
+
+pub(super) fn is_super_io(chip: &str) -> bool {
+    [NUVOTON_CHIP_PREFIX, ITE_CHIP_PREFIX]
+        .iter()
+        .any(|prefix| chip.starts_with(prefix))
+}
 
 /// The built-in label for a chip's sensor, where `sensor` is the raw `*_label` text or, without
 /// one, the input's `tempN`/`fanN` name.
