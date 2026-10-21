@@ -7,6 +7,9 @@ ShaderEffect {
     property Item source
     property color shadowColor: Theme.ground
     property color lightColor: Theme.signal
+    // The share of the source's texture to draw, about its centre, in each direction. A texture is always whole, so a
+    // source that crops, such as an Image with PreserveAspectCrop, passes its size over its painted size.
+    property vector2d uvScale: Qt.vector2d(1, 1)
 
     fragmentShader: Qt.resolvedUrl("shaders/duotone.frag.qsb")
 }

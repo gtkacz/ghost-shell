@@ -20,15 +20,15 @@ ShaderEffect {
 
     // Bound rather than read once: the surface reports a provisional ratio before it is configured.
     readonly property real pixelRatio: QsWindow.window ? QsWindow.window.devicePixelRatio : 1
-    // Whole physical pixels, so every cell and every gap between rows is the same height.
+    // Whole physical pixels, so every cell is the same height and every gap the same size.
     readonly property real cellHeight: Math.max(1, Math.round(Theme.d(cellH) * pixelRatio))
     readonly property real rowGap: Math.round(Theme.d(gap) * pixelRatio)
+    readonly property real columnGap: rowGap
     readonly property real rowStep: cellHeight + rowGap
     // A whole number, but real: ShaderEffect copies an int property's bits into the shader's float as they are, which
     // reads as almost zero and draws nothing (measured).
     readonly property real rows: Segments.cellCount(height * pixelRatio, cellHeight, rowGap)
     readonly property real columns: Math.min(levels.length, maxLevels)
-    readonly property real columnGap: Theme.d(gap) * pixelRatio
     readonly property real columnStep: columns > 0 ? (width * pixelRatio + columnGap) / columns : 0
     readonly property real columnWidth: columnStep - columnGap
 
