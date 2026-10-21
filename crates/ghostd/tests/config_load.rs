@@ -441,3 +441,41 @@ fn lon_out_of_range_names_the_key() {
         "location.lon: must be -180..=180, got 200"
     );
 }
+
+#[test]
+fn translation_is_off_by_default() {
+    let c = load_str_with_user("", "u").unwrap();
+    assert_eq!((c.i18n.from.as_str(), c.i18n.to.as_str()), ("", ""));
+}
+
+#[test]
+fn language_tags_with_or_without_a_region_are_accepted() {
+    for (from, to) in [("pt-BR", "en-US"), ("pt", "en"), ("pt-BR", "ast")] {
+        let c =
+            load_str_with_user(&format!("[i18n]\nfrom = {from:?}\nto = {to:?}\n"), "u").unwrap();
+        assert_eq!((c.i18n.from.as_str(), c.i18n.to.as_str()), (from, to));
+    }
+}
+
+#[test]
+fn from_and_to_must_be_set_together() {
+    let message = "i18n: from and to must be set together";
+    assert_eq!(rejected("[i18n]\nfrom = \"pt-BR\"\n"), message);
+    assert_eq!(rejected("[i18n]\nto = \"en-US\"\n"), message);
+}
+
+#[test]
+fn a_tag_that_is_not_a_language_tag_names_the_key() {
+    for tag in [
+        "EN", "en-us", "en_US", "english", "e", "en-USA", "en-", "-US",
+    ] {
+        assert_eq!(
+            rejected(&format!("[i18n]\nfrom = \"pt-BR\"\nto = {tag:?}\n")),
+            format!("i18n.to: {tag:?} is not a language tag such as en-US")
+        );
+    }
+    assert_eq!(
+        rejected("[i18n]\nfrom = \"PT-br\"\nto = \"en-US\"\n"),
+        "i18n.from: \"PT-br\" is not a language tag such as en-US"
+    );
+}

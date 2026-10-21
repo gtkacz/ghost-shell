@@ -16,6 +16,7 @@ pub struct ResolvedConfig {
     pub bar: BarConfig,
     pub greeting: Greeting,
     pub location: Location,
+    pub i18n: I18n,
     pub shortcuts: Shortcuts,
     pub notifications: Notifications,
     pub layout: LayoutConfig,
@@ -268,6 +269,14 @@ pub struct Location {
 pub struct Alerts {
     pub provider: String,
     pub area: String,
+}
+
+/// Language tags such as `pt-BR`; with both empty, the alerts keep the issuer's words.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct I18n {
+    pub from: String,
+    pub to: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

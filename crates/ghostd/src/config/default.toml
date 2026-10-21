@@ -111,6 +111,15 @@ city = ""
 provider = ""
 area = ""
 
+[i18n]
+# Translate the weather alerts' event and severity (INMET's TEMPESTADE · PERIGO) from the language
+# `from` into `to`, written as tags such as "pt-BR" and "en-US". Set both, or leave both empty to
+# keep the issuer's words. A term the built-in glossary lacks is asked once of the free MyMemory
+# translator, sending only the term, and kept in ~/.local/state/ghost-shell/translations.json;
+# setting an entry's "auto" to false there marks it as checked, and it then wins over the glossary.
+from = ""
+to = ""
+
 [shortcuts]
 # Toggle the monitor view, and move to the next main view.
 monitor = "Meta+M"

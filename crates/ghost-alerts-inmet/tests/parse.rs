@@ -1,14 +1,15 @@
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use ghost_alerts_inmet::{parse_alerts, provide_line};
+use ghost_alerts_inmet::{Wording, parse_alerts, provide_line};
 use ghost_proto::{AlertLevel, WeatherAlert};
 
 const AREA: &str = "3550308";
 /// INMET's shape without the polygons. Alert 3 is dated in plain `YYYY-MM-DD` and alert 5 in a
 /// form INMET does not use; the rest as INMET sends them, at a UTC midnight that is really the
 /// local date. Alert 6 has ended, alert 7 is null throughout, and alerts 8 and 9, for the area,
-/// are malformed: 8 has a string id and 9 a number for its geocodes.
+/// are malformed: 8 has a string id and 9 a number for its geocodes. Alerts 1 to 3 carry the
+/// numbers INMET has been seen to give their event and severity.
 const SAMPLE: &str = include_str!("fixtures/sample.json");
 /// 2026-10-21 18:00 in São Paulo (UTC−3), alert 1's start.
 const STORM_START_S: u64 = 1_792_616_400;
@@ -19,8 +20,16 @@ const DRY_AIR_START_S: u64 = 1_792_670_400;
 /// 2026-10-22 21:00 in São Paulo, given as `21:00:00`.
 const DRY_AIR_END_S: u64 = 1_792_713_600;
 
+fn alerts_in(json: &str, area: &str) -> Vec<WeatherAlert> {
+    parse_alerts(json, area)
+        .unwrap()
+        .into_iter()
+        .map(|issued| issued.alert)
+        .collect()
+}
+
 fn sample_alerts(json: &str) -> Vec<WeatherAlert> {
-    parse_alerts(json, AREA).unwrap()
+    alerts_in(json, AREA)
 }
 
 fn ids(alerts: &[WeatherAlert]) -> Vec<&str> {
@@ -43,7 +52,7 @@ fn keeps_only_alerts_for_the_area() {
 fn geocode_lists_tolerate_spaces() {
     // Alert 3 lists the area after ", ".
     assert!(ids(&sample_alerts(SAMPLE)).contains(&"3"));
-    assert_eq!(ids(&parse_alerts(SAMPLE, "3509502").unwrap()), ["3"]);
+    assert_eq!(ids(&alerts_in(SAMPLE, "3509502")), ["3"]);
 }
 
 #[test]
@@ -70,6 +79,61 @@ fn maps_inmet_severities() {
     let untidy = sample_alerts(&SAMPLE.replace("\"Perigo\"", "\" perigo \""));
     assert_eq!(by_id(&untidy, "1").level, AlertLevel::Crit);
     assert_eq!(by_id(&untidy, "1").severity, "PERIGO");
+}
+
+#[test]
+fn reads_the_wording_and_its_numbers_untranslated() {
+    let issued = parse_alerts(SAMPLE, AREA).unwrap();
+
+    let wording: Vec<(&Wording, &Wording)> = issued
+        .iter()
+        .map(|issued| (&issued.event, &issued.severity))
+        .collect();
+    let term = |id, text: &str| Wording {
+        id,
+        text: text.to_owned(),
+    };
+    assert_eq!(
+        wording,
+        [
+            (&term(Some(38), "Tempestade"), &term(Some(7), "Perigo")),
+            (
+                &term(Some(23), "Baixa Umidade"),
+                &term(Some(6), "Perigo Potencial")
+            ),
+        ]
+    );
+    let storm = &issued[0].alert;
+    assert_eq!(
+        (&storm.original_title, &storm.original_severity),
+        (&None, &None)
+    );
+    assert!(!storm.auto_translated);
+}
+
+#[test]
+fn a_number_of_another_type_is_read_as_none_and_keeps_the_alert() {
+    let json = document(
+        &[entry(50, "2026-10-22", "09:00").replace(
+            r#""descricao": "Tempestade""#,
+            r#""descricao": " Tempestade ", "id_condicao_severa": "38", "id_severidade": null"#,
+        )],
+        &[],
+    );
+
+    let issued = parse_alerts(&json, AREA).unwrap();
+
+    assert_eq!(issued.len(), 1);
+    assert_eq!(
+        (&issued[0].event, issued[0].severity.id),
+        (
+            &Wording {
+                id: None,
+                text: "Tempestade".to_owned()
+            },
+            None
+        )
+    );
 }
 
 #[test]

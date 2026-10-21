@@ -1,5 +1,6 @@
-//! `ghost-alerts-inmet --area <code>`: a ghostd provider that publishes INMET's weather alerts for
-//! one area on `weather.alerts`, fetched every 10 minutes.
+//! `ghost-alerts-inmet --area <code> [--from pt-BR --to <language>]`: a ghostd provider that
+//! publishes INMET's weather alerts for one area on `weather.alerts`, fetched every 10 minutes, with
+//! their event and severity translated when a language is given.
 
 use std::env;
 use std::io::{self, IsTerminal, Read, Write};
@@ -8,13 +9,17 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use ghost_alerts_inmet::{ParseError, SOURCE, parse_alerts, provide_line, publish_line};
+use ghost_alerts_inmet::{
+    ParseError, SOURCE, Translator, default_store_path, parse_alerts, provide_line, publish_line,
+};
 use ghost_proto::WeatherAlerts;
 use tracing::{error, info, warn};
 use ureq::Agent;
 
-const USAGE: &str = "usage: ghost-alerts-inmet --area <code>";
+const USAGE: &str = "usage: ghost-alerts-inmet --area <code> [--from <language> --to <language>]";
 const AREA_FLAG: &str = "--area";
+const FROM_FLAG: &str = "--from";
+const TO_FLAG: &str = "--to";
 const EXIT_USAGE: u8 = 2;
 /// Where ghostd tells its providers to connect.
 const SOCKET_ENV: &str = "GHOST_SOCKET";
@@ -34,12 +39,9 @@ const ERROR_BUFFER_BYTES: usize = 1024;
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
-    let [flag, area] = args.as_slice() else {
+    let Some(options) = options(&args) else {
         return usage();
     };
-    if flag != AREA_FLAG || area.is_empty() {
-        return usage();
-    }
     tracing_subscriber::fmt()
         .with_writer(io::stderr)
         .with_ansi(io::stderr().is_terminal())
@@ -48,7 +50,7 @@ fn main() -> ExitCode {
         error!("{SOCKET_ENV} is not set; ghostd sets it for the providers it starts");
         return ExitCode::from(EXIT_USAGE);
     };
-    let ended = provide(Path::new(&socket), area);
+    let ended = provide(Path::new(&socket), &options);
     // Reconnecting is left to ghostd, whose supervisor starts the provider again with a backoff.
     error!(%ended, "stopping");
     ExitCode::FAILURE
@@ -57,6 +59,28 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!("{USAGE}");
     ExitCode::from(EXIT_USAGE)
+}
+
+struct Options<'a> {
+    area: &'a str,
+    /// The language to translate from, and the one to translate into.
+    languages: Option<(&'a str, &'a str)>,
+}
+
+fn options(args: &[String]) -> Option<Options<'_>> {
+    let (area, languages) = match args {
+        [area_flag, area] if area_flag == AREA_FLAG => (area, None),
+        [area_flag, area, from_flag, from, to_flag, to]
+            if area_flag == AREA_FLAG && from_flag == FROM_FLAG && to_flag == TO_FLAG =>
+        {
+            (area, Some((from.as_str(), to.as_str())))
+        }
+        _ => return None,
+    };
+    (!area.is_empty()).then_some(Options {
+        area: area.as_str(),
+        languages,
+    })
 }
 
 /// Why the provider stopped serving ghostd.
@@ -85,7 +109,8 @@ enum FetchError {
 /// Claims `weather.alerts` and publishes the area's alerts every `FETCH_INTERVAL` until the
 /// connection to ghostd fails. A failed fetch publishes nothing, so ghostd keeps the last alerts,
 /// and is retried after `FIRST_RETRY`, then twice as long each time up to `FETCH_INTERVAL`.
-fn provide(socket: &Path, area: &str) -> Ended {
+fn provide(socket: &Path, options: &Options) -> Ended {
+    let area = options.area;
     let mut daemon = match UnixStream::connect(socket) {
         Ok(stream) => stream,
         Err(error) => return Ended::Connect(error),
@@ -102,9 +127,14 @@ fn provide(socket: &Path, area: &str) -> Ended {
         .user_agent(USER_AGENT)
         .build()
         .new_agent();
+    let mut translator = options.languages.and_then(|(from, to)| {
+        Translator::new(from, to, default_store_path(), agent.clone())
+            .inspect_err(|error| warn!(%error, "publishing INMET's words untranslated"))
+            .ok()
+    });
     let mut retry = FIRST_RETRY;
     loop {
-        let pause = match fetch(&agent, area) {
+        let pause = match fetch(&agent, area, translator.as_mut()) {
             Ok(alerts) => {
                 if let Err(error) = daemon.write_all(publish_line(&alerts).as_bytes()) {
                     return Ended::Write(error);
@@ -126,12 +156,22 @@ fn provide(socket: &Path, area: &str) -> Ended {
     }
 }
 
-fn fetch(agent: &Agent, area: &str) -> Result<WeatherAlerts, FetchError> {
+fn fetch(
+    agent: &Agent,
+    area: &str,
+    translator: Option<&mut Translator<Agent>>,
+) -> Result<WeatherAlerts, FetchError> {
     let body = agent.get(ALERTS_URL).call()?.body_mut().read_to_string()?;
+    let updated_s = unix_now_s();
+    let issued = parse_alerts(&body, area)?;
+    let alerts = match translator {
+        Some(translator) => translator.translate(issued, Instant::now()),
+        None => issued.into_iter().map(|issued| issued.alert).collect(),
+    };
     Ok(WeatherAlerts {
         source: SOURCE.to_owned(),
-        updated_s: unix_now_s(),
-        alerts: parse_alerts(&body, area)?,
+        updated_s,
+        alerts,
     })
 }
 

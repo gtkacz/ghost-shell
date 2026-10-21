@@ -12,8 +12,10 @@
       "geocodes": "3550308",
       "encerrado": false,
       "descricao": "Tempestade",
+      "id_condicao_severa": 38,
       "aviso_cor": "#FFA500",
       "severidade": "Perigo",
+      "id_severidade": 7,
       "riscos": [
         "Chuva entre 30 e 60 mm/h ou 50 e 100 mm/dia, ventos intensos (60-100 km/h). Risco de corte de energia elétrica, queda de galhos de árvores, alagamentos e de descargas elétricas."
       ],
@@ -31,8 +33,10 @@
       "geocodes": "3304557",
       "encerrado": false,
       "descricao": "Chuvas Intensas",
+      "id_condicao_severa": 24,
       "aviso_cor": "#FFFE00",
       "severidade": "Perigo Potencial",
+      "id_severidade": 6,
       "riscos": [
         "Chuva entre 20 e 30 mm/h ou até 50 mm/dia, ventos intensos (40-60 km/h). Baixo risco de corte de energia elétrica, queda de galhos de árvores, alagamentos e de descargas elétricas."
       ],
@@ -50,8 +54,10 @@
       "geocodes": "3509502, 3550308",
       "encerrado": false,
       "descricao": "Baixa Umidade",
+      "id_condicao_severa": 23,
       "aviso_cor": "#FFFE00",
       "severidade": "Perigo Potencial",
+      "id_severidade": 6,
       "riscos": [
         "Umidade relativa do ar variando entre 30% e 20%. Baixo risco de incêndios florestais e à saúde."
       ],
@@ -165,8 +171,10 @@
       "geocodes": "3550308",
       "encerrado": false,
       "descricao": "Tempestade",
+      "id_condicao_severa": 38,
       "aviso_cor": "#FFA500",
       "severidade": "Perigo Potencial",
+      "id_severidade": 6,
       "riscos": [],
       "instrucoes": []
     }

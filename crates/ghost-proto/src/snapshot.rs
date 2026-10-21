@@ -183,10 +183,17 @@ pub struct WeatherAlerts {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WeatherAlert {
     pub id: String,
-    /// This, `severity` and `risks` are the issuer's own words, untranslated; the first two are
-    /// uppercased.
+    /// This and `severity` are uppercased, and translated per `[i18n]` where the provider knows or
+    /// can find a translation; `risks` are always the issuer's own words.
     pub title: String,
     pub severity: String,
+    /// The issuer's own `title` and `severity`, uppercased, each present only when that field was
+    /// translated.
+    pub original_title: Option<String>,
+    pub original_severity: Option<String>,
+    /// A shown translation came from an online translator, directly or through an entry nobody
+    /// has checked, rather than from a reviewed glossary.
+    pub auto_translated: bool,
     pub level: AlertLevel,
     /// Seconds since the Unix epoch.
     pub start_s: u64,

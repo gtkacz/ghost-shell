@@ -188,6 +188,9 @@ fn weather_alerts_wire_form() {
             id: "56134".into(),
             title: "TEMPESTADE".into(),
             severity: "PERIGO POTENCIAL".into(),
+            original_title: None,
+            original_severity: None,
+            auto_translated: false,
             level: AlertLevel::Warn,
             start_s: 1792616400,
             end_s: 1792659600,
@@ -199,8 +202,26 @@ fn weather_alerts_wire_form() {
         serde_json::to_string(&alerts).unwrap(),
         concat!(
             r#"{"source":"INMET","updated_s":1792610000,"alerts":[{"id":"56134","#,
-            r#""title":"TEMPESTADE","severity":"PERIGO POTENCIAL","level":"warn","#,
+            r#""title":"TEMPESTADE","severity":"PERIGO POTENCIAL","original_title":null,"#,
+            r#""original_severity":null,"auto_translated":false,"level":"warn","#,
             r#""start_s":1792616400,"end_s":1792659600,"risks":["Chuva entre 20 e 30 mm/h."]}]}"#
+        )
+    );
+    let translated = WeatherAlert {
+        title: "RAIN ACCUMULATION".into(),
+        severity: "POTENTIAL DANGER".into(),
+        original_title: Some("ACUMULADO DE CHUVA".into()),
+        original_severity: Some("PERIGO POTENCIAL".into()),
+        auto_translated: true,
+        ..alerts.alerts[0].clone()
+    };
+    assert_eq!(
+        serde_json::to_string(&translated).unwrap(),
+        concat!(
+            r#"{"id":"56134","title":"RAIN ACCUMULATION","severity":"POTENTIAL DANGER","#,
+            r#""original_title":"ACUMULADO DE CHUVA","original_severity":"PERIGO POTENCIAL","#,
+            r#""auto_translated":true,"level":"warn","start_s":1792616400,"end_s":1792659600,"#,
+            r#""risks":["Chuva entre 20 e 30 mm/h."]}"#
         )
     );
     assert_eq!(
