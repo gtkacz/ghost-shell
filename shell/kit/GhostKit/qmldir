@@ -5,3 +5,9 @@ singleton FrameClock 1.0 FrameClock.qml
 singleton Fmt 1.0 Fmt.qml
 DotGrid 1.0 DotGrid.qml
 Scanlines 1.0 Scanlines.qml
+Panel 1.0 Panel.qml
+SegMeter 1.0 SegMeter.qml
+BlockGraph 1.0 BlockGraph.qml
+AlertBox 1.0 AlertBox.qml
+Digits 1.0 Digits.qml
+Kv 1.0 Kv.qml

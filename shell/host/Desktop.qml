@@ -15,7 +15,10 @@ Scope {
     readonly property real marginPx: 12
     readonly property int snapshotDelayMs: 3000
 
+    readonly property string galleryView: "gallery"
+
     readonly property bool debug: Quickshell.env("GHOST_DEBUG") === "1"
+    readonly property string viewOverride: Quickshell.env("GHOST_VIEW") || ""
     readonly property string snapshotPath: Quickshell.env("GHOST_SNAPSHOT") || ""
     readonly property string forcedUText: Quickshell.env("GHOST_FORCE_U") || ""
     // Number() rather than parseFloat() so a value with trailing junk is rejected, not truncated.
@@ -29,6 +32,15 @@ Scope {
         if (forcedUText !== "" && !hasForcedU) {
             console.warn("GHOST_FORCE_U must be a positive number, got '" + forcedUText + "'; using the surface width");
         }
+        if (viewOverride !== "" && viewOverride !== galleryView) {
+            console.warn("GHOST_VIEW must be '" + galleryView + "', got '" + viewOverride + "'; ignoring it");
+        }
+    }
+
+    Component {
+        id: galleryComponent
+
+        Gallery {}
     }
 
     Variants {
@@ -92,6 +104,7 @@ Scope {
                 Loader {
                     anchors.fill: parent
                     active: window.isMain
+                    sourceComponent: root.viewOverride === root.galleryView ? galleryComponent : null
                 }
 
                 Scanlines {
