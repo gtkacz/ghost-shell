@@ -261,6 +261,41 @@ fn provider_exec_entries_must_not_be_empty() {
     );
 }
 
+#[test]
+fn bad_alert_provider_names_the_key() {
+    assert_eq!(
+        rejected("[location.alerts]\nprovider = \"In Met\"\narea = \"3550308\"\n"),
+        "location.alerts.provider: \"In Met\" must match ^[a-z][a-z0-9-]*$"
+    );
+}
+
+#[test]
+fn alert_area_required_with_provider() {
+    assert_eq!(
+        rejected("[location.alerts]\nprovider = \"inmet\"\n"),
+        "location.alerts.area: must not be empty when a provider is set"
+    );
+    assert!(
+        load_str_with_user(
+            "[location.alerts]\nprovider = \"inmet\"\narea = \"3550308\"\n",
+            "u"
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn reserved_provider_name_rejected() {
+    for name in ["alerts-inmet", "alerts-elsewhere"] {
+        assert_eq!(
+            rejected(&format!(
+                "[[providers]]\nname = {name:?}\nexec = [\"provider\"]\n"
+            )),
+            format!("providers[0].name: {name:?} is reserved for location.alerts")
+        );
+    }
+}
+
 const NODE_KEYS: &str = "widget, size, settings, direction, children, tabs, default";
 
 fn row_view_with_children(children: &str) -> String {

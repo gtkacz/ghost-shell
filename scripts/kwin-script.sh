@@ -7,7 +7,7 @@ package_type=KWin/Script
 plugin_id=ghost-shell-desktop
 
 usage() {
-    echo "usage: ${0##*/} install|enable|disable" >&2
+    echo "usage: ${0##*/} install|enable|disable|enabled" >&2
     exit 64
 }
 
@@ -34,6 +34,11 @@ case $1 in
         ;;
     disable)
         set_enabled false
+        ;;
+    enabled)
+        # A bool is answered through the exit code alone, and a missing key reads as false, which
+        # matches the package: it does not enable itself by default.
+        kreadconfig6 --file kwinrc --group Plugins --key "${plugin_id}Enabled" --type bool
         ;;
     *)
         usage

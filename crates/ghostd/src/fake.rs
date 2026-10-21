@@ -6,9 +6,9 @@ use std::f64::consts::TAU;
 use std::future::pending;
 
 use ghost_proto::{
-    CcdLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, HostSnapshot, MemSnapshot,
-    ProcUsage, RainPeak, Reading, SensorSnapshot, SkySnapshot, WeatherHour, WeatherSnapshot,
-    topics,
+    AlertLevel, CcdLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, HostSnapshot,
+    MemSnapshot, ProcUsage, RainPeak, Reading, SensorSnapshot, SkySnapshot, WeatherAlert,
+    WeatherAlerts, WeatherHour, WeatherSnapshot, topics,
 };
 
 use crate::collect::Source;
@@ -28,9 +28,9 @@ pub fn sampler() -> Sampler {
     )
 }
 
-/// The fake feeds, one per feed topic.
+/// The fake feeds, one per feed topic, plus `weather.alerts` in place of the alerts provider.
 pub fn feeds() -> Vec<Feed> {
-    vec![host(), weather(), sky()]
+    vec![host(), weather(), sky(), alerts()]
 }
 
 /// A sine between `low` and `high` that repeats every `period` samples, starting `phase` of a
@@ -539,6 +539,42 @@ fn mockup_weather(now_s: u64) -> WeatherSnapshot {
         }),
         hours,
         aqi: Some(WEATHER_AQI),
+    }
+}
+
+const ALERT_SOURCE: &str = "INMET";
+const ALERT_ID: &str = "1";
+const ALERT_TITLE: &str = "TEMPESTADE";
+const ALERT_SEVERITY: &str = "PERIGO POTENCIAL";
+const ALERT_RISK: &str = "Chuva entre 20 e 30 mm/h ou até 50 mm/dia, ventos intensos (40-60 km/h). \
+                          Baixo risco de corte de energia elétrica, queda de galhos de árvores, \
+                          alagamentos e de descargas elétricas.";
+const ALERT_STARTS_IN_S: u64 = HOUR_S;
+const ALERT_ENDS_IN_S: u64 = 12 * HOUR_S;
+
+/// The mockup's amber storm warning, from an hour to twelve hours from now, published once.
+fn alerts() -> Feed {
+    Feed::new(topics::WEATHER_ALERTS, |context| async move {
+        context
+            .publisher
+            .publish(topics::WEATHER_ALERTS, &mockup_alerts(unix_now_s()));
+        pending::<()>().await;
+    })
+}
+
+fn mockup_alerts(now_s: u64) -> WeatherAlerts {
+    WeatherAlerts {
+        source: ALERT_SOURCE.to_owned(),
+        updated_s: now_s,
+        alerts: vec![WeatherAlert {
+            id: ALERT_ID.to_owned(),
+            title: ALERT_TITLE.to_owned(),
+            severity: ALERT_SEVERITY.to_owned(),
+            level: AlertLevel::Warn,
+            start_s: now_s + ALERT_STARTS_IN_S,
+            end_s: now_s + ALERT_ENDS_IN_S,
+            risks: vec![ALERT_RISK.to_owned()],
+        }],
     }
 }
 

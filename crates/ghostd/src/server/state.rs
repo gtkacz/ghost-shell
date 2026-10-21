@@ -35,7 +35,8 @@ enum Claim {
     #[default]
     Never,
     Held(Provider),
-    /// Its provider is gone, so its last value is no longer current.
+    /// Its provider is gone, or is configured but has not claimed it yet, so its last value is
+    /// no longer current.
     Released,
 }
 
@@ -251,6 +252,22 @@ impl State {
         }
     }
 
+    /// Marks topics a configured provider is known to publish as not live until it claims them,
+    /// leaving those a provider holds alone. Without this, a client that kept a topic's value
+    /// across a daemon restart would take it for live while the provider has not yet come back.
+    ///
+    /// There is no undoing it: once a config that drops the provider is loaded, the topic stays
+    /// not live, since going back to no state would let a kept value read as live again.
+    pub(super) fn expect(&mut self, expected: &[String]) {
+        for topic in expected {
+            let entry = self.topics.entry(topic.clone()).or_default();
+            if matches!(entry.claim, Claim::Never) {
+                entry.claim = Claim::Released;
+                self.announce(topic, false);
+            }
+        }
+    }
+
     /// Tells the topic's subscribers whether a provider publishes it now.
     fn announce(&mut self, topic: &str, live: bool) {
         let line = topic_state(topic, live);
@@ -390,5 +407,65 @@ impl Outbox {
         self.lines
             .send(Arc::clone(line))
             .map_err(|_closed| Undelivered::Gone)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GREETING_LINES: usize = 3;
+
+    fn state() -> State {
+        State::new(
+            "host".to_owned(),
+            1000,
+            "config\n".into(),
+            LayoutLines {
+                layout: "layout\n".into(),
+                errors: Vec::new(),
+            },
+        )
+    }
+
+    /// The lines a client subscribing to `topics::WEATHER_ALERTS` now is sent after its greeting.
+    fn subscribe_reply(state: &mut State) -> Vec<String> {
+        let (outbox, mut queued) = Outbox::new();
+        let (id, _released) = state.register_ui(outbox, None);
+        state.subscribe(id, vec![topics::WEATHER_ALERTS.to_owned()]);
+        let mut lines = Vec::new();
+        while let Ok(line) = queued.try_recv() {
+            lines.push(line.to_string());
+        }
+        lines.split_off(GREETING_LINES)
+    }
+
+    fn state_line(live: bool) -> String {
+        topic_state(topics::WEATHER_ALERTS, live).to_string()
+    }
+
+    #[test]
+    fn an_expected_topic_is_not_live_until_a_provider_claims_it() {
+        let mut state = state();
+
+        state.expect(&[topics::WEATHER_ALERTS.to_owned()]);
+        assert_eq!(subscribe_reply(&mut state), [state_line(false)]);
+
+        state
+            .claim("inmet", &[topics::WEATHER_ALERTS.to_owned()])
+            .unwrap();
+        assert_eq!(subscribe_reply(&mut state), [state_line(true)]);
+    }
+
+    #[test]
+    fn expecting_a_claimed_topic_leaves_it_live() {
+        let mut state = state();
+        state
+            .claim("inmet", &[topics::WEATHER_ALERTS.to_owned()])
+            .unwrap();
+
+        state.expect(&[topics::WEATHER_ALERTS.to_owned()]);
+
+        assert_eq!(subscribe_reply(&mut state), [state_line(true)]);
     }
 }

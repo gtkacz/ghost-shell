@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use ghostd::fake;
-use ghostd::providers;
-use ghostd::server::{self, ConfigFeed, Feed, Hub, ServeError, SocketLock};
+use ghostd::server::{self, ConfigFeed, Feed, Hub, ProviderSpecs, ServeError, SocketLock};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
@@ -25,6 +24,12 @@ pub const WIDGETS_DIR: &str = "widgets";
 /// and no layout errors arrive between the messages under test.
 pub fn single_widget_config(widget: &str, panel_fill: u32) -> String {
     format!("[appearance]\npanel_fill = {panel_fill}\n\n[layout.views.v1]\nwidget = {widget:?}\n")
+}
+
+/// Only the providers the config lists, without the one `location.alerts` would add, so that no
+/// test can start a real alerts provider from PATH.
+pub fn configured_providers() -> ProviderSpecs {
+    Box::new(|config| config.providers.clone())
 }
 
 pub fn install_widget(widgets: &Path, id: &str) {
@@ -60,14 +65,29 @@ impl Daemon {
     }
 
     pub async fn start_with_widgets(toml: &str, installed: &[&str]) -> Self {
-        Self::launch(toml, installed, Vec::new()).await
+        Self::launch(toml, installed, Vec::new(), configured_providers()).await
     }
 
     pub async fn start_with_feeds(feeds: Vec<Feed>) -> Self {
-        Self::launch(&single_widget_config("clock", 55), &["clock"], feeds).await
+        Self::launch(
+            &single_widget_config("clock", 55),
+            &["clock"],
+            feeds,
+            configured_providers(),
+        )
+        .await
     }
 
-    async fn launch(toml: &str, installed: &[&str], feeds: Vec<Feed>) -> Self {
+    pub async fn start_with_providers(toml: &str, providers: ProviderSpecs) -> Self {
+        Self::launch(toml, &["clock"], Vec::new(), providers).await
+    }
+
+    async fn launch(
+        toml: &str,
+        installed: &[&str],
+        feeds: Vec<Feed>,
+        providers: ProviderSpecs,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join(CONFIG_DIR).join(CONFIG_FILE);
         fs::create_dir_all(config.parent().unwrap()).unwrap();
@@ -80,8 +100,9 @@ impl Daemon {
         let socket = dir.path().join(SOCKET_FILE);
         let config = ConfigFeed::open(&config);
         let hub = Hub {
-            providers: providers::supervise(&config.current().providers, &socket),
             config,
+            providers,
+            socket: socket.clone(),
             sampler: fake::sampler(),
             tick_ms: NonZeroU32::new(TICK_MS).unwrap(),
             // Only the temp dir, so widgets installed on this machine cannot leak into the tests.

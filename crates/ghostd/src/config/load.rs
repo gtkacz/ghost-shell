@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use ghost_proto::{
-    Appearance, Dashboard, LayoutConfig, LayoutNode, Location, ProviderSpec, ResolvedConfig,
-    Shortcuts, Thresholds,
+    Alerts, Appearance, Dashboard, LayoutConfig, LayoutNode, Location, ProviderSpec,
+    ResolvedConfig, Shortcuts, Thresholds,
 };
 
 use crate::keyseq;
+use crate::providers::ALERTS_NAME_PREFIX;
 
 const PERCENT: RangeInclusive<u32> = 0..=100;
 const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
@@ -116,6 +117,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_layout(&config.layout)?;
     validate_dashboard(&config.dashboard, &config.layout)?;
     validate_location(&config.location)?;
+    validate_alerts(&config.location.alerts)?;
     validate_shortcuts(&config.shortcuts)?;
     validate_providers(&config.providers)
 }
@@ -338,6 +340,32 @@ fn validate_location(location: &Location) -> Result<(), ConfigError> {
     }
 }
 
+fn validate_alerts(alerts: &Alerts) -> Result<(), ConfigError> {
+    if alerts.provider.is_empty() {
+        return Ok(());
+    }
+    // The name becomes part of a program name and a provider name.
+    if !is_alerts_provider_name(&alerts.provider) {
+        return Err(invalid(
+            "location.alerts.provider",
+            format!("{:?} must match ^[a-z][a-z0-9-]*$", alerts.provider),
+        ));
+    }
+    if alerts.area.is_empty() {
+        return Err(invalid(
+            "location.alerts.area",
+            "must not be empty when a provider is set",
+        ));
+    }
+    Ok(())
+}
+
+fn is_alerts_provider_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some('a'..='z'))
+        && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
+}
+
 fn validate_shortcuts(shortcuts: &Shortcuts) -> Result<(), ConfigError> {
     let parse = |name: &str, sequence: &str| {
         keyseq::parse(sequence).map_err(|error| invalid(format!("shortcuts.{name}"), error))
@@ -361,6 +389,12 @@ fn validate_providers(providers: &[ProviderSpec]) -> Result<(), ConfigError> {
             return Err(invalid(
                 format!("providers[{index}].name"),
                 "must not be empty",
+            ));
+        }
+        if provider.name.starts_with(ALERTS_NAME_PREFIX) {
+            return Err(invalid(
+                format!("providers[{index}].name"),
+                format!("{:?} is reserved for location.alerts", provider.name),
             ));
         }
         if !seen.insert(provider.name.as_str()) {

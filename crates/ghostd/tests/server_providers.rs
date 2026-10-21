@@ -2,11 +2,13 @@ mod common;
 
 use std::fs;
 use std::future::pending;
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use common::server::*;
 use ghost_proto::{ProviderSpec, topics};
-use ghostd::server::{Feed, FeedContext};
+use ghostd::server::{Feed, FeedContext, ProviderSpecs};
 use ghostd::{feeds, providers};
 use nix::sys::stat::Mode;
 use nix::unistd::mkfifo;
@@ -170,6 +172,87 @@ async fn a_claimed_topic_without_a_value_still_replays_its_state() {
     assert_eq!(
         late.recv().await,
         json!({"t": "topic_state", "topic": "w.t", "live": true})
+    );
+}
+
+/// The alerts provider `alerts_config` asks for, named so that nothing on PATH can stand in for it.
+const ALERTS_PROGRAM: &str = "ghost-alerts-test";
+const EXECUTABLE_MODE: u32 = 0o755;
+
+fn alerts_config() -> String {
+    format!(
+        "{}\n[location.alerts]\nprovider = \"test\"\narea = \"1\"\n",
+        single_widget_config("clock", 55)
+    )
+}
+
+/// A dir holding an alerts provider that runs `script` and never connects.
+fn alerts_program(script: &str) -> TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let program = dir.path().join(ALERTS_PROGRAM);
+    fs::write(&program, format!("#!/bin/sh\n{script}\n")).unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(EXECUTABLE_MODE)).unwrap();
+    dir
+}
+
+/// The providers ghostd runs outside fake mode, with `own_dir` standing in for the daemon's own.
+fn derived_from(own_dir: &Path) -> ProviderSpecs {
+    let own_dir = own_dir.to_owned();
+    Box::new(move |config| providers::effective_providers(config, Some(&own_dir)))
+}
+
+#[tokio::test]
+async fn the_alerts_topic_is_not_live_until_the_configured_provider_claims_it() {
+    let program = alerts_program("exec sleep 1000");
+    let daemon = Daemon::start_with_providers(&alerts_config(), derived_from(program.path())).await;
+    let mut ui = daemon.subscribed_ui(&[topics::WEATHER_ALERTS]).await;
+
+    assert_eq!(
+        ui.recv_topic_state(topics::WEATHER_ALERTS).await["live"],
+        false
+    );
+
+    let _provider = daemon.provider("inmet", &[topics::WEATHER_ALERTS]).await;
+    assert_eq!(
+        ui.recv_topic_state(topics::WEATHER_ALERTS).await["live"],
+        true
+    );
+}
+
+#[tokio::test]
+async fn removing_location_alerts_stops_its_provider_and_leaves_the_topic_not_live() {
+    let fifos = tempfile::tempdir().unwrap();
+    let starts = fifos.path().join("starts");
+    let held = fifos.path().join("held");
+    mkfifo(&starts, Mode::S_IRWXU).unwrap();
+    mkfifo(&held, Mode::S_IRWXU).unwrap();
+    let mut started = BufReader::new(
+        pipe::OpenOptions::new()
+            .read_write(true)
+            .open_receiver(&starts)
+            .unwrap(),
+    )
+    .lines();
+    let mut lifeline = pipe::OpenOptions::new().open_receiver(&held).unwrap();
+    let program = alerts_program(&format!(
+        "exec 3>'{}'; echo started > '{}'; exec sleep 1000",
+        held.display(),
+        starts.display()
+    ));
+    let daemon = Daemon::start_with_providers(&alerts_config(), derived_from(program.path())).await;
+    next_start(&mut started).await;
+
+    fs::write(daemon.config(), single_widget_config("clock", 55)).unwrap();
+    expect_every_process_gone(&mut lifeline).await;
+
+    // Still not live rather than back to no state at all, which would let a value a client kept
+    // read as live with no provider behind it.
+    let mut late = daemon.ui().await;
+    late.send(json!({"t": "subscribe", "topics": [topics::WEATHER_ALERTS]}))
+        .await;
+    assert_eq!(
+        late.recv().await,
+        json!({"t": "topic_state", "topic": topics::WEATHER_ALERTS, "live": false})
     );
 }
 

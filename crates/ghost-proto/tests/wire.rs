@@ -180,6 +180,35 @@ fn sky_snapshot_wire_form() {
     );
 }
 #[test]
+fn weather_alerts_wire_form() {
+    let alerts = WeatherAlerts {
+        source: "INMET".into(),
+        updated_s: 1792610000,
+        alerts: vec![WeatherAlert {
+            id: "56134".into(),
+            title: "TEMPESTADE".into(),
+            severity: "PERIGO POTENCIAL".into(),
+            level: AlertLevel::Warn,
+            start_s: 1792616400,
+            end_s: 1792659600,
+            risks: vec!["Chuva entre 20 e 30 mm/h.".into()],
+        }],
+    };
+
+    assert_eq!(
+        serde_json::to_string(&alerts).unwrap(),
+        concat!(
+            r#"{"source":"INMET","updated_s":1792610000,"alerts":[{"id":"56134","#,
+            r#""title":"TEMPESTADE","severity":"PERIGO POTENCIAL","level":"warn","#,
+            r#""start_s":1792616400,"end_s":1792659600,"risks":["Chuva entre 20 e 30 mm/h."]}]}"#
+        )
+    );
+    assert_eq!(
+        serde_json::to_value(AlertLevel::Crit).unwrap(),
+        serde_json::json!("crit")
+    );
+}
+#[test]
 fn topic_state_exact_wire_form() {
     for (live, wire) in [
         (

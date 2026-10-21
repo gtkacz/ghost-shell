@@ -21,7 +21,9 @@ shell_src=$repo/shell
 shaders_src=$shell_src/kit/GhostKit/shaders
 widgets_src=$repo/widgets
 units_src=$repo/packaging/systemd
+kwin_script=$repo/scripts/kwin-script.sh
 binary=${CARGO_TARGET_DIR:-$repo/target}/release/ghostd
+alerts_binary=${CARGO_TARGET_DIR:-$repo/target}/release/ghost-alerts-inmet
 
 nvidia_dropin_src=$units_src/ghost-shell-nvidia.conf
 nvidia_dropin_dir=$unit_dir/ghost-shell.service.d
@@ -31,7 +33,7 @@ drm_dir=/sys/class/drm
 nvidia_drm_driver=nvidia
 
 excluded_widget=broken-example
-required_tools=(cargo fc-list fc-cache)
+required_tools=(cargo fc-list fc-cache kpackagetool6 kreadconfig6)
 
 font_url=https://github.com/google/fonts/raw/main/ofl/kodemono
 # curl treats [] as a glob and GitHub rejects the literal brackets, so each entry is "<local name> <percent-encoded remote name>".
@@ -209,16 +211,38 @@ install_units() {
     fi
 }
 
+# Installs or upgrades the KWin script without ever enabling it, writing kwinrc or calling KWin.
+# KWin keeps the code it compiled for a loaded script, even across an unload and start, so an update
+# to an enabled script takes effect only when KWin next starts.
+install_kwin_script() {
+    local was_enabled=
+
+    if "$kwin_script" enabled; then
+        was_enabled=1
+    fi
+    "$kwin_script" install
+
+    if [[ -n $was_enabled ]]; then
+        step "the KWin desktop script update takes effect at your next login"
+    else
+        step "the KWin desktop script is installed but not enabled; enable it with: $kwin_script enable"
+    fi
+}
+
 check_prerequisites
 
-step "building ghostd (release)"
+step "building ghostd and ghost-alerts-inmet (release)"
 cargo build --release --quiet --manifest-path "$repo/Cargo.toml"
-if [[ ! -x $binary ]]; then
-    die "$binary was not produced; is a custom cargo target directory configured?"
-fi
+for built in "$binary" "$alerts_binary"; do
+    if [[ ! -x $built ]]; then
+        die "$built was not produced; is a custom cargo target directory configured?"
+    fi
+done
 
-step "installing ghostd into $bin_dir"
+step "installing ghostd and ghost-alerts-inmet into $bin_dir"
 install -D -m 755 "$binary" "$bin_dir/ghostd"
+# Beside ghostd, which starts it from its own dir because the user manager's PATH lacks this one.
+install -D -m 755 "$alerts_binary" "$bin_dir/ghost-alerts-inmet"
 
 step "copying the shell into $shell_dir"
 sync_tree "$shell_src" "$shell_dir"
@@ -230,5 +254,8 @@ install_font_if_missing
 
 step "installing the user units into $unit_dir"
 install_units
+
+step "installing the KWin desktop script"
+install_kwin_script
 
 step "done; start with: systemctl --user start ghostd ghost-shell"

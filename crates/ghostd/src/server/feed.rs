@@ -11,9 +11,9 @@ use tracing::{error, info, warn};
 
 use super::state::{LayoutLines, State};
 use super::widget_watch::WidgetWatch;
-use super::{Shared, WarningHook, WidgetDirs, line, problem_line};
+use super::{ProviderSpecs, Shared, WarningHook, WidgetDirs, line, problem_line};
 use crate::config::{ConfigError, WatchHandle, load_path, load_str, spawn_watcher};
-use crate::providers::Supervisor;
+use crate::providers::{Supervisor, expected_topics, supervise};
 use crate::widgets::{discover, resolve};
 
 const CONFIG_WARNING_SUMMARY: &str = "ghost-shell config";
@@ -99,6 +99,7 @@ pub(super) struct Reloader {
     shared: Shared,
     widget_dirs: WidgetDirs,
     widgets: WidgetWatch,
+    provider_specs: ProviderSpecs,
     providers: Supervisor,
     config: ResolvedConfig,
     dirs: Vec<PathBuf>,
@@ -108,12 +109,13 @@ pub(super) struct Reloader {
 }
 
 impl Reloader {
-    /// Starts watching the widget dirs, then resolves the first layout and builds the state every
-    /// UI client is greeted from.
+    /// Starts watching the widget dirs, then resolves the first layout, builds the state every
+    /// UI client is greeted from, and starts the providers with `GHOST_SOCKET=<socket>`.
     pub(super) async fn start(
         config: ResolvedConfig,
         widget_dirs: WidgetDirs,
-        providers: Supervisor,
+        provider_specs: ProviderSpecs,
+        socket: &Path,
         reporter: ProblemReporter,
         host: String,
         step_ms: u32,
@@ -132,10 +134,15 @@ impl Reloader {
             config_line(&config),
             layout_lines(layout),
         ));
+        let specs = provider_specs(&config);
+        // Before the first start, so no provider can claim a topic before it is expected.
+        shared.lock().expect(&expected_topics(&specs));
+        let providers = supervise(&specs, socket);
         Self {
             shared,
             widget_dirs,
             widgets,
+            provider_specs,
             providers,
             config,
             dirs,
@@ -160,7 +167,9 @@ impl Reloader {
         self.shared
             .lock()
             .set_config(config_line(&config), layout_lines(layout));
-        self.providers.reconcile(&config.providers).await;
+        let specs = (self.provider_specs)(&config);
+        self.shared.lock().expect(&expected_topics(&specs));
+        self.providers.reconcile(&specs).await;
         self.config = config;
     }
 
