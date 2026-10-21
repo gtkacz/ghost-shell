@@ -5,5 +5,11 @@ edition.workspace = true
 
 [dependencies]
 ghost-proto = { path = "../ghost-proto" }
+notify.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
 toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros"] }
