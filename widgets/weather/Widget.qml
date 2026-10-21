@@ -239,6 +239,7 @@ Panel {
                     width: middle.width
                     level: alertState.level
                     chipKey: "alert"
+                    alertKey: alertState.key
                     text: root.alertText
                     trailing: alertState.countdown
                     sourceLive: alertState.live

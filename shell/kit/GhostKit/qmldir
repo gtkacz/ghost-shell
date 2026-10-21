@@ -4,6 +4,7 @@ singleton Theme 1.0 Theme.qml
 singleton FrameClock 1.0 FrameClock.qml
 singleton Fmt 1.0 Fmt.qml
 singleton FirstWrite 1.0 FirstWrite.qml
+singleton AlertAttention 1.0 AlertAttention.qml
 singleton Views 1.0 Views.qml
 DotGrid 1.0 DotGrid.qml
 Scanlines 1.0 Scanlines.qml

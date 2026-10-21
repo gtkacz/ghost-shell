@@ -3,7 +3,8 @@ import Quickshell
 import "lib/theme.mjs" as ThemeLib
 
 // A boxed alert: a coloured left edge, scrolling stripes, and text that flickers in on arrival and then
-// blinks like the boot cursor. Every step lands on a FrameClock tick, so it adds no frames of its own.
+// blinks like the boot cursor. That lasts ATTENTION_MS from the first time the alert is shown, and then the box
+// holds still at full colour. Every step lands on a FrameClock tick, so it adds no frames of its own.
 Item {
     id: root
 
@@ -38,10 +39,16 @@ Item {
     property string chipKey
     // Whether the alert's own source is live, such as Data.topic(name).live.
     property bool sourceLive: true
+    // Names the alert, so a new one blinks and the same one shown again does not. A new level or message counts as
+    // a new alert; a caller whose message changes under one alert passes that alert's id instead.
+    property string alertKey: level + ":" + text
 
     readonly property bool live: Data.connected && !Data.stale && sourceLive
-    // A stale alert stands still: the daemon is gone, so nothing it reported is current.
-    readonly property bool animating: visible && live
+    readonly property bool shown: visible && live
+    // True from the first time the alert is shown until its attention window ends. A stale alert stands still:
+    // the daemon is gone, so nothing it reported is current.
+    property bool attracting: false
+    readonly property bool animating: attracting
     readonly property bool truncated: messageText.truncated
     readonly property bool hasChip: chip.hasText
     readonly property bool hasTrailing: trailing !== ""
@@ -91,9 +98,35 @@ Item {
         + (hasTrailing ? gap + trailingText.implicitWidth : 0))
     implicitHeight: Theme.d(chipLinePx + 2 * chipBorderPx + 2 * verticalPaddingPx)
 
+    // Shown with live data, an alert blinks for what is left of its window, which another box showing the same
+    // alert, or an earlier showing of this one, may already have used.
+    function claimAttention() {
+        const leftMs = shown ? AlertAttention.attentionLeftMs(alertKey) : 0;
+        attracting = leftMs > 0;
+        if (attracting) {
+            attentionTimer.interval = Math.ceil(leftMs);
+            attentionTimer.restart();
+        } else {
+            attentionTimer.stop();
+        }
+    }
+
+    onShownChanged: claimAttention()
+    onAlertKeyChanged: {
+        if (holdsClock) {
+            appearedAt = FrameClock.elapsedMs;
+        }
+        claimAttention();
+    }
     onAnimatingChanged: holdClock(animating)
-    Component.onCompleted: holdClock(animating)
+    Component.onCompleted: claimAttention()
     Component.onDestruction: holdClock(false)
+
+    Timer {
+        id: attentionTimer
+
+        onTriggered: root.attracting = false
+    }
 
     ShaderEffect {
         property color stripeColor: ThemeLib.withAlpha(root.levelColor, root.stripeAlphaPct)

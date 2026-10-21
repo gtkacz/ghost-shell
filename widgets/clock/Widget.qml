@@ -430,6 +430,7 @@ Panel {
                         width: Math.min(implicitWidth, root.width)
                         level: alertState.level
                         chipKey: "alert"
+                        alertKey: alertState.key
                         text: Fmt.alertLine(alertState.top, alertState.source)
                         trailing: alertState.countdown
                         sourceLive: alertState.live
@@ -546,6 +547,7 @@ Panel {
                             width: details.width
                             level: alertState.level
                             chipKey: "alert"
+                            alertKey: alertState.key
                             text: Fmt.alertLine(alertState.top, "")
                             trailing: alertState.countdown
                             sourceLive: alertState.live
