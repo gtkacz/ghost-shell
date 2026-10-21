@@ -93,22 +93,42 @@ enum ManifestError {
     InvalidVersion(String),
     #[error("requires {0:?} is not a valid topic name")]
     InvalidTopic(String),
+    #[error("is not a regular file")]
+    NotAFile,
+    #[error("is a symlink to a file that does not exist")]
+    DanglingLink,
 }
 
 /// Searches `dirs` in order, so a widget in a later directory replaces one with the same id from an
 /// earlier directory.
 ///
 /// Returns the widgets by id and the non-fatal problems, each starting with the path it concerns.
-/// A directory that does not exist is skipped silently.
+/// A directory that does not exist is skipped silently, and so is a folder without a
+/// `manifest.toml`. Two folders of one directory declaring the same id are reported, and the later
+/// folder's widget is the one kept.
 pub fn discover(dirs: &[PathBuf]) -> (BTreeMap<String, Manifest>, Vec<String>) {
     let mut manifests = BTreeMap::new();
     let mut problems = Vec::new();
-    for outcome in dirs.iter().flat_map(|dir| scan_dir(dir)) {
-        match outcome {
-            Ok(manifest) => {
-                manifests.insert(manifest.id.clone(), manifest);
+    for dir in dirs {
+        // Per directory, because replacing an id from an earlier directory is how a user
+        // overrides a built-in widget, which is no mistake to report.
+        let mut declared_here: BTreeMap<String, PathBuf> = BTreeMap::new();
+        for outcome in scan_dir(dir) {
+            match outcome {
+                Ok((manifest_path, manifest)) => {
+                    let earlier = declared_here.insert(manifest.id.clone(), manifest_path.clone());
+                    if let Some(earlier) = earlier {
+                        problems.push(format!(
+                            "{}: id {:?} is already declared by {}; this one is used",
+                            manifest_path.display(),
+                            manifest.id,
+                            earlier.display()
+                        ));
+                    }
+                    manifests.insert(manifest.id.clone(), manifest);
+                }
+                Err(problem) => problems.push(problem),
             }
-            Err(problem) => problems.push(problem),
         }
     }
     (manifests, problems)
@@ -137,7 +157,7 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
         .map_or_else(|| PathBuf::from(path), |rest| home.join(rest))
 }
 
-fn scan_dir(dir: &Path) -> Vec<Result<Manifest, String>> {
+fn scan_dir(dir: &Path) -> Vec<Result<(PathBuf, Manifest), String>> {
     let entries = match sorted_entries(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Vec::new(),
@@ -146,11 +166,39 @@ fn scan_dir(dir: &Path) -> Vec<Result<Manifest, String>> {
     entries
         .iter()
         .map(|entry| entry.join(MANIFEST_FILE))
-        .filter(|manifest_path| manifest_path.is_file())
-        .map(|manifest_path| {
-            load_manifest(&manifest_path).map_err(|e| format!("{}: {e}", manifest_path.display()))
+        .filter_map(|manifest_path| {
+            let loaded = match has_manifest(&manifest_path) {
+                Ok(true) => load_manifest(&manifest_path),
+                Ok(false) => return None,
+                Err(error) => Err(error),
+            };
+            Some(match loaded {
+                Ok(manifest) => Ok((manifest_path, manifest)),
+                Err(error) => Err(format!("{}: {error}", manifest_path.display())),
+            })
         })
         .collect()
+}
+
+/// Whether `manifest_path` names a manifest to load. `false` means the folder is not a widget,
+/// which is no problem; anything that stops a manifest from being read is an error instead, so a
+/// widget that vanishes from the layout always comes with a reason.
+fn has_manifest(manifest_path: &Path) -> Result<bool, ManifestError> {
+    match fs::metadata(manifest_path) {
+        Ok(metadata) if metadata.is_file() => Ok(true),
+        Ok(_) => Err(ManifestError::NotAFile),
+        // `metadata` follows links, so a link to nothing reads as not found as well.
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            if fs::symlink_metadata(manifest_path).is_ok() {
+                Err(ManifestError::DanglingLink)
+            } else {
+                Ok(false)
+            }
+        }
+        // A plain file sits where a widget folder would.
+        Err(e) if e.kind() == io::ErrorKind::NotADirectory => Ok(false),
+        Err(e) => Err(e.into()),
+    }
 }
 
 fn sorted_entries(dir: &Path) -> io::Result<Vec<PathBuf>> {

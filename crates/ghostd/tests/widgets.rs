@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 use std::{env, fs};
 
@@ -596,6 +597,90 @@ fn missing_dirs_and_folders_without_a_manifest_are_skipped_silently() {
 
     assert!(manifests.is_empty());
     assert!(problems.is_empty(), "{problems:?}");
+}
+
+fn assert_problem_names(problems: &[String], manifest_path: &Path) {
+    let prefix = manifest_path.display().to_string();
+    assert!(
+        problems.iter().any(|problem| problem.starts_with(&prefix)),
+        "no problem names {prefix}: {problems:#?}"
+    );
+}
+
+#[test]
+fn a_manifest_that_cannot_be_read_is_reported_not_skipped() {
+    let root = tempfile::tempdir().unwrap();
+    let valid = Spec {
+        id: "ok",
+        ..Spec::default()
+    }
+    .toml();
+    install(root.path(), "ok", &valid);
+    let manifest_of = |folder: &str| root.path().join(folder).join(MANIFEST_FILE);
+
+    fs::create_dir_all(manifest_of("dangling").parent().unwrap()).unwrap();
+    symlink("absent.toml", manifest_of("dangling")).unwrap();
+    fs::create_dir_all(manifest_of("directory")).unwrap();
+    fs::create_dir_all(manifest_of("loop").parent().unwrap()).unwrap();
+    symlink(MANIFEST_FILE, manifest_of("loop")).unwrap();
+
+    let (manifests, problems) = discover(&[root.path().to_path_buf()]);
+
+    assert_eq!(manifests.keys().collect::<Vec<_>>(), ["ok"]);
+    assert_eq!(problems.len(), 3, "{problems:#?}");
+    for folder in ["dangling", "directory", "loop"] {
+        assert_problem_names(&problems, &manifest_of(folder));
+    }
+}
+
+#[test]
+fn a_widget_folder_without_permission_is_reported_not_skipped() {
+    let root = tempfile::tempdir().unwrap();
+    install(root.path(), "locked", &Spec::default().toml());
+    let locked = root.path().join("locked");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    // Permission bits do not bind root, so there the folder stays readable and nothing is tested.
+    let binds_us = fs::read_dir(&locked).is_err();
+
+    let (manifests, problems) = discover(&[root.path().to_path_buf()]);
+
+    // Restored before the assertions so a failure does not leave a directory the cleanup cannot enter.
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    if !binds_us {
+        return;
+    }
+    assert!(manifests.is_empty());
+    assert_eq!(problems.len(), 1, "{problems:#?}");
+    assert_problem_names(&problems, &locked.join(MANIFEST_FILE));
+}
+
+#[test]
+fn two_folders_declaring_one_id_in_the_same_dir_are_reported() {
+    let root = tempfile::tempdir().unwrap();
+    let graphics = Spec {
+        id: "graphics",
+        ..Spec::default()
+    }
+    .toml();
+    install(root.path(), "a-first", &graphics);
+    install(root.path(), "b-second", &graphics);
+
+    let (manifests, problems) = discover(&[root.path().to_path_buf()]);
+
+    assert_eq!(problems.len(), 1, "{problems:#?}");
+    let later = root.path().join("b-second").join(MANIFEST_FILE);
+    assert_problem_names(&problems, &later);
+    assert!(problems[0].contains(r#"id "graphics""#), "{problems:#?}");
+    assert!(
+        problems[0].contains(&root.path().join("a-first").display().to_string()),
+        "{problems:#?}"
+    );
+    // The later folder still wins, as it did before the duplicate was reported.
+    assert!(
+        manifests["graphics"]
+            .source
+            .ends_with("b-second/Widget.qml")
+    );
 }
 
 #[test]
