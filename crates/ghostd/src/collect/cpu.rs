@@ -69,7 +69,7 @@ impl CpuCollector {
             .max()
             .map_or(0, |highest| usize::from(*highest) + 1);
         Ok(Self {
-            model: read_model(root)?,
+            model: read_model(root),
             topology: read_topology(root, &cpus)?,
             previous: read_stat(root)?,
             root: root.clone(),
@@ -79,13 +79,15 @@ impl CpuCollector {
     }
 
     fn mean_freq_mhz(&self) -> u32 {
+        // Parsed as u32 so a bogus value is skipped and the sum cannot overflow.
         let khz: Vec<u64> = self
             .cpus
             .iter()
             .filter_map(|cpu| {
                 let rel = format!("{CPU_SYSFS_DIR}/cpu{cpu}/{SCALING_CUR_FREQ}");
-                self.root.read(&rel).ok()?.trim().parse().ok()
+                self.root.read(&rel).ok()?.trim().parse::<u32>().ok()
             })
+            .map(u64::from)
             .collect();
         let Some(mean_khz) = khz.iter().sum::<u64>().checked_div(khz.len() as u64) else {
             return 0;
@@ -171,9 +173,14 @@ fn parse_cpu_times<'a>(columns: impl Iterator<Item = &'a str>) -> io::Result<Cpu
     if ticks.len() < COUNTED_STAT_FIELDS {
         return Err(invalid_data("truncated cpu line in /proc/stat"));
     }
-    let total: u64 = ticks.iter().sum();
+    // Saturating, because a corrupt counter must degrade the load rather than overflow-panic.
+    let total = ticks
+        .iter()
+        .fold(0, |sum: u64, field| sum.saturating_add(*field));
     Ok(CpuTimes {
-        busy: total - ticks[IDLE_FIELD] - ticks[IOWAIT_FIELD],
+        busy: total
+            .saturating_sub(ticks[IDLE_FIELD])
+            .saturating_sub(ticks[IOWAIT_FIELD]),
         total,
     })
 }
@@ -182,14 +189,17 @@ fn read_stat(root: &SysRoot) -> io::Result<ProcStat> {
     parse_proc_stat(&root.read(PROC_STAT)?)
 }
 
-fn read_model(root: &SysRoot) -> io::Result<String> {
-    let cpuinfo = root.read(PROC_CPUINFO)?;
-    Ok(cpuinfo
+/// The model is cosmetic, so an unreadable `/proc/cpuinfo` must not block telemetry.
+fn read_model(root: &SysRoot) -> String {
+    let Ok(cpuinfo) = root.read(PROC_CPUINFO) else {
+        return String::new();
+    };
+    cpuinfo
         .lines()
         .filter_map(|line| line.split_once(':'))
         .find(|(key, _)| key.trim() == MODEL_NAME_KEY)
         .map(|(_, model)| model.trim().to_owned())
-        .unwrap_or_default())
+        .unwrap_or_default()
 }
 
 fn enumerate_cpus(root: &SysRoot) -> io::Result<Vec<u16>> {
@@ -210,15 +220,18 @@ fn read_topology(root: &SysRoot, cpus: &[u16]) -> io::Result<Vec<CcdLoad>> {
     for cpu in cpus {
         let cache_dir = format!("{CPU_SYSFS_DIR}/cpu{cpu}");
         // Offline CPUs have no cache directory, so they belong to no CCD.
-        let shared = match root.read(&format!("{cache_dir}/{SHARED_CPU_LIST}")) {
-            Ok(list) => parse_cpu_list(&list),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e),
+        let (Some(shared), Some(size)) = (
+            read_if_present(root, &format!("{cache_dir}/{SHARED_CPU_LIST}"))?,
+            read_if_present(root, &format!("{cache_dir}/{L3_SIZE}"))?,
+        ) else {
+            continue;
         };
+        let mut shared = parse_cpu_list(&shared);
+        // Thread loads are indexed by enumerated CPU, so unknown CPUs in the list must not leak in.
+        shared.retain(|member| cpus.binary_search(member).is_ok());
         if shared.is_empty() {
             continue;
         }
-        let size = root.read(&format!("{cache_dir}/{L3_SIZE}"))?;
         l3_by_group.insert(shared, parse_l3_kib(&size)?);
     }
 
@@ -236,6 +249,14 @@ fn read_topology(root: &SysRoot, cpus: &[u16]) -> io::Result<Vec<CcdLoad>> {
             })
         })
         .collect()
+}
+
+fn read_if_present(root: &SysRoot, rel: &str) -> io::Result<Option<String>> {
+    match root.read(rel) {
+        Ok(content) => Ok(Some(content)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 fn parse_l3_kib(size: &str) -> io::Result<u32> {

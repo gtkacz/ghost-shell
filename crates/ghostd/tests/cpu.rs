@@ -95,3 +95,75 @@ fn missing_cpufreq_is_zero() {
     assert_eq!(snapshot.load, 0.0);
     assert!(snapshot.threads.iter().all(|load| *load == 0.0));
 }
+
+fn write_for_every_cpu(fake: &common::FakeRoot, file: &str, content: &str) {
+    for cpu in 0..CPU_COUNT {
+        fake.write(&format!("sys/devices/system/cpu/cpu{cpu}/{file}"), content);
+    }
+}
+
+#[test]
+fn out_of_range_shared_cpu_list_degrades_instead_of_panicking() {
+    let fake = fake_9950x3d();
+    write_for_every_cpu(&fake, "cache/index3/shared_cpu_list", "0-40\n");
+    let mut cpu = CpuCollector::new(&fake.root()).unwrap();
+    fake.write(
+        "proc/stat",
+        &stat_with_busy_cpu0(Ticks {
+            user: 50,
+            idle: 50,
+            ..Ticks::default()
+        }),
+    );
+
+    let snapshot = cpu.sample();
+
+    assert_eq!(snapshot.ccds.len(), 1);
+    assert_eq!(snapshot.ccds[0].cpus, (0..=31).collect::<Vec<u16>>());
+    assert!(snapshot.ccds[0].load.is_finite());
+    assert!(snapshot.threads.iter().all(|load| load.is_finite()));
+}
+
+#[test]
+fn absurd_counters_and_frequencies_do_not_overflow() {
+    let fake = fake_9950x3d();
+    write_for_every_cpu(&fake, "cpufreq/scaling_cur_freq", "18446744073709551615\n");
+    let maxed = Ticks {
+        user: u64::MAX,
+        system: 1,
+        ..Ticks::default()
+    };
+    fake.write("proc/stat", &proc_stat(maxed, &[maxed; CPU_COUNT]));
+
+    let mut cpu = CpuCollector::new(&fake.root()).unwrap();
+    let snapshot = cpu.sample();
+
+    assert_eq!(snapshot.freq_mhz, 0);
+    assert!(snapshot.load.is_finite());
+}
+
+#[test]
+fn missing_l3_size_skips_that_cache_entry() {
+    let fake = fake_9950x3d();
+    for cpu in (8..=15).chain(24..=31) {
+        fake.remove(&format!(
+            "sys/devices/system/cpu/cpu{cpu}/cache/index3/size"
+        ));
+    }
+
+    let snapshot = CpuCollector::new(&fake.root()).unwrap().sample();
+
+    assert_eq!(snapshot.ccds.len(), 1);
+    assert_eq!(snapshot.ccds[0].l3_kib, VCACHE_L3_KIB);
+}
+
+#[test]
+fn unreadable_cpuinfo_gives_an_empty_model() {
+    let fake = fake_9950x3d();
+    fake.remove("proc/cpuinfo");
+
+    let snapshot = CpuCollector::new(&fake.root()).unwrap().sample();
+
+    assert_eq!(snapshot.model, "");
+    assert_eq!(snapshot.threads.len(), CPU_COUNT);
+}
