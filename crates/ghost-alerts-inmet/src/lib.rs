@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use ghost_proto::{AlertLevel, ClientMsg, PROTO_VERSION, WeatherAlert, WeatherAlerts, topics};
 use jiff::civil::{Date, Time};
 use jiff::tz::TimeZone;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use tracing::warn;
 
 /// The name the provider claims its topic under.
@@ -18,72 +18,104 @@ pub const SOURCE: &str = "INMET";
 const TIME_ZONE: &str = "America/Sao_Paulo";
 // INMET writes each date as a UTC midnight, but the date is São Paulo's own calendar date.
 const MIDNIGHT_UTC_SUFFIX: &str = "T00:00:00.000Z";
+const DATE_LENGTH: usize = 10;
+const TIME_DESIGNATOR: char = 'T';
 const DATE_SEPARATOR: char = '-';
 const DATE_DIGITS: [usize; 3] = [4, 2, 2];
 const TIME_SEPARATOR: char = ':';
 const HOUR_MINUTE_DIGITS: [usize; 2] = [2, 2];
 const HOUR_MINUTE_SECOND_DIGITS: [usize; 3] = [2, 2, 2];
 const GEOCODE_SEPARATOR: char = ',';
-const POTENTIAL_DANGER: &str = "Perigo Potencial";
-const DANGER: &str = "Perigo";
-const GREAT_DANGER: &str = "Grande Perigo";
+const POTENTIAL_DANGER: &str = "PERIGO POTENCIAL";
+const DANGER: &str = "PERIGO";
+const GREAT_DANGER: &str = "GRANDE PERIGO";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("not INMET's alert list: {0}")]
+    #[error("INMET's answer is not its alert list: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("cannot load the {TIME_ZONE} time zone: {0}")]
-    TimeZone(#[from] jiff::Error),
+    #[error("the system time zone database has no {TIME_ZONE}; is tzdata installed? ({0})")]
+    TimeZone(jiff::Error),
 }
 
 #[derive(Deserialize)]
 struct Avisos {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     hoje: Vec<Aviso>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     futuro: Vec<Aviso>,
 }
 
 /// One alert as INMET sends it; only the fields the dashboard shows are read. Every field but `id`
-/// may be missing, so that one odd alert elsewhere in Brazil cannot hide the area's.
+/// may be missing or null, so that one odd alert elsewhere in Brazil cannot hide the area's.
 #[derive(Deserialize)]
 struct Aviso {
     id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     geocodes: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     descricao: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     severidade: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     data_inicio: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     hora_inicio: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     data_fim: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     hora_fim: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     riscos: Vec<String>,
+    #[serde(default, deserialize_with = "null_as_default")]
+    encerrado: bool,
+}
+
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// The alerts of `hoje`, then `futuro`, that cover `area`, an IBGE municipality code such as
-/// `3550308`, sorted by start. An id listed twice keeps its first entry, and an entry whose times
-/// cannot be read is skipped and logged.
+/// `3550308`, and have not ended, sorted by start. An id listed twice keeps its first entry that
+/// can be read, and an entry whose times cannot be read is skipped and logged.
 pub fn parse_alerts(json: &str, area: &str) -> Result<Vec<WeatherAlert>, ParseError> {
     let avisos: Avisos = serde_json::from_str(json)?;
-    let zone = TimeZone::get(TIME_ZONE)?;
-    let mut seen = HashSet::new();
-    let mut alerts: Vec<WeatherAlert> = avisos
+    let zone = TimeZone::get(TIME_ZONE).map_err(ParseError::TimeZone)?;
+    let current: Vec<Aviso> = avisos
         .hoje
         .into_iter()
         .chain(avisos.futuro)
-        .filter(|aviso| covers(aviso, area))
-        .filter(|aviso| seen.insert(aviso.id))
+        .filter(|aviso| !aviso.encerrado && covers(aviso, area))
+        .collect();
+    // Once per fetch rather than per alert: a serialiser change affects every date at once.
+    if let Some(date) = current
+        .iter()
+        .flat_map(|aviso| [&aviso.data_inicio, &aviso.data_fim])
+        .find(|date| has_unfamiliar_suffix(date))
+    {
+        warn!(
+            date = %date,
+            "INMET's date format has changed; reading each date's first ten characters as the date \
+             in São Paulo"
+        );
+    }
+    let mut seen = HashSet::new();
+    let mut alerts: Vec<WeatherAlert> = current
+        .into_iter()
         .filter_map(|aviso| alert(aviso, &zone))
+        .filter(|alert| seen.insert(alert.id.clone()))
         .collect();
     alerts.sort_by_key(|alert| alert.start_s);
     Ok(alerts)
+}
+
+fn has_unfamiliar_suffix(date: &str) -> bool {
+    date.get(DATE_LENGTH..)
+        .is_some_and(|suffix| suffix.starts_with(TIME_DESIGNATOR) && suffix != MIDNIGHT_UTC_SUFFIX)
 }
 
 fn covers(aviso: &Aviso, area: &str) -> bool {
@@ -105,11 +137,12 @@ fn alert(aviso: Aviso, zone: &TimeZone) -> Option<WeatherAlert> {
         );
         return None;
     };
+    let severity = aviso.severidade.trim().to_uppercase();
     Some(WeatherAlert {
         id: aviso.id.to_string(),
         title: aviso.descricao.to_uppercase(),
-        severity: aviso.severidade.to_uppercase(),
-        level: level(aviso.id, &aviso.severidade),
+        level: level(aviso.id, &severity),
+        severity,
         start_s,
         end_s,
         risks: aviso.riscos,
@@ -132,10 +165,13 @@ fn level(id: u64, severity: &str) -> AlertLevel {
 }
 
 /// Seconds since the Unix epoch of `date` at `time` in `zone`, or `None` unless the date is
-/// `YYYY-MM-DD`, alone or followed by INMET's midnight suffix, and the time is `HH:MM` or
+/// `YYYY-MM-DD`, alone or followed by a `T…` suffix that is ignored, and the time is `HH:MM` or
 /// `HH:MM:SS`.
 fn instant(date: &str, time: &str, zone: &TimeZone) -> Option<u64> {
-    let date = date.strip_suffix(MIDNIGHT_UTC_SUFFIX).unwrap_or(date);
+    let (date, suffix) = date.split_at_checked(DATE_LENGTH)?;
+    if !(suffix.is_empty() || suffix.starts_with(TIME_DESIGNATOR)) {
+        return None;
+    }
     let [year, month, day] = numbers(date, DATE_SEPARATOR, DATE_DIGITS)?;
     let [hour, minute, second] = numbers(time, TIME_SEPARATOR, HOUR_MINUTE_DIGITS)
         .map(|[hour, minute]| [hour, minute, 0])

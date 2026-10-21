@@ -76,7 +76,7 @@ enum Ended {
 
 #[derive(Debug, thiserror::Error)]
 enum FetchError {
-    #[error(transparent)]
+    #[error("cannot fetch INMET's alerts: {0}")]
     Http(#[from] ureq::Error),
     #[error(transparent)]
     Parse(#[from] ParseError),
@@ -114,7 +114,7 @@ fn provide(socket: &Path, area: &str) -> Ended {
                 FETCH_INTERVAL
             }
             Err(error) => {
-                warn!(%error, "cannot fetch INMET's alerts; retrying in {retry:?}");
+                warn!(%error, "nothing published; retrying in {retry:?}");
                 let pause = retry;
                 retry = (retry * RETRY_GROWTH).min(FETCH_INTERVAL);
                 pause

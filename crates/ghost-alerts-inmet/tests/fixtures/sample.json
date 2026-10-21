@@ -77,9 +77,9 @@
     {
       "id": 5,
       "codigo": "urn:oid:2.49.0.0.76.0.2026.5.1",
-      "data_inicio": "2026-10-21T03:00:00.000Z",
+      "data_inicio": "21/10/2026",
       "hora_inicio": "12:00",
-      "data_fim": "2026-10-21T03:00:00.000Z",
+      "data_fim": "21/10/2026",
       "hora_fim": "23:59",
       "inicio": "2026-10-21 12:00",
       "fim": "2026-10-21 23:59",
@@ -90,6 +90,40 @@
       "severidade": "Perigo Potencial",
       "riscos": [],
       "instrucoes": []
+    },
+    {
+      "id": 6,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.6.1",
+      "data_inicio": "2026-10-21T00:00:00.000Z",
+      "hora_inicio": "06:00",
+      "data_fim": "2026-10-21T00:00:00.000Z",
+      "hora_fim": "23:59",
+      "inicio": "2026-10-21 06:00",
+      "fim": "2026-10-21 23:59",
+      "geocodes": "3550308",
+      "encerrado": true,
+      "descricao": "Chuvas Intensas",
+      "aviso_cor": "#FFA500",
+      "severidade": "Perigo",
+      "riscos": [],
+      "instrucoes": []
+    },
+    {
+      "id": 7,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.7.1",
+      "data_inicio": null,
+      "hora_inicio": null,
+      "data_fim": null,
+      "hora_fim": null,
+      "inicio": null,
+      "fim": null,
+      "geocodes": null,
+      "encerrado": null,
+      "descricao": null,
+      "aviso_cor": null,
+      "severidade": null,
+      "riscos": null,
+      "instrucoes": null
     }
   ],
   "futuro": [
