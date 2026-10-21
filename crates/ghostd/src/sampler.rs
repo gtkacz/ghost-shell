@@ -275,8 +275,9 @@ mod tests {
 
     #[test]
     fn drive_temperature_comes_from_the_matching_nvme_reading() {
-        let drive = |id: &str| Drive {
-            id: id.to_owned(),
+        let drive = |model: &str, serial: &str| Drive {
+            id: format!("{model}#{serial}"),
+            model: model.to_owned(),
             ..Default::default()
         };
         let mut sampler = Machine {
@@ -289,7 +290,7 @@ mod tests {
                 fans: vec![],
             },
             disks: DiskSnapshot {
-                drives: vec![drive("Model#SERIAL"), drive("Other#UNMATCHED")],
+                drives: vec![drive("Model", "SERIAL"), drive("Other", "UNMATCHED")],
             },
             ..Default::default()
         }

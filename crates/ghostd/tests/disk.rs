@@ -801,6 +801,28 @@ fn temps_attach_by_serial() {
 }
 
 #[test]
+fn temps_attach_when_the_serial_or_the_model_contains_the_id_separator() {
+    let fake = FakeRoot::new();
+    FakeDisk::nvme("nvme0n1", "259:0", KINGSTON_MODEL, "AB#CD").write(&fake);
+    FakeDisk::nvme("nvme1n1", "259:5", "MODEL #2", WD_SERIAL).write(&fake);
+    let mut snapshot = sample(&fake);
+    let reading = |serial: &str, value: f32| Reading {
+        id: format!("nvme/{serial}"),
+        label: String::new(),
+        value: Some(value),
+    };
+    let sensors = SensorSnapshot {
+        temps: vec![reading("AB#CD", 41.5), reading(WD_SERIAL, 38.25)],
+        fans: Vec::new(),
+    };
+
+    attach_temps(&mut snapshot, &sensors);
+
+    assert_eq!(drive(&snapshot, "nvme0n1").temp_c, Some(41.5));
+    assert_eq!(drive(&snapshot, "nvme1n1").temp_c, Some(38.25));
+}
+
+#[test]
 fn collector_can_move_to_a_blocking_thread() {
     fn assert_send<T: Send>() {}
     assert_send::<DiskCollector>();

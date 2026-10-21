@@ -369,8 +369,7 @@ impl Source<DiskSnapshot> for DiskCollector {
 /// Sets each drive's temperature from the `nvme/{serial}` reading the sensor collector made for it.
 pub fn attach_temps(disks: &mut DiskSnapshot, sensors: &SensorSnapshot) {
     for drive in &mut disks.drives {
-        // `Drive` carries no serial of its own; the id is where it survives.
-        let Some((_, serial)) = drive.id.rsplit_once(ID_SEPARATOR) else {
+        let Some(serial) = serial_of(drive) else {
             continue;
         };
         if let Some(reading) = sensors
@@ -381,6 +380,15 @@ pub fn attach_temps(disks: &mut DiskSnapshot, sensors: &SensorSnapshot) {
             drive.temp_c = reading.value;
         }
     }
+}
+
+/// `Drive` carries no serial of its own, so it is read back out of the id. The stored model is
+/// stripped rather than the id split at a `#`, because either part may contain one itself.
+fn serial_of(drive: &Drive) -> Option<&str> {
+    drive
+        .id
+        .strip_prefix(drive.model.as_str())?
+        .strip_prefix(ID_SEPARATOR)
 }
 
 // Variants are declared in display order, which `Ord` then follows.
