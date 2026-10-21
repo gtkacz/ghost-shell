@@ -47,7 +47,8 @@ This runs `make release` and then `scripts/install.sh`. The script is idempotent
 - `ghostd` into `~/.local/bin/`;
 - `shell/` (with its compiled shaders) and `widgets/` (without `broken-example`) into `~/.local/share/ghost-shell/`;
 - the Kode Mono font into `~/.local/share/fonts/ghost-shell/`, if it is not installed yet;
-- the user units `ghostd.service` and `ghost-shell.service` into `~/.config/systemd/user/`.
+- the user units `ghostd.service` and `ghost-shell.service` into `~/.config/systemd/user/`;
+- on NVIDIA machines only, the drop-in `ghost-shell.service.d/nvidia.conf` next to them. It runs the shell on NVIDIA's `egl-wayland` 1.x, which does not leak a buffer per frame as the newer `egl-wayland2` does, keeps Mesa's EGL (about 30 MiB) out of the process, and gives the shell its own shader cache in `~/.cache/ghost-shell`. It is installed only when the NVIDIA driver is loaded, the EGL files it names exist, and every DRM device is driven by `nvidia`, because it makes EGL fail on a system that renders through Mesa. Otherwise a copy installed earlier is removed.
 
 It stops with an error if `cargo`, `fc-list`, `fc-cache`, `shell/` or the compiled shaders are missing. It does not enable or start anything, and it does not touch Plasma.
 

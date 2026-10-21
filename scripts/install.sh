@@ -23,6 +23,13 @@ widgets_src=$repo/widgets
 units_src=$repo/packaging/systemd
 binary=${CARGO_TARGET_DIR:-$repo/target}/release/ghostd
 
+nvidia_dropin_src=$units_src/ghost-shell-nvidia.conf
+nvidia_dropin_dir=$unit_dir/ghost-shell.service.d
+nvidia_dropin=$nvidia_dropin_dir/nvidia.conf
+nvidia_version_file=/proc/driver/nvidia/version
+drm_dir=/sys/class/drm
+nvidia_drm_driver=nvidia
+
 excluded_widget=broken-example
 required_tools=(cargo fc-list fc-cache)
 
@@ -129,9 +136,71 @@ install_font_if_missing() {
     fi
 }
 
+# Prints why the NVIDIA drop-in must not be installed, or nothing when it may be. The drop-in points
+# the EGL loader at NVIDIA alone, which makes EGL fail outright on a system that renders through Mesa.
+nvidia_dropin_blocker() {
+    local json_file card driver json_files=() cards=()
+
+    if [[ ! -e $nvidia_version_file ]]; then
+        echo "no NVIDIA driver is loaded"
+        return 0
+    fi
+
+    # Read from the drop-in itself so the files it names and the files checked here cannot drift apart.
+    mapfile -t json_files < <(sed -n 's|^Environment=__EGL_[A-Z_]*=\(/.*\.json\)$|\1|p' "$nvidia_dropin_src")
+    if (( ${#json_files[@]} == 0 )); then
+        echo "$nvidia_dropin_src names no EGL files"
+        return 0
+    fi
+    for json_file in "${json_files[@]}"; do
+        if [[ ! -f $json_file ]]; then
+            echo "$json_file is missing"
+            return 0
+        fi
+    done
+
+    # cardN-<connector> entries are outputs, not devices.
+    for card in "$drm_dir"/card*; do
+        if [[ ${card##*/} =~ ^card[0-9]+$ ]]; then
+            cards+=("$card")
+        fi
+    done
+    if (( ${#cards[@]} == 0 )); then
+        echo "no DRM device was found"
+        return 0
+    fi
+    for card in "${cards[@]}"; do
+        driver=$(basename "$(readlink -f "$card/device/driver")")
+        if [[ $driver != "$nvidia_drm_driver" ]]; then
+            echo "${card##*/} is driven by $driver, not $nvidia_drm_driver"
+            return 0
+        fi
+    done
+}
+
+sync_nvidia_dropin() {
+    local blocker removed=
+
+    blocker=$(nvidia_dropin_blocker)
+    if [[ -z $blocker ]]; then
+        step "installing the NVIDIA drop-in into $nvidia_dropin_dir"
+        install -D -m 644 "$nvidia_dropin_src" "$nvidia_dropin"
+        return
+    fi
+
+    if [[ -e $nvidia_dropin ]]; then
+        rm -f -- "$nvidia_dropin"
+        removed="; removed the copy installed earlier"
+    fi
+    # Fails, harmlessly, when the directory holds another drop-in or does not exist.
+    rmdir "$nvidia_dropin_dir" 2> /dev/null || true
+    step "not installing the NVIDIA drop-in: $blocker$removed"
+}
+
 install_units() {
     mkdir -p "$unit_dir"
     install -m 644 -t "$unit_dir" "$units_src"/ghostd.service "$units_src"/ghost-shell.service
+    sync_nvidia_dropin
 
     if systemctl --user show-environment > /dev/null 2>&1; then
         systemctl --user daemon-reload
