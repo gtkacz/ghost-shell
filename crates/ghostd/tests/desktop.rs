@@ -3,7 +3,7 @@ mod common;
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
-use common::bus::{PrivateBus, RunningDesktop, call_desktop};
+use common::bus::{PrivateBus, RunningDesktop, call_desktop, next};
 use ghost_proto::{DesktopSnapshot, ViewAction, topics};
 use ghostd::feeds::desktop::{DesktopService, DesktopState};
 use ghostd::feeds::shortcuts::Registration;
@@ -11,6 +11,7 @@ use ghostd::server::Publisher;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
+use zbus::proxy::CacheProperties;
 use zbus::{Connection, Guid, connection, fdo};
 
 // The contract the KWin script and the smoke tests call.
@@ -184,6 +185,75 @@ async fn the_desktop_resets_when_kwin_leaves_the_bus() {
         DesktopSnapshot {
             covered_outputs: Vec::new(),
             active: false,
+            action: Some(ViewAction::Monitor),
+            action_seq: 1,
+        }
+    );
+}
+
+#[tokio::test]
+async fn a_restarted_kwin_reports_after_the_reset() {
+    let bus = PrivateBus::start();
+    let mut desktop = RunningDesktop::start(&bus, Registration::default()).await;
+    let kwin = bus.builder().name(KWIN).build().await.unwrap();
+    call_desktop(&kwin, "Report", &("DP-1", true)).await;
+    desktop.next_snapshot().await;
+
+    kwin.close().await.unwrap();
+    assert_eq!(desktop.next_snapshot().await, DesktopSnapshot::default());
+
+    let restarted = bus.builder().name(KWIN).build().await.unwrap();
+    call_desktop(&restarted, "Report", &("HDMI-A-1", false)).await;
+    assert_eq!(
+        desktop.next_snapshot().await,
+        DesktopSnapshot {
+            covered_outputs: outputs(&["HDMI-A-1"]),
+            ..DesktopSnapshot::default()
+        }
+    );
+}
+
+#[tokio::test]
+async fn kwin_replaced_in_place_is_not_a_departure() {
+    let bus = PrivateBus::start();
+    let mut desktop = RunningDesktop::start(&bus, Registration::default()).await;
+    // zbus asks for names with ALLOW_REPLACEMENT | REPLACE_EXISTING | DO_NOT_QUEUE, so a second
+    // owner takes the name over at once and the first leaves no queue behind.
+    let kwin = bus.builder().name(KWIN).build().await.unwrap();
+    call_desktop(&kwin, "Report", &("DP-1", true)).await;
+    desktop.next_snapshot().await;
+    let watcher = bus.connect().await;
+    let mut owners = fdo::DBusProxy::builder(&watcher)
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await
+        .unwrap()
+        .receive_name_owner_changed_with_args(&[(0, KWIN)])
+        .await
+        .unwrap();
+
+    let replacement = bus.builder().name(KWIN).build().await.unwrap();
+    let change = timeout(WAIT, next(&mut owners))
+        .await
+        .expect("the name never changed hands")
+        .unwrap();
+    let args = change.args().unwrap();
+    assert_eq!(
+        args.old_owner().as_ref().map(|owner| owner.as_str()),
+        kwin.unique_name().map(|owner| owner.as_str())
+    );
+    assert_eq!(
+        args.new_owner().as_ref().map(|owner| owner.as_str()),
+        replacement.unique_name().map(|owner| owner.as_str())
+    );
+
+    // A reset would make the desktop inactive, so Activate would be refused.
+    call_desktop(&replacement, "Activate", &("monitor",)).await;
+    assert_eq!(
+        desktop.next_snapshot().await,
+        DesktopSnapshot {
+            covered_outputs: outputs(&["DP-1"]),
+            active: true,
             action: Some(ViewAction::Monitor),
             action_seq: 1,
         }
