@@ -79,3 +79,14 @@ The occlusion check is also the one that decides whether Plan 2 needs its own de
 3. **Nothing that changes pixels gets its own timer.** An independent timer adds its own frames (measured: +1.00 frames/s for a 1 Hz one). Data updates are applied on a clock tick. Task 14's 250 ms blink timer would add 4 frames/s, so derive the blink step from the tick count instead, for example `Math.floor(frame * 4 / 15) % 4`. The 30 fps spectrum needs the clock at interval 33, only while it is visible and playing; 15 extra frames/s is about 0.5 % more by the marginal figure above.
 4. **Occluded surfaces: assume they keep rendering.** This is unverified. Plan 2 needs occlusion detection, and Task 14's FrameClock must be stoppable as a whole. The `static` run shows the mechanism works: with every timer stopped the surface renders 0 frames/s at 0.00 % CPU. If the user's check shows KWin already throttles covered surfaces, Plan 2 can drop the requirement.
 5. **Re-measure in Task 14 with the real panels.** This spike draws trivial content, so 0.68 % is a floor, not a forecast.
+
+## Results (2026-10-21)
+
+The user ran the spike in `anim` mode on the live desktop, with the old `gridlock` HUD running.
+
+| Check | Result |
+|---|---|
+| Above Plasma's desktop | Not observable while gridlock runs: the spike drew *under* gridlock. gridlock's source says KWin derives the window type from the namespace, so a surface named `desktop` sits in KWin's desktop layer whatever its wlr layer (Bottom or Background). `gridlock-keeper` raises every desktop window with resource class `quickshell` (gridlock and ghost-shell alike) above plasmashell's. Staying above Plasma's desktop therefore depends on a keeper script, and ghost-shell needs its own before gridlock is retired |
+| Below windows | Pass (user) |
+| Visible under Meta+D | Pass (user) |
+| Covered surfaces stop rendering | Not measured. With gridlock covering most of the spike (but partly translucent) it still rendered 16.1 frames/s. The user said to assume covered surfaces keep rendering, so Plan 2 keeps occlusion detection |
