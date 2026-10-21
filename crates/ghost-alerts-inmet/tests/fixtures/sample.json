@@ -124,6 +124,32 @@
       "severidade": null,
       "riscos": null,
       "instrucoes": null
+    },
+    {
+      "id": "8",
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.8.1",
+      "data_inicio": "2026-10-21T00:00:00.000Z",
+      "hora_inicio": "06:00",
+      "data_fim": "2026-10-21T00:00:00.000Z",
+      "hora_fim": "23:59",
+      "geocodes": "3550308",
+      "encerrado": false,
+      "descricao": "Tempestade",
+      "severidade": "Perigo",
+      "riscos": []
+    },
+    {
+      "id": 9,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.9.1",
+      "data_inicio": "2026-10-21T00:00:00.000Z",
+      "hora_inicio": "06:00",
+      "data_fim": "2026-10-21T00:00:00.000Z",
+      "hora_fim": "23:59",
+      "geocodes": 3550308,
+      "encerrado": false,
+      "descricao": "Tempestade",
+      "severidade": "Perigo",
+      "riscos": []
     }
   ],
   "futuro": [

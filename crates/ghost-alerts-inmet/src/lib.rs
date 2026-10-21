@@ -7,6 +7,7 @@ use ghost_proto::{AlertLevel, ClientMsg, PROTO_VERSION, WeatherAlert, WeatherAle
 use jiff::civil::{Date, Time};
 use jiff::tz::TimeZone;
 use serde::{Deserialize, Deserializer};
+use serde_json::Value;
 use tracing::warn;
 
 /// The name the provider claims its topic under.
@@ -38,16 +39,18 @@ pub enum ParseError {
     TimeZone(jiff::Error),
 }
 
+/// The entries stay untyped until each is read on its own, so one of an unexpected shape anywhere
+/// in Brazil is skipped instead of failing the whole document.
 #[derive(Deserialize)]
 struct Avisos {
     #[serde(default, deserialize_with = "null_as_default")]
-    hoje: Vec<Aviso>,
+    hoje: Vec<Value>,
     #[serde(default, deserialize_with = "null_as_default")]
-    futuro: Vec<Aviso>,
+    futuro: Vec<Value>,
 }
 
 /// One alert as INMET sends it; only the fields the dashboard shows are read. Every field but `id`
-/// may be missing or null, so that one odd alert elsewhere in Brazil cannot hide the area's.
+/// may be missing or null.
 #[derive(Deserialize)]
 struct Aviso {
     id: u64,
@@ -81,7 +84,8 @@ where
 
 /// The alerts of `hoje`, then `futuro`, that cover `area`, an IBGE municipality code such as
 /// `3550308`, and have not ended, sorted by start. An id listed twice keeps its first entry that
-/// can be read, and an entry whose times cannot be read is skipped and logged.
+/// can be read, and an entry of an unexpected shape, or whose times cannot be read, is skipped and
+/// logged.
 pub fn parse_alerts(json: &str, area: &str) -> Result<Vec<WeatherAlert>, ParseError> {
     let avisos: Avisos = serde_json::from_str(json)?;
     let zone = TimeZone::get(TIME_ZONE).map_err(ParseError::TimeZone)?;
@@ -89,6 +93,7 @@ pub fn parse_alerts(json: &str, area: &str) -> Result<Vec<WeatherAlert>, ParseEr
         .hoje
         .into_iter()
         .chain(avisos.futuro)
+        .filter_map(aviso)
         .filter(|aviso| !aviso.encerrado && covers(aviso, area))
         .collect();
     // Once per fetch rather than per alert: a serialiser change affects every date at once.
@@ -111,6 +116,12 @@ pub fn parse_alerts(json: &str, area: &str) -> Result<Vec<WeatherAlert>, ParseEr
         .collect();
     alerts.sort_by_key(|alert| alert.start_s);
     Ok(alerts)
+}
+
+fn aviso(entry: Value) -> Option<Aviso> {
+    serde_json::from_value(entry)
+        .inspect_err(|error| warn!(%error, "skipping an INMET alert of an unexpected shape"))
+        .ok()
 }
 
 fn has_unfamiliar_suffix(date: &str) -> bool {

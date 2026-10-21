@@ -7,7 +7,8 @@ use ghost_proto::{AlertLevel, WeatherAlert};
 const AREA: &str = "3550308";
 /// INMET's shape without the polygons. Alert 3 is dated in plain `YYYY-MM-DD` and alert 5 in a
 /// form INMET does not use; the rest as INMET sends them, at a UTC midnight that is really the
-/// local date. Alert 6 has ended, and alert 7 is null throughout.
+/// local date. Alert 6 has ended, alert 7 is null throughout, and alerts 8 and 9, for the area,
+/// are malformed: 8 has a string id and 9 a number for its geocodes.
 const SAMPLE: &str = include_str!("fixtures/sample.json");
 /// 2026-10-21 18:00 in São Paulo (UTC−3), alert 1's start.
 const STORM_START_S: u64 = 1_792_616_400;
@@ -185,6 +186,14 @@ fn logged_while<T>(run: impl FnOnce() -> T) -> (T, String) {
     let result = tracing::subscriber::with_default(subscriber, run);
     let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
     (result, log)
+}
+
+#[test]
+fn a_malformed_entry_is_skipped_alone() {
+    let (alerts, log) = logged_while(|| sample_alerts(SAMPLE));
+
+    assert_eq!(ids(&alerts), ["1", "3"]);
+    assert_eq!(log.matches("unexpected shape").count(), 2, "got {log:?}");
 }
 
 #[test]
