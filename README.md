@@ -474,6 +474,22 @@ The real shell on DP-1 (scale 1.15) against a fake daemon on a private bus, with
 - With real, narrow widgets one print costs ≈ 70–80 ms of shell CPU above idle.
 - **A heavy incoming view delays the print by its creation time.** With the Graphics widget in a half-width slot, the first frame came at +808 ms, the shell spent 0.9 s of CPU and RSS reached 517 MiB. The cause is the block graph's one-rectangle-per-cell design, which a shader-based graph would replace.
 
+### Plan 2a: covered by windows (occlusion)
+
+`scripts/measure-covered.sh` runs a release `ghostd` with real collectors and the shell on a private bus. It reports the shell's output as covered, measures both processes, then reports it uncovered again. DP-1 was the only screen. The config is the default, so there is no location and no provider, and `GHOST_DEBUG` is off. The installed services kept running throughout.
+
+| State | Window | Dashboard frames | Shell CPU | Daemon CPU | **Total** (budget ≤ 0.5 %) |
+|---|---|---|---|---|---|
+| Covered, before the change | 30 s | 448 | 1.43 % | 0.40 % | 1.83 % |
+| Covered, after (run 1) | 60 s | **0** | 0.03 % | 0.02 % | **0.05 %** |
+| Covered, after (run 2) | 60 s | **0** | 0.02 % | 0.02 % | **0.04 %** |
+| Visible, after the change | 60 s | 896 | 1.43 % | 0.32 % | 1.75 % (budget ≤ 2 %) |
+
+- While covered, the view is unloaded, the frame clock is suspended (including the seconds clock), and the shell subscribes only to `desktop` and `perf`. The dot grid and scanlines stay on screen, because they are static.
+- The dashboard comes back within 2 s of the uncover, with no print transition.
+- Covering mid-print drew 1 frame, then none. Uncovering drew 1 frame; a print draws about 26.
+- The visible figure animates at 15 fps because the dead `nvme1n1` keeps the Storage alert running. 1.75 % is inside the 2 % budget with little headroom.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
