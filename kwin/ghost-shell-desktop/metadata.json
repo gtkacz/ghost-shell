@@ -1,0 +1,11 @@
+{
+    "KPlugin": {
+        "Id": "ghost-shell-desktop",
+        "Name": "ghost-shell desktop",
+        "Description": "Keeps the ghost-shell dashboard above Plasma's desktop and tells ghostd which outputs windows cover and whether the desktop has focus.",
+        "License": "GPL-3.0-or-later"
+    },
+    "X-Plasma-API": "declarativescript",
+    "X-Plasma-MainScript": "ui/main.qml",
+    "KPackageStructure": "KWin/Script"
+}
