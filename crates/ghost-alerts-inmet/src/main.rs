@@ -10,9 +10,10 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ghost_alerts_inmet::{
-    ParseError, SOURCE, Translator, default_store_path, parse_alerts, provide_line, publish_line,
+    IssuedAlert, ParseError, SOURCE, Translator, default_store_path, parse_alerts, provide_line,
+    publish_line,
 };
-use ghost_proto::WeatherAlerts;
+use ghost_proto::{WeatherAlert, WeatherAlerts};
 use tracing::{error, info, warn};
 use ureq::Agent;
 
@@ -134,12 +135,24 @@ fn provide(socket: &Path, options: &Options) -> Ended {
     });
     let mut retry = FIRST_RETRY;
     loop {
-        let pause = match fetch(&agent, area, translator.as_mut()) {
-            Ok(alerts) => {
-                if let Err(error) = daemon.write_all(publish_line(&alerts).as_bytes()) {
+        let pause = match fetch(&agent, area) {
+            Ok(fetched) => {
+                let mut send = |alerts| publish(&mut daemon, fetched.updated_s, alerts);
+                let published = match translator.as_mut() {
+                    Some(translator) => {
+                        translator.publish_translated(&fetched.issued, Instant::now(), send)
+                    }
+                    None => send(
+                        fetched
+                            .issued
+                            .into_iter()
+                            .map(|issued| issued.alert)
+                            .collect(),
+                    ),
+                };
+                if let Err(error) = published {
                     return Ended::Write(error);
                 }
-                info!(alerts = alerts.alerts.len(), "published");
                 retry = FIRST_RETRY;
                 FETCH_INTERVAL
             }
@@ -156,23 +169,29 @@ fn provide(socket: &Path, options: &Options) -> Ended {
     }
 }
 
-fn fetch(
-    agent: &Agent,
-    area: &str,
-    translator: Option<&mut Translator<Agent>>,
-) -> Result<WeatherAlerts, FetchError> {
+/// The area's alerts as INMET issued them, and when they were fetched.
+struct Fetched {
+    updated_s: u64,
+    issued: Vec<IssuedAlert>,
+}
+
+fn fetch(agent: &Agent, area: &str) -> Result<Fetched, FetchError> {
     let body = agent.get(ALERTS_URL).call()?.body_mut().read_to_string()?;
-    let updated_s = unix_now_s();
-    let issued = parse_alerts(&body, area)?;
-    let alerts = match translator {
-        Some(translator) => translator.translate(issued, Instant::now()),
-        None => issued.into_iter().map(|issued| issued.alert).collect(),
-    };
-    Ok(WeatherAlerts {
+    Ok(Fetched {
+        updated_s: unix_now_s(),
+        issued: parse_alerts(&body, area)?,
+    })
+}
+
+fn publish(daemon: &mut UnixStream, updated_s: u64, alerts: Vec<WeatherAlert>) -> io::Result<()> {
+    let alerts = WeatherAlerts {
         source: SOURCE.to_owned(),
         updated_s,
         alerts,
-    })
+    };
+    daemon.write_all(publish_line(&alerts).as_bytes())?;
+    info!(alerts = alerts.alerts.len(), "published");
+    Ok(())
 }
 
 fn unix_now_s() -> u64 {

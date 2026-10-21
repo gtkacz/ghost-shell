@@ -36,13 +36,9 @@ pub(crate) struct Stored {
 /// The entries by language pair, such as `pt-BR|en-US`, then by the Portuguese text.
 type Pairs = BTreeMap<String, BTreeMap<String, Stored>>;
 
-/// The store as read from its file at the start of one fetch.
+/// The store as read from its file at the start of one fetch, for looking terms up.
 pub(crate) struct Store {
-    path: PathBuf,
     pairs: Pairs,
-    /// False when the file could not be read, so that saving never replaces what the user wrote.
-    writable: bool,
-    changed: bool,
 }
 
 /// Where the store lives: `$XDG_STATE_HOME/ghost-shell/translations.json`, or under
@@ -62,15 +58,13 @@ fn store_path_in(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Pa
 
 impl Store {
     /// Reads `path`. A missing file is an empty store; one that cannot be read or parsed is logged
-    /// and also taken as empty, and is then left as it is.
+    /// and also taken as empty.
     pub fn open(path: &Path) -> Self {
-        let read = fs::read_to_string(path)
-            .and_then(|json| serde_json::from_str::<Pairs>(&json).map_err(io::Error::from));
-        let (pairs, writable) = match read {
-            Ok(pairs) => (pairs, true),
+        let pairs = match read(path) {
+            Ok(pairs) => pairs,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 debug!(path = %path.display(), "no translations stored yet");
-                (Pairs::new(), true)
+                Pairs::new()
             }
             Err(error) => {
                 warn!(
@@ -78,55 +72,78 @@ impl Store {
                     %error,
                     "cannot read the stored translations; using none, and leaving the file as it is"
                 );
-                (Pairs::new(), false)
+                Pairs::new()
             }
         };
-        Self {
-            path: path.to_owned(),
-            pairs,
-            writable,
-            changed: false,
-        }
+        Self { pairs }
     }
 
-    /// The entry for `pair` whose Portuguese text normalises to `key`.
+    /// The entry for `pair` whose Portuguese text normalises to `key`, preferring one the user has
+    /// checked when several do. An entry with blank text counts as none.
     pub fn find(&self, pair: &str, key: &str) -> Option<&Stored> {
-        self.pairs
+        let mut matching = self
+            .pairs
             .get(pair)?
             .iter()
-            .find(|(text, _)| normalise(text) == key)
-            .map(|(_, stored)| stored)
+            .filter(|(text, stored)| !stored.text.trim().is_empty() && normalise(text) == key)
+            .map(|(_, stored)| stored);
+        let first = matching.next()?;
+        Some(if first.auto {
+            matching.find(|stored| !stored.auto).unwrap_or(first)
+        } else {
+            first
+        })
     }
+}
 
-    pub fn insert(&mut self, pair: &str, text: &str, stored: Stored) {
-        self.pairs
-            .entry(pair.to_owned())
-            .or_default()
-            .insert(text.to_owned(), stored);
-        self.changed = true;
-    }
-
-    /// Writes the store back if an entry was added, through a temporary file renamed over the old
-    /// one, so that a crash or a full disk never leaves half a file. A failure is logged.
-    pub fn save(&self) {
-        if !self.changed || !self.writable {
+/// Adds `learned`, Portuguese text and translation, to `pair`'s entries as the file holds them
+/// now rather than as they were read, so that an edit the user made in the meantime survives. An
+/// entry the user has checked is never replaced. The write is skipped, with a warning, when the
+/// file cannot be read back, so that it never replaces what the user wrote; any failure is logged.
+pub(crate) fn merge(path: &Path, pair: &str, learned: Vec<(String, Stored)>) {
+    let mut pairs = match read(path) {
+        Ok(pairs) => pairs,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Pairs::new(),
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                %error,
+                "not storing the new translations, since the file cannot be read back"
+            );
             return;
         }
-        if let Err(error) = self.write() {
-            warn!(path = %self.path.display(), %error, "cannot store the new translations");
+    };
+    let entries = pairs.entry(pair.to_owned()).or_default();
+    for (text, stored) in learned {
+        let key = normalise(&text);
+        let checked = entries
+            .iter()
+            .any(|(existing, entry)| !entry.auto && normalise(existing) == key);
+        if !checked {
+            entries.insert(text, stored);
         }
     }
-
-    fn write(&self) -> io::Result<()> {
-        let dir = self.path.parent().unwrap_or(Path::new(""));
-        fs::create_dir_all(dir)?;
-        let mut file = NamedTempFile::new_in(dir)?;
-        serde_json::to_writer_pretty(&mut file, &self.pairs)?;
-        file.write_all(b"\n")?;
-        file.as_file().sync_all()?;
-        file.persist(&self.path)?;
-        Ok(())
+    if let Err(error) = write(path, &pairs) {
+        warn!(path = %path.display(), %error, "cannot store the new translations");
     }
+}
+
+fn read(path: &Path) -> io::Result<Pairs> {
+    let json = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&json)?)
+}
+
+/// Writes through a temporary file renamed over the old one, so that a crash or a full disk never
+/// leaves half a file.
+fn write(path: &Path, pairs: &Pairs) -> io::Result<()> {
+    let dir = path.parent().unwrap_or(Path::new(""));
+    fs::create_dir_all(dir)?;
+    let mut file = NamedTempFile::new_in(dir)?;
+    serde_json::to_writer_pretty(&mut file, pairs)?;
+    file.write_all(b"\n")?;
+    file.as_file().sync_all()?;
+    file.persist(path)?;
+    Ok(())
 }
 
 #[cfg(test)]
