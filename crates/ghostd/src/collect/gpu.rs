@@ -31,6 +31,9 @@ pub struct GpuReading {
 pub trait GpuSource: Send {
     /// `None` when the GPU cannot be read right now; the next call may succeed again.
     fn read(&mut self) -> Option<GpuReading>;
+
+    /// Called before the first read after a gap in sampling; see [`Source::resume`].
+    fn resume(&mut self) {}
 }
 
 /// Reads the first NVIDIA GPU through NVML.
@@ -68,6 +71,10 @@ impl GpuSource for NvmlSource {
                 .next(|| device.fan_speed(FIRST_FAN_INDEX).ok().map(|pct| pct as f32))?,
         })
     }
+
+    fn resume(&mut self) {
+        self.fan.expire();
+    }
 }
 
 /// Repeats a slow-moving reading between real reads of it.
@@ -99,6 +106,11 @@ impl FanCache {
             self.countdown -= 1;
         }
         self.last
+    }
+
+    /// Makes the next call read again.
+    fn expire(&mut self) {
+        self.countdown = 0;
     }
 }
 
@@ -139,12 +151,20 @@ impl Source<GpuSnapshot> for GpuCollector {
             fan_pct: reading.fan_pct,
         }
     }
+
+    fn resume(&mut self) {
+        if let Some(source) = &mut self.source {
+            source.resume();
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
     use std::collections::VecDeque;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use ghost_proto::GpuSnapshot;
 
@@ -280,5 +300,38 @@ mod tests {
 
         assert_eq!(fan.next(|| Some(1.0)), Some(1.0));
         assert_eq!(fan.next(|| Some(2.0)), Some(2.0));
+    }
+
+    #[test]
+    fn an_expired_fan_cache_reads_on_the_next_call() {
+        let mut fan = FanCache::new(3);
+        fan.next(|| Some(1.0));
+
+        fan.expire();
+
+        assert_eq!(fan.next(|| Some(2.0)), Some(2.0));
+    }
+
+    /// Counts the resumes it is passed.
+    struct Resumes(Arc<AtomicUsize>);
+
+    impl GpuSource for Resumes {
+        fn read(&mut self) -> Option<GpuReading> {
+            None
+        }
+
+        fn resume(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn a_resume_reaches_the_gpu_source() {
+        let resumes = Arc::new(AtomicUsize::new(0));
+        let mut gpu = GpuCollector::new(Some(Box::new(Resumes(Arc::clone(&resumes)))));
+
+        gpu.resume();
+
+        assert_eq!(resumes.load(Ordering::Relaxed), 1);
     }
 }

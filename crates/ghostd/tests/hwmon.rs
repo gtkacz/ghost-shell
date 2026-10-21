@@ -644,3 +644,22 @@ fn every_it8xxx_chip_is_a_super_io_chip() {
         "read on a slow cadence"
     );
 }
+
+#[test]
+fn a_resume_reads_super_io_on_the_next_sample() {
+    let fake = FakeRoot::new();
+    write_chip(
+        &fake,
+        0,
+        "nct6799",
+        &[("temp1_label", "SYSTIN"), ("temp1_input", "36000")],
+    );
+    let mut sensors = collector(&fake);
+    sensors.sample();
+    fake.write(&format!("{}/temp1_input", chip_dir(0)), "40000\n");
+
+    sensors.resume();
+    let snapshot = sensors.sample();
+
+    assert_eq!(temp(&snapshot, "nct6799/SYSTIN").value, Some(40.0));
+}

@@ -1,8 +1,12 @@
 mod common;
 
+use std::collections::BTreeSet;
+
 use common::{DEFAULT_RSS_KIB, FakeProcess, FakeRoot, Ticks, meminfo, proc_stat};
-use ghost_proto::MemSnapshot;
+use ghost_proto::{MemSnapshot, ServerMsg, topics};
 use ghostd::collect::{MemCollector, Source};
+use ghostd::history::History;
+use ghostd::sampler::Sampler;
 
 const TOP_N: usize = 5;
 const TOTAL_KIB: u64 = 96_388_184;
@@ -13,6 +17,9 @@ const SMALL_TOTAL_KIB: u64 = 16_000_000;
 const BASELINE_TICKS: u64 = 10_000;
 // One second on a 32-thread machine at 100 ticks per second.
 const INTERVAL_TICKS: u64 = 3_200;
+// A gap of 100 seconds, through which one process keeps half the machine busy.
+const GAP_TICKS: u64 = 100 * INTERVAL_TICKS;
+const BUSY_PROCESS_TICKS: u64 = GAP_TICKS / 2;
 
 /// A machine whose /proc/stat has accumulated `all_cpu_ticks` jiffies, all of them idle.
 fn machine(total_kib: u64, all_cpu_ticks: u64) -> FakeRoot {
@@ -393,4 +400,70 @@ fn unreadable_root_yields_empty_snapshot() {
     let mut mem = MemCollector::new(&fake.root(), TOP_N);
 
     assert_eq!(mem.sample(), MemSnapshot::default());
+}
+
+/// Stands in for every collector but memory's.
+struct Idle;
+
+impl<T: Default> Source<T> for Idle {
+    fn sample(&mut self) -> T {
+        T::default()
+    }
+}
+
+fn memory_only_sampler(fake: &FakeRoot) -> Sampler {
+    Sampler::new(
+        Box::new(Idle),
+        Box::new(MemCollector::new(&fake.root(), TOP_N)),
+        Box::new(Idle),
+        Box::new(Idle),
+        Box::new(Idle),
+    )
+}
+
+fn memory_data(messages: &[ServerMsg]) -> MemSnapshot {
+    match messages {
+        [ServerMsg::Data { topic, data, .. }] if topic == topics::MEM => {
+            serde_json::from_value(data.clone()).unwrap()
+        }
+        other => panic!("expected one mem message, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_resumed_memory_topic_measures_its_top_from_after_the_gap() {
+    // The scan cadence may stand at either phase when the gap starts.
+    for kept_before_the_gap in 1..=2 {
+        let fake = machine(TOTAL_KIB, BASELINE_TICKS);
+        let worker = |ticks| FakeProcess::new(42, "worker").ticks(ticks, 0);
+        fake.write_process(&worker(0));
+        let mut sampler = memory_only_sampler(&fake);
+        let mut history = History::new(1);
+        let memory = BTreeSet::from([topics::MEM.to_owned()]);
+        let nothing = BTreeSet::new();
+        let mut clock = BASELINE_TICKS;
+        for _ in 0..kept_before_the_gap {
+            clock += INTERVAL_TICKS;
+            advance_clock(&fake, clock);
+            sampler.tick(&mut history, &memory);
+        }
+
+        clock += GAP_TICKS;
+        advance_clock(&fake, clock);
+        fake.write_process(&worker(BUSY_PROCESS_TICKS));
+        for _ in 0..GAP_TICKS / INTERVAL_TICKS {
+            sampler.tick(&mut history, &nothing);
+        }
+        let rebaseline = sampler.tick(&mut history, &memory);
+        clock += INTERVAL_TICKS;
+        advance_clock(&fake, clock);
+        let resumed = memory_data(&sampler.tick(&mut history, &memory));
+
+        assert!(rebaseline.is_empty());
+        assert_eq!(resumed.top[0].pid, 42);
+        assert_eq!(
+            resumed.top[0].cpu, 0.0,
+            "the worker's share spans the gap after {kept_before_the_gap} kept samples"
+        );
+    }
 }

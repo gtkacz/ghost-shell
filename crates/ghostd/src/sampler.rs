@@ -65,6 +65,9 @@ impl<T> Tracked<T> {
     fn sample(&mut self, tick: u64) -> Option<Kept<T>> {
         let resumed = tick - self.sampled_at > 1;
         self.sampled_at = tick;
+        if resumed {
+            self.source.resume();
+        }
         let value = self.source.sample();
         if resumed && self.measure == Measure::SincePrevious {
             return None;
@@ -169,8 +172,8 @@ fn record_cpu(hist: &mut History, cpu: &Kept<CpuSnapshot>) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use ghost_proto::{CcdLoad, Drive, Reading};
 
@@ -430,6 +433,44 @@ mod tests {
                 Some(50.0),
                 Some(50.0)
             ]
+        );
+    }
+
+    /// Records every sample and resume it is asked for, in order.
+    struct Journal(Arc<Mutex<Vec<&'static str>>>);
+
+    impl Source<GpuSnapshot> for Journal {
+        fn sample(&mut self) -> GpuSnapshot {
+            self.0.lock().unwrap().push("sample");
+            GpuSnapshot::default()
+        }
+
+        fn resume(&mut self) {
+            self.0.lock().unwrap().push("resume");
+        }
+    }
+
+    #[test]
+    fn a_source_hears_of_a_resume_just_before_its_first_sample_after_a_gap() {
+        let journal = Arc::new(Mutex::new(Vec::new()));
+        let mut sampler = Sampler::new(
+            Box::new(Fixed(CpuSnapshot::default())),
+            Box::new(Fixed(MemSnapshot::default())),
+            Box::new(Fixed(SensorSnapshot::default())),
+            Box::new(Journal(Arc::clone(&journal))),
+            Box::new(Fixed(DiskSnapshot::default())),
+        );
+        let mut history = History::new(3);
+        let gpu = wanted(&[topics::GPU]);
+
+        sampler.tick(&mut history, &gpu);
+        sampler.tick(&mut history, &gpu);
+        sampler.tick(&mut history, &wanted(&[]));
+        sampler.tick(&mut history, &gpu);
+
+        assert_eq!(
+            *journal.lock().unwrap(),
+            ["sample", "sample", "resume", "sample"]
         );
     }
 

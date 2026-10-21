@@ -20,11 +20,13 @@ pub(super) struct Collectors {
     history: History,
     history_len: usize,
     selfmon: SelfMon,
+    /// Whether `selfmon` was sampled on the previous tick; building it counts as a sample.
+    perf_sampled: bool,
 }
 
 pub(super) struct Tick {
     pub(super) messages: Vec<ServerMsg>,
-    /// `None` while no client wants `perf`.
+    /// `None` while no client wants `perf`, and on the first tick after a gap.
     pub(super) perf: Option<PerfSnapshot>,
     pub(super) series: BTreeMap<String, Vec<Option<f32>>>,
 }
@@ -37,6 +39,7 @@ impl Collectors {
             history: History::new(history_len),
             history_len,
             selfmon: SelfMon::new(SysRoot::host()),
+            perf_sampled: true,
         }
     }
 
@@ -51,10 +54,16 @@ impl Collectors {
             self.history_len = history_len;
         }
         let messages = self.sampler.tick(&mut self.history, wanted);
-        let perf = wanted.contains(topics::PERF).then(|| {
-            self.selfmon.watch_shell(shell_pid);
-            self.selfmon.sample()
-        });
+        let perf_wanted = wanted.contains(topics::PERF);
+        let perf = perf_wanted
+            .then(|| {
+                self.selfmon.watch_shell(shell_pid);
+                self.selfmon.sample()
+            })
+            // CPU use is measured since the previous sample, so the first one after a gap spans it
+            // and only serves as the next one's baseline.
+            .filter(|_| self.perf_sampled);
+        self.perf_sampled = perf_wanted;
         Tick {
             messages,
             perf,
@@ -90,5 +99,29 @@ pub(super) async fn sample_forever(
             }
             Err(error) => return error.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fake;
+
+    #[test]
+    fn perf_skips_its_first_sample_after_a_gap() {
+        let tick_ms = NonZeroU32::new(1000).unwrap();
+        let mut collectors = Collectors::new(fake::sampler(), &ResolvedConfig::default(), tick_ms);
+        let len = collectors.history_len;
+        let perf = BTreeSet::from([topics::PERF.to_owned()]);
+        let nothing = BTreeSet::new();
+
+        let right_after_the_build = collectors.tick(None, len, &perf);
+        collectors.tick(None, len, &nothing);
+        let rebaseline = collectors.tick(None, len, &perf);
+        let resumed = collectors.tick(None, len, &perf);
+
+        assert!(right_after_the_build.perf.is_some());
+        assert!(rebaseline.perf.is_none());
+        assert!(resumed.perf.is_some());
     }
 }

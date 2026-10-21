@@ -7,7 +7,7 @@ use std::time::Duration;
 use common::FakeRoot;
 use common::disk::*;
 use ghost_proto::DriveState;
-use ghostd::collect::DiskCollector;
+use ghostd::collect::{DiskCollector, Source};
 
 #[test]
 fn mounts_match_by_device_number_or_source() {
@@ -154,6 +154,24 @@ fn used_pct_is_cached_until_the_refresh_interval() {
     assert_eq!(calls_within_window, 1);
     assert_eq!(calls.lock().unwrap().as_slice(), ["/", "/"]);
     assert_eq!(cached.drives[0].used_pct, Some(ROOT_USED_PCT));
+}
+
+#[test]
+fn a_resume_rereads_used_pct_on_the_next_sample() {
+    let fake = FakeRoot::new();
+    FakeDisk::nvme("nvme0n1", "259:0", XPG_MODEL, XPG_SERIAL)
+        .partition("nvme0n1p1", "259:1")
+        .write(&fake);
+    write_mounts(&fake, &[mount_line("259:1", "/", "ext4", "/dev/nvme0n1p1")]);
+    let fs = FakeFs::with_usage(&[("/", ROOT_USED_PCT)]);
+    let calls = Arc::clone(&fs.calls);
+    let mut disks = DiskCollector::new(&fake.root(), Box::new(fs), &BTreeMap::new());
+    disks.sample_after(ONE_SECOND);
+
+    disks.resume();
+    disks.sample_after(ONE_SECOND);
+
+    assert_eq!(calls.lock().unwrap().as_slice(), ["/", "/"]);
 }
 
 #[test]

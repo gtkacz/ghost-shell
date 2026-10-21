@@ -321,6 +321,10 @@ impl<T, C: Source<T>, B: Fn(&Labels) -> C> Source<T> for Relabeled<C, B> {
         }
         self.collector.sample()
     }
+
+    fn resume(&mut self) {
+        self.collector.resume();
+    }
 }
 
 fn probe(topic: &str) -> ExitCode {
@@ -432,6 +436,28 @@ mod tests {
         });
         assert_eq!(source.sample()["k10temp/Tctl"], "CPU");
         assert_eq!(builds.get(), 2);
+    }
+
+    /// Counts the resumes it is passed.
+    struct Resumes<'a>(&'a Cell<u32>);
+
+    impl Source<()> for Resumes<'_> {
+        fn sample(&mut self) {}
+
+        fn resume(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    #[test]
+    fn relabeled_passes_a_resume_on() {
+        let (_config_tx, config_rx) = watch::channel(ResolvedConfig::default());
+        let resumes = Cell::new(0);
+        let mut source = Relabeled::new(config_rx, sensor_labels, |_| Resumes(&resumes));
+
+        source.resume();
+
+        assert_eq!(resumes.get(), 1);
     }
 
     struct CallCount(u32);

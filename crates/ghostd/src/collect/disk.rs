@@ -364,6 +364,11 @@ impl Source<DiskSnapshot> for DiskCollector {
             .map_or(Duration::ZERO, |before| now.duration_since(before));
         self.sample_after(elapsed)
     }
+
+    fn resume(&mut self) {
+        // Usage is cached and the drive list kept until the next refresh, so it is made due now.
+        self.samples_since_refresh = REFRESH_INTERVAL_SAMPLES;
+    }
 }
 
 /// Sets each drive's temperature from the `nvme/{serial}` reading the sensor collector made for it.

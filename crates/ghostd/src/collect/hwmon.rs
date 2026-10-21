@@ -167,6 +167,12 @@ impl Source<SensorSnapshot> for SensorCollector {
         }
         snapshot
     }
+
+    fn resume(&mut self) {
+        // Super-I/O values repeat between their reads and the sensor list between rescans, so the
+        // next sample redoes both.
+        self.samples_since_scan = RESCAN_INTERVAL_SAMPLES;
+    }
 }
 
 struct Scan<'a> {

@@ -19,6 +19,12 @@ use crate::sysroot::SysRoot;
 /// instead, so one flaky file never stalls the other collectors.
 pub trait Source<T> {
     fn sample(&mut self) -> T;
+
+    /// Called just before the first sample after ticks that took none. From then on no value may
+    /// date from before the gap: readings repeated between real reads are read afresh, and values
+    /// measured since the previous sample are measured from the next one, which the sampler drops
+    /// for such a source because it spans the gap.
+    fn resume(&mut self) {}
 }
 
 /// The trimmed text of a file, or `None` when it cannot be read or is blank.

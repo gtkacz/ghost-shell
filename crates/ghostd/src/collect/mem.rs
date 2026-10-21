@@ -116,10 +116,15 @@ impl MemCollector {
             file: Vec::with_capacity(FILE_BUFFER_BYTES),
             path: String::new(),
         };
-        let all_cpu_ticks = collector.read_all_cpu_ticks();
-        collector.scan_processes();
-        collector.commit_baseline(all_cpu_ticks);
+        collector.take_baseline();
         collector
+    }
+
+    /// Scans `/proc` as the baseline the next scan measures process shares from.
+    fn take_baseline(&mut self) {
+        let all_cpu_ticks = self.read_all_cpu_ticks();
+        self.scan_processes();
+        self.commit_baseline(all_cpu_ticks);
     }
 
     fn read_text(&mut self, rel: &str) -> Option<&str> {
@@ -281,6 +286,13 @@ impl Source<MemSnapshot> for MemCollector {
             swap_used_kib: meminfo.swap_total_kib.saturating_sub(meminfo.swap_free_kib),
             top: self.top.clone(),
         }
+    }
+
+    fn resume(&mut self) {
+        // Shares against the last scan would span the gap. The sampler drops the next sample, so the
+        // one after it is the first to scan, against a baseline taken now.
+        self.take_baseline();
+        self.samples_until_scan = 1;
     }
 }
 
