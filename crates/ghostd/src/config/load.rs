@@ -177,13 +177,37 @@ fn check_below(
 }
 
 fn validate_layout(layout: &LayoutConfig) -> Result<(), ConfigError> {
+    check_non_negative("layout.gutter", layout.gutter)?;
+    check_non_negative("layout.margin", layout.margin)?;
     layout
         .views
         .iter()
         .try_for_each(|(name, node)| validate_node(&format!("layout.views.{name}"), node))
 }
 
+fn check_non_negative(path: &str, value: f32) -> Result<(), ConfigError> {
+    // Infinity is not negative, so finiteness has to be checked on its own.
+    if value.is_finite() && value >= 0.0 {
+        return Ok(());
+    }
+    Err(invalid(
+        path,
+        format!("must be a non-negative number, got {value}"),
+    ))
+}
+
 fn validate_node(path: &str, node: &LayoutNode) -> Result<(), ConfigError> {
+    let (LayoutNode::Slot { size, .. }
+    | LayoutNode::Split { size, .. }
+    | LayoutNode::Tabs { size, .. }) = node;
+    if let Some(size) = *size
+        && !(size.is_finite() && size > 0.0)
+    {
+        return Err(invalid(
+            path,
+            format!("size must be a positive number, got {size}"),
+        ));
+    }
     match node {
         LayoutNode::Slot { .. } => Ok(()),
         LayoutNode::Split { children, .. } => {
@@ -215,8 +239,15 @@ fn validate_dashboard(dashboard: &Dashboard, layout: &LayoutConfig) -> Result<()
         dashboard.history_minutes,
         &HISTORY_MINUTES,
     )?;
-    for view in &dashboard.main_views {
+    let mut seen = BTreeSet::new();
+    for (index, view) in dashboard.main_views.iter().enumerate() {
         check_view_defined("dashboard.main_views", view, layout)?;
+        if !seen.insert(view.as_str()) {
+            return Err(invalid(
+                format!("dashboard.main_views[{index}]"),
+                format!("duplicate view {view:?}"),
+            ));
+        }
     }
     check_view_defined("dashboard.default_view", &dashboard.default_view, layout)?;
     if !dashboard.monitor_view.is_empty() {
@@ -262,6 +293,12 @@ fn validate_providers(providers: &[ProviderSpec]) -> Result<(), ConfigError> {
         if provider.exec.is_empty() {
             return Err(invalid(
                 format!("providers[{index}].exec"),
+                "must not be empty",
+            ));
+        }
+        if let Some(entry) = provider.exec.iter().position(String::is_empty) {
+            return Err(invalid(
+                format!("providers[{index}].exec[{entry}]"),
                 "must not be empty",
             ));
         }

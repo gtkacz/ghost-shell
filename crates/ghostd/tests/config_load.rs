@@ -147,3 +147,64 @@ fn provider_spec_parses() {
     assert_eq!(c.providers[0].exec[2], "3550308");
     assert!(c.providers[0].restart);
 }
+
+fn rejected(toml: &str) -> String {
+    load_str_with_user(toml, "u").unwrap_err().message
+}
+
+#[test]
+fn node_size_must_be_positive_and_finite() {
+    for (written, shown) in [("-5", "-5"), ("0", "0"), ("nan", "NaN"), ("inf", "inf")] {
+        assert_eq!(
+            rejected(&format!(
+                "[layout.views.v1]\nwidget = \"memory\"\nsize = {written}\n"
+            )),
+            format!("layout.views.v1: size must be a positive number, got {shown}"),
+        );
+    }
+}
+
+#[test]
+fn nested_and_tabs_node_sizes_are_checked_with_their_path() {
+    let nested = "[layout.views.v3]\ndirection = \"row\"\n\n\
+                  [[layout.views.v3.children]]\nwidget = \"memory\"\n\n\
+                  [[layout.views.v3.children]]\ntabs = [{ widget = \"processor\" }]\nsize = -1\n";
+
+    assert_eq!(
+        rejected(nested),
+        "layout.views.v3.children[1]: size must be a positive number, got -1"
+    );
+}
+
+#[test]
+fn gutter_and_margin_must_not_be_negative_or_non_finite() {
+    for key in ["gutter", "margin"] {
+        for (written, shown) in [("-1", "-1"), ("nan", "NaN"), ("-inf", "-inf")] {
+            assert_eq!(
+                rejected(&format!("[layout]\n{key} = {written}\n")),
+                format!("layout.{key}: must be a non-negative number, got {shown}"),
+            );
+        }
+    }
+    assert!(load_str_with_user("[layout]\ngutter = 0\nmargin = 0\n", "u").is_ok());
+}
+
+#[test]
+fn main_views_must_not_repeat_a_view() {
+    assert_eq!(
+        rejected("[dashboard]\nmain_views = [\"v1\", \"v1\"]\n"),
+        "dashboard.main_views[1]: duplicate view \"v1\""
+    );
+}
+
+#[test]
+fn provider_exec_entries_must_not_be_empty() {
+    assert_eq!(
+        rejected("[[providers]]\nname = \"inmet\"\nexec = [\"inmet-provider\", \"\"]\n"),
+        "providers[0].exec[1]: must not be empty"
+    );
+    assert_eq!(
+        rejected("[[providers]]\nname = \"inmet\"\nexec = [\"\"]\n"),
+        "providers[0].exec[0]: must not be empty"
+    );
+}
