@@ -314,6 +314,19 @@ These measurements are of the installed release build on the live session, with 
 - **Frames.** They were not counted on the service itself, because that needs a restart with a render-timing variable. An identical copy rendered 15.04 frames/s.
 - **Live config.** All four checks passed: panel fill 30, an invalid colour, swapping two slots, and restoring. Each reload took ≈ 150 ms.
 
+### Plan 2a: demand-driven sampling (daemon)
+
+The daemon now reads only the sources that some client is subscribed to. It also runs on-demand feeds (desktop state, weather, sky) only while something wants them. Release build, real collectors, 60 s:
+
+| Subscribers | Daemon CPU | RSS |
+|---|---|---|
+| None | **0.00 %** (0 CPU ticks) | 31.2 MiB |
+| One client on `desktop` + `perf` only | **0.02 %** | 31.3 MiB |
+| One client on every built-in topic | **0.38 %** | 32.1 MiB |
+
+- While the dashboard is covered (Plan 2a's occlusion work), the daemon can drop to the first or second row.
+- The history graphs show the skipped time as a gap, not as joined-up lines.
+
 ## License
 
 Copyright (C) 2026 Gabriel Mitelman Tkacz
