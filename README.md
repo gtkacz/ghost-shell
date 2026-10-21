@@ -260,9 +260,19 @@ Measured against the real release daemon over 60 s. Storage and Sensors weren't 
 - **Alert blink.** It first changed each alert's opacity directly, which made Qt rebuild every scene batch four times a second (about 2 600 elements). That alone put the view at 2.01 %. The blink now goes through a shader uniform on the alert's own layer, at the same held steps.
 - **A stress layout** with large graphs everywhere costs 2.42 % / 297 MB in the shell. The block graph draws one rectangle per cell, so Plan 2's full-width lanes need a shader-based graph.
 
+### Full default V1 (all five machine panels)
+
+Real release daemon, 60 s. The dead WD Green's crit alert animates (stripes plus the held-step blink):
+
+| Process | CPU (% of one core) | RSS | Frames/s |
+|---|---|---|---|
+| Shell (`qs`) | 1.25 % | 214 MiB | 14.93 |
+| Daemon (`ghostd`) | 0.33 % | 31 MiB | — |
+| **Together** | **1.58 %** (budget ≤ 2 %) | **245.6 MiB** (budget ≤ 300 MB) | |
+
 #### Not yet measured
 
-- The full default V1, with Storage and Sensors, against the budgets above. That is the acceptance run at the end of plan 1.
+- The installed services on a clean session: the acceptance run at the end of plan 1.
 
 ## License
 
