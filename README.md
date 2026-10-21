@@ -113,10 +113,11 @@ Five drives: three NVMe, one of them dead, plus two SATA. Thirteen loop devices 
 
 | Sample | CPU |
 |---|---|
-| Ordinary (reads `mountinfo` + `diskstats`) | ≈ 165 µs (max 221 µs) |
+| Ordinary, first version (reads `mountinfo` + `diskstats`) | ≈ 165 µs (max 221 µs) |
+| Ordinary, current (also re-reads each drive's `device/state` and `size`, so a dying drive turns Dead within one sample) | ≈ 273 µs mean (max 375 µs) |
 | Rescan of `/sys/block` + `statvfs` (every 60 samples) | ≈ 365 µs |
 
-**≈ 0.02 % of a core.** `statvfs` on a hung FUSE or network mount would block the sample. The Kingston drive's NTFS partition is mounted through FUSE (`fuseblk`).
+**≈ 0.03 % of a core.** `statvfs` on a hung FUSE or network mount would block the sample. The Kingston drive's NTFS partition is mounted through FUSE (`fuseblk`).
 
 #### Not yet measured
 
