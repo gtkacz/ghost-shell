@@ -553,9 +553,9 @@ The three styles stacked (hero, band, compact), against a fake daemon, 30 s each
 | Three clocks, no alert | 0.13 / 0.17 % | 1.00 |
 | Three clocks, with the hero and band alerts animating | 0.73 / 0.73 % | 15.93 |
 
-### Plan 2a: alerts hold still after 10 s
+### Plan 2a: alerts hold still after 10 s (by default)
 
-An alert blinks for its first 10 s on screen, then holds still. The 10 s count only while the alert is visible and the desktop isn't covered. Measured on the default V1 with the dead drive's alert, against a fake debug daemon, over 60 s starting 20 s after start. `godot-bin` was using ≈ 75 % of a core and `kwin_wayland` ≈ 6 % throughout:
+An alert blinks for its first 10 s on screen, or `appearance.alert_attention_s`, then holds still. The time counts only while the alert is visible and the desktop isn't covered. Measured on the default V1 with the dead drive's alert, against a fake debug daemon, over 60 s starting 20 s after start. `godot-bin` was using ≈ 75 % of a core and `kwin_wayland` ≈ 6 % throughout:
 
 | Build | Frames in 60 s | Shell CPU | Daemon CPU |
 |---|---|---|---|
@@ -583,6 +583,19 @@ The remaining 1 frame/s is the data panels repainting with each sample. The held
 - Shell CPU read 0.60–0.70 % in every run.
 - With a placeholder clock, the held alert is the only thing on the seconds clock, so its once-a-second frame doesn't line up with the data frame. That costs about 0.035 % of a core.
 - Any widget that already runs once a second (clock, weather, media) absorbs the step, so it adds nothing.
+
+**The attention window is a setting** (`[appearance] alert_attention_s`, default 10). Headless KWin, fake debug daemon on a private bus, default V1 with the dead drive's alert, which shows from about t = 2 s. Frames rendered in each second since start, from `QSG_RENDER_TIMING=1`:
+
+| Case | Frames per second, t = 0, 1, 2, … |
+|---|---|
+| `alert_attention_s = 3` | 14 2 **16 14 15** 2 2 2 2 2 2 2 1 3 2 … |
+| Default 10 | 14 2 **16 14 15 15 14 16 15 14 15 16** 1 3 2 2 … |
+| 3, raised to 6 at t = 3.5 | 15 frames/s through t = 7, then 2 (the window grew) |
+| 10, lowered to 3 at t = 5.1, after 3.1 s spent | 14 2 14 16 15 **6** 2 2 … (holds at once) |
+| Held at 3, raised to 20 | 2 frames/s throughout (a spent alert stays held) |
+| 600 | 15 frames/s still at t = 23 |
+
+- An alert in its window renders 15 frames/s, and a held one 2: the stripe step and the 1 Hz data. A blinking alert measured 1.30 % before the shader graphs (the table above). Blinking hasn't been measured with them; the nearest reading is held stripes that keep scrolling, at about 1 % (below).
 
 **Stripe speed and step are settings** (`[appearance] alert_stripe_period_s`, default 1.6, and `alert_stripe_step_s`, default 1.0). Held state on the default V1 with the dead drive's alert, counted from 15 s to 35 s after start, fake daemon on a private bus:
 
