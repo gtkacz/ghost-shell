@@ -1,14 +1,18 @@
 // A lasting condition, such as a dead drive, should stop costing frames once it has drawn attention: an alert
-// blinks for this long, counted only while it is on screen, and then holds still.
-export const ATTENTION_MS = 10_000;
+// blinks for the attention window, counted only while it is on screen, and then holds still. The window is
+// appearance.alert_attention_s; this is the length the shell uses until a config says otherwise.
+export const DEFAULT_ATTENTION_MS = 10_000;
 
 const NEVER_SHOWN = { spentMs: 0, showing: 0, sinceMs: 0 };
+
+// What a spent alert has spent: more than any window, so one set later cannot give the alert its attention back.
+const SPENT = Infinity;
 
 // A clock that stepped back to before the showing began counts as the whole window spent, so an alert already
 // shown never blinks again because of the step.
 function showedMs(sinceMs, clockMs) {
   if (clockMs < sinceMs) {
-    return ATTENTION_MS;
+    return SPENT;
   }
   return clockMs - sinceMs;
 }
@@ -18,6 +22,12 @@ function spentMs(record, clockMs) {
     return record.spentMs;
   }
   return record.spentMs + showedMs(record.sinceMs, clockMs);
+}
+
+// A record that has used up its window is spent for good, so a longer window set afterwards does not re-arm it.
+function committedMs(record, clockMs, windowMs) {
+  const total = spentMs(record, clockMs);
+  return total >= windowMs ? SPENT : total;
 }
 
 // `seen` is the session's record of each alert key: the attention it has spent, how many boxes show it right now
@@ -34,26 +44,38 @@ export function showAlert(seen, key, clockMs) {
 }
 
 // The last box to hide commits the time the alert was on screen; until then the record keeps counting.
-export function hideAlert(seen, key, clockMs) {
+export function hideAlert(seen, key, clockMs, windowMs) {
   const record = seen.get(key);
   const showing = record.showing - 1;
   seen.set(key, {
-    spentMs: showing === 0 ? spentMs(record, clockMs) : record.spentMs,
+    spentMs: showing === 0 ? committedMs(record, clockMs, windowMs) : record.spentMs,
     showing,
     sinceMs: record.sinceMs,
   });
 }
 
-// What is left of the window for a key, which is the whole window for one never shown.
-export function attentionLeftMs(seen, key, clockMs) {
-  return Math.max(0, ATTENTION_MS - spentMs(seen.get(key) ?? NEVER_SHOWN, clockMs));
+// What is left of the window for a key, which is the whole window for one never shown. The window is read at each
+// call rather than kept, so a change of the setting applies to alerts already part-way through it.
+export function attentionLeftMs(seen, key, clockMs, windowMs) {
+  return Math.max(0, windowMs - spentMs(seen.get(key) ?? NEVER_SHOWN, clockMs));
 }
 
 // Marks the window spent for a key that is showing. The box's timer ends its blink in wall time while the clock
 // counts in whole ticks, so without this the clock could read a few milliseconds short of the window, and the next
 // showing would blink for them.
 export function spendAttention(seen, key, clockMs) {
-  seen.set(key, { spentMs: ATTENTION_MS, showing: seen.get(key).showing, sinceMs: clockMs });
+  seen.set(key, { spentMs: SPENT, showing: seen.get(key).showing, sinceMs: clockMs });
+}
+
+// A window shortened below what an alert has spent ends it, shown or not. It has to be marked then, because a
+// window lengthened again later would otherwise give back time the shorter one had already used up.
+export function spendExhausted(seen, clockMs, windowMs) {
+  for (const [key, record] of seen) {
+    if (spentMs(record, clockMs) >= windowMs) {
+      // Written out because QML's JavaScript engine cannot parse object spread.
+      seen.set(key, { spentMs: SPENT, showing: record.showing, sinceMs: record.sinceMs });
+    }
+  }
 }
 
 const MS_PER_SECOND = 1000;

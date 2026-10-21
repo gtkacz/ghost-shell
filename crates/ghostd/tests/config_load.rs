@@ -136,6 +136,56 @@ fn a_non_number_alert_stripe_timing_points_at_its_line() {
     );
 }
 
+const ATTENTION_KEY: &str = "alert_attention_s";
+
+#[test]
+fn alert_attention_defaults_to_10_seconds() {
+    let appearance = load_str_with_user("", "u").unwrap().appearance;
+    assert_eq!(appearance.alert_attention_s, 10.0);
+}
+
+#[test]
+fn alert_attention_can_be_set_to_minutes_or_fractions() {
+    for (written, expected) in [("600", 600.0), ("2.5", 2.5), ("0.25", 0.25)] {
+        let c = load_str_with_user(&format!("[appearance]\n{ATTENTION_KEY} = {written}\n"), "u")
+            .unwrap();
+        assert_eq!(c.appearance.alert_attention_s, expected);
+        assert_eq!(c.appearance.alert_stripe_period_s, 1.6);
+        assert_eq!(c.appearance.alert_stripe_step_s, 1.0);
+    }
+}
+
+#[test]
+fn alert_attention_must_be_greater_than_zero() {
+    for (written, shown) in [("0", "0"), ("0.0", "0"), ("-1.5", "-1.5"), ("-0.0", "-0")] {
+        assert_eq!(
+            rejected(&format!("[appearance]\n{ATTENTION_KEY} = {written}\n")),
+            format!("appearance.{ATTENTION_KEY}: must be greater than 0, got {shown}"),
+        );
+    }
+}
+
+#[test]
+fn alert_attention_must_be_finite() {
+    for (written, shown) in [("nan", "NaN"), ("inf", "inf"), ("-inf", "-inf")] {
+        assert_eq!(
+            rejected(&format!("[appearance]\n{ATTENTION_KEY} = {written}\n")),
+            format!("appearance.{ATTENTION_KEY}: must be finite, got {shown}"),
+        );
+    }
+}
+
+#[test]
+fn a_non_number_alert_attention_points_at_its_line() {
+    let error =
+        load_str_with_user("[appearance]\nalert_attention_s = \"long\"\n", "u").unwrap_err();
+
+    assert_eq!(
+        error.message,
+        "line 2, column 21: invalid type: string \"long\", expected f64"
+    );
+}
+
 #[test]
 fn brand_can_be_turned_off_and_renamed() {
     let c = load_str_with_user("[bar.brand]\nenabled = false\ntext = \"TKZ//07\"\n", "u").unwrap();

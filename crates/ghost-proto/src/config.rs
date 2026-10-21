@@ -48,6 +48,8 @@ pub struct Appearance {
     pub alert_stripe_period_s: f64,
     /// Seconds between the steps of a held alert's stripes.
     pub alert_stripe_step_s: f64,
+    /// Seconds a boxed alert flickers, blinks and scrolls its stripes before it holds still.
+    pub alert_attention_s: f64,
     pub colors: Colors,
     pub dots: Dots,
     pub scanlines: Scanlines,
@@ -64,6 +66,7 @@ impl Default for Appearance {
             spectrum_fps: 15,
             alert_stripe_period_s: 1.6,
             alert_stripe_step_s: 1.0,
+            alert_attention_s: 10.0,
             colors: Colors::default(),
             dots: Dots::default(),
             scanlines: Scanlines::default(),

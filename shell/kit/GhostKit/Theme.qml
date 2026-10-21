@@ -19,6 +19,7 @@ Singleton {
             spectrum_fps: 15,
             alert_stripe_period_s: 1.6,
             alert_stripe_step_s: 1,
+            alert_attention_s: 10,
             colors: {
                 ground: "#0a0f11",
                 panel: "#0a0f11",
@@ -92,6 +93,8 @@ Singleton {
     // a daemon older than these keys gives none.
     readonly property int alertStripePeriodMs: ThemeLib.secondsToMs(appearance.alert_stripe_period_s ?? defaultAppearance.alert_stripe_period_s)
     readonly property int alertStripeStepMs: ThemeLib.secondsToMs(appearance.alert_stripe_step_s ?? defaultAppearance.alert_stripe_step_s)
+    // Milliseconds a boxed alert draws attention before it holds still; a daemon older than this key gives none.
+    readonly property int alertAttentionMs: ThemeLib.secondsToMs(appearance.alert_attention_s ?? defaultAppearance.alert_attention_s)
 
     readonly property real loadWarn: thresholds.load_warn / percent
     readonly property real loadCrit: thresholds.load_crit / percent

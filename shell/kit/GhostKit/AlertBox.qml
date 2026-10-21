@@ -4,9 +4,10 @@ import "lib/attention.mjs" as Attention
 import "lib/theme.mjs" as ThemeLib
 
 // A boxed alert: a coloured left edge, scrolling stripes, and text that flickers in on arrival and then
-// blinks like the boot cursor. That lasts ATTENTION_MS of the time the alert is on screen, and then the text
-// holds still at full colour while the stripes step, once a second unless appearance.alert_stripe_step_s says
-// otherwise. Every step lands on a FrameClock tick or second, so it adds no frames of its own.
+// blinks like the boot cursor. That lasts appearance.alert_attention_s (10 s unless set) of the time the alert
+// is on screen, and then the text holds still at full colour while the stripes step, once a second unless
+// appearance.alert_stripe_step_s says otherwise. Every step lands on a FrameClock tick or second, so it adds no
+// frames of its own.
 Item {
     id: root
 
@@ -203,6 +204,16 @@ Item {
         onTriggered: {
             AlertAttention.spend(root.countedKey);
             root.attracting = false;
+        }
+    }
+
+    // A change of the setting applies to an alert already blinking: what it has spent counts against the new length,
+    // and a window now shorter than that holds it at once.
+    Connections {
+        target: Theme
+
+        function onAlertAttentionMsChanged() {
+            root.claimAttention();
         }
     }
 

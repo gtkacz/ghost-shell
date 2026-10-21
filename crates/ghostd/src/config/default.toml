@@ -22,11 +22,14 @@ spectrum_fps = 15
 # Seconds for the stripes of a boxed alert to travel one 16 px tile, both while it blinks and once
 # it is held. Larger is slower.
 alert_stripe_period_s = 1.6
-# Seconds between the steps of a held alert's stripes (during its first 10 s on screen they scroll
-# instead). Every step is one frame, so a shorter step costs more CPU. A step of whole seconds
-# rides the once-a-second clock; any other value keeps the 15 fps frame clock awake while an alert
-# is held, though it still draws only on steps.
+# Seconds between the steps of a held alert's stripes (during the alert_attention_s window below
+# they scroll instead). Every step is one frame, so a shorter step costs more CPU. A step of whole
+# seconds rides the once-a-second clock; any other value keeps the 15 fps frame clock awake while
+# an alert is held, though it still draws only on steps.
 alert_stripe_step_s = 1.0
+# Seconds an alert flickers, blinks and scrolls its stripes after it first shows, before it holds
+# still. Longer costs more CPU while an alert is on screen.
+alert_attention_s = 10.0
 
 # Colours are written as #rrggbb.
 [appearance.colors]

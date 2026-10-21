@@ -136,3 +136,15 @@ test('secondsToMs never gives less than a millisecond, so a tiny setting cannot 
   assert.equal(secondsToMs(0.0004), 1);
   assert.equal(secondsToMs(Number.MIN_VALUE), 1);
 });
+
+test('secondsToMs gives 600 seconds as 600 000 ms', () => {
+  assert.equal(secondsToMs(600), 600_000);
+});
+
+test('secondsToMs never gives more than a 32-bit integer holds, which is as far as a QML int or a Timer goes', () => {
+  const int32Max = 2 ** 31 - 1;
+  assert.equal(secondsToMs(int32Max / 1000), int32Max);
+  assert.equal(secondsToMs(int32Max / 1000 + 1), int32Max);
+  assert.equal(secondsToMs(1e9), int32Max);
+  assert.equal(secondsToMs(Number.MAX_VALUE), int32Max);
+});

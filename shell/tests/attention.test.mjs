@@ -1,137 +1,140 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ATTENTION_MS,
+  DEFAULT_ATTENTION_MS,
   attentionLeftMs,
   heldStripePhase,
   hideAlert,
   showAlert,
   spendAttention,
+  spendExhausted,
   stepsOnWholeSeconds,
 } from '../kit/GhostKit/lib/attention.mjs';
 
 const T0 = 1_000_000;
 const SECOND_MS = 1000;
+const WINDOW_MS = DEFAULT_ATTENTION_MS;
+const LONG_WINDOW_MS = 600 * SECOND_MS;
 
-test('the attention window is 10 seconds', () => assert.equal(ATTENTION_MS, 10_000));
+test('the default attention window is 10 seconds', () => assert.equal(DEFAULT_ATTENTION_MS, 10_000));
 
 test('an alert never shown has its whole attention window left', () => {
-  assert.equal(attentionLeftMs(new Map(), 'a', T0), ATTENTION_MS);
+  assert.equal(attentionLeftMs(new Map(), 'a', T0, WINDOW_MS), WINDOW_MS);
 });
 
 test('an alert shown for the first time has its whole attention window left', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  assert.equal(attentionLeftMs(seen, 'a', T0), ATTENTION_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0, WINDOW_MS), WINDOW_MS);
 });
 
 test('the window runs out after 10 seconds on screen and not before', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + ATTENTION_MS - 1), 1);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + ATTENTION_MS), 0);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 5 * ATTENTION_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + WINDOW_MS - 1, WINDOW_MS), 1);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + WINDOW_MS, WINDOW_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 5 * WINDOW_MS, WINDOW_MS), 0);
 });
 
 test('3 seconds shown, hidden and shown again leaves 7 seconds', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  hideAlert(seen, 'a', T0 + 3 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS);
   const later = T0 + 60 * SECOND_MS;
   showAlert(seen, 'a', later);
-  assert.equal(attentionLeftMs(seen, 'a', later), ATTENTION_MS - 3 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', later, WINDOW_MS), WINDOW_MS - 3 * SECOND_MS);
 });
 
 test('time while hidden is not spent, however long it lasts', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  hideAlert(seen, 'a', T0 + 3 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 3 * SECOND_MS), ATTENTION_MS - 3 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 600 * SECOND_MS), ATTENTION_MS - 3 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS), WINDOW_MS - 3 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 600 * SECOND_MS, WINDOW_MS), WINDOW_MS - 3 * SECOND_MS);
 });
 
 test('every showing adds its own time to what is spent', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  hideAlert(seen, 'a', T0 + 3 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS);
   showAlert(seen, 'a', T0 + 20 * SECOND_MS);
-  hideAlert(seen, 'a', T0 + 24 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 24 * SECOND_MS, WINDOW_MS);
   showAlert(seen, 'a', T0 + 90 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 90 * SECOND_MS), 3 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 93 * SECOND_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 90 * SECOND_MS, WINDOW_MS), 3 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 93 * SECOND_MS, WINDOW_MS), 0);
 });
 
 test('two boxes showing the same alert at once count the time once', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
   showAlert(seen, 'a', T0);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 4 * SECOND_MS), ATTENTION_MS - 4 * SECOND_MS);
-  hideAlert(seen, 'a', T0 + 4 * SECOND_MS);
-  hideAlert(seen, 'a', T0 + 4 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 4 * SECOND_MS, WINDOW_MS), WINDOW_MS - 4 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 4 * SECOND_MS, WINDOW_MS);
+  hideAlert(seen, 'a', T0 + 4 * SECOND_MS, WINDOW_MS);
   showAlert(seen, 'a', T0 + 30 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 30 * SECOND_MS), ATTENTION_MS - 4 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 30 * SECOND_MS, WINDOW_MS), WINDOW_MS - 4 * SECOND_MS);
 });
 
 test('a second box showing the alert later does not restart the count', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
   showAlert(seen, 'a', T0 + 4 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 4 * SECOND_MS), ATTENTION_MS - 4 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 7 * SECOND_MS), ATTENTION_MS - 7 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 4 * SECOND_MS, WINDOW_MS), WINDOW_MS - 4 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 7 * SECOND_MS, WINDOW_MS), WINDOW_MS - 7 * SECOND_MS);
 });
 
 test('the time keeps counting for the box left showing when the other one hides', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
   showAlert(seen, 'a', T0 + 4 * SECOND_MS);
-  hideAlert(seen, 'a', T0 + 6 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 8 * SECOND_MS), ATTENTION_MS - 8 * SECOND_MS);
-  hideAlert(seen, 'a', T0 + 8 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 6 * SECOND_MS, WINDOW_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 8 * SECOND_MS, WINDOW_MS), WINDOW_MS - 8 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 8 * SECOND_MS, WINDOW_MS);
   showAlert(seen, 'a', T0 + 50 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 50 * SECOND_MS), 2 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 50 * SECOND_MS, WINDOW_MS), 2 * SECOND_MS);
 });
 
 test('a fully spent alert stays held when it is shown again', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  hideAlert(seen, 'a', T0 + ATTENTION_MS + 5 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + WINDOW_MS + 5 * SECOND_MS, WINDOW_MS);
   const later = T0 + 60 * SECOND_MS;
   showAlert(seen, 'a', later);
-  assert.equal(attentionLeftMs(seen, 'a', later), 0);
+  assert.equal(attentionLeftMs(seen, 'a', later, WINDOW_MS), 0);
 });
 
 test('an alert spent to the millisecond stays held when it is shown again', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  hideAlert(seen, 'a', T0 + ATTENTION_MS);
+  hideAlert(seen, 'a', T0 + WINDOW_MS, WINDOW_MS);
   showAlert(seen, 'a', T0 + 20 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 20 * SECOND_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 20 * SECOND_MS, WINDOW_MS), 0);
 });
 
 test('a new alert starts with its whole window while an old one stays held', () => {
   const seen = new Map();
   showAlert(seen, 'old', T0);
-  hideAlert(seen, 'old', T0 + ATTENTION_MS);
+  hideAlert(seen, 'old', T0 + WINDOW_MS, WINDOW_MS);
   const later = T0 + 60 * SECOND_MS;
   showAlert(seen, 'old', later);
   showAlert(seen, 'new', later);
-  assert.equal(attentionLeftMs(seen, 'old', later), 0);
-  assert.equal(attentionLeftMs(seen, 'new', later), ATTENTION_MS);
+  assert.equal(attentionLeftMs(seen, 'old', later, WINDOW_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'new', later, WINDOW_MS), WINDOW_MS);
 });
 
 test('a key that changes while shown keeps the old key partly spent and starts the new one whole', () => {
   const seen = new Map();
   showAlert(seen, 'id:warn', T0);
   const escalation = T0 + 4 * SECOND_MS;
-  hideAlert(seen, 'id:warn', escalation);
+  hideAlert(seen, 'id:warn', escalation, WINDOW_MS);
   showAlert(seen, 'id:crit', escalation);
-  assert.equal(attentionLeftMs(seen, 'id:warn', escalation), 6 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'id:crit', escalation), ATTENTION_MS);
+  assert.equal(attentionLeftMs(seen, 'id:warn', escalation, WINDOW_MS), 6 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'id:crit', escalation, WINDOW_MS), WINDOW_MS);
   const back = escalation + 2 * SECOND_MS;
-  hideAlert(seen, 'id:crit', back);
+  hideAlert(seen, 'id:crit', back, WINDOW_MS);
   showAlert(seen, 'id:warn', back);
-  assert.equal(attentionLeftMs(seen, 'id:warn', back), 6 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'id:crit', back), 8 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'id:warn', back, WINDOW_MS), 6 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'id:crit', back, WINDOW_MS), 8 * SECOND_MS);
 });
 
 test('a box destroyed while showing commits the time it showed', () => {
@@ -139,40 +142,40 @@ test('a box destroyed while showing commits the time it showed', () => {
   showAlert(seen, 'a', T0);
   // A cover destroys the box while it shows; its destruction hides it at the clock reading of that moment, and
   // that clock stands still for as long as the cover lasts.
-  hideAlert(seen, 'a', T0 + 3 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 3 * SECOND_MS), ATTENTION_MS - 3 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS), WINDOW_MS - 3 * SECOND_MS);
   showAlert(seen, 'a', T0 + 3 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 3 * SECOND_MS), ATTENTION_MS - 3 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS), WINDOW_MS - 3 * SECOND_MS);
 });
 
 test('a box destroyed while another still shows the alert leaves the count to the other', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
   showAlert(seen, 'a', T0 + SECOND_MS);
-  hideAlert(seen, 'a', T0 + 2 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 5 * SECOND_MS), ATTENTION_MS - 5 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 2 * SECOND_MS, WINDOW_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 5 * SECOND_MS, WINDOW_MS), WINDOW_MS - 5 * SECOND_MS);
 });
 
 test('a clock that steps back during a showing leaves nothing to blink', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  assert.equal(attentionLeftMs(seen, 'a', T0 - 5 * SECOND_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 - 5 * SECOND_MS, WINDOW_MS), 0);
 });
 
 test('a clock that steps back before a hide does not give the time back', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  hideAlert(seen, 'a', T0 - 5 * SECOND_MS);
+  hideAlert(seen, 'a', T0 - 5 * SECOND_MS, WINDOW_MS);
   showAlert(seen, 'a', T0 + 60 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, WINDOW_MS), 0);
 });
 
 test('a step back does not give back time already spent', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);
-  hideAlert(seen, 'a', T0 + 3 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS);
   showAlert(seen, 'a', T0 + 100 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 50 * SECOND_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 50 * SECOND_MS, WINDOW_MS), 0);
 });
 
 test('spending an alert while it shows holds it at once and after every box hides', () => {
@@ -180,13 +183,130 @@ test('spending an alert while it shows holds it at once and after every box hide
   showAlert(seen, 'a', T0);
   showAlert(seen, 'a', T0 + SECOND_MS);
   // The clock counts in whole ticks, so it can read a little short of the window when the timer ends it.
-  const ticksShort = ATTENTION_MS - 17;
+  const ticksShort = WINDOW_MS - 17;
   spendAttention(seen, 'a', T0 + ticksShort);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + ticksShort), 0);
-  hideAlert(seen, 'a', T0 + ticksShort + 100);
-  hideAlert(seen, 'a', T0 + ticksShort + 100);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + ticksShort, WINDOW_MS), 0);
+  hideAlert(seen, 'a', T0 + ticksShort + 100, WINDOW_MS);
+  hideAlert(seen, 'a', T0 + ticksShort + 100, WINDOW_MS);
   showAlert(seen, 'a', T0 + 60 * SECOND_MS);
-  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, WINDOW_MS), 0);
+});
+
+test('the window is as long as it is given, to the millisecond', () => {
+  for (const windowMs of [3 * SECOND_MS, 600 * SECOND_MS]) {
+    const seen = new Map();
+    showAlert(seen, 'a', T0);
+    assert.equal(attentionLeftMs(seen, 'a', T0, windowMs), windowMs);
+    assert.equal(attentionLeftMs(seen, 'a', T0 + windowMs - 1, windowMs), 1);
+    assert.equal(attentionLeftMs(seen, 'a', T0 + windowMs, windowMs), 0);
+  }
+});
+
+test('a 600 second window is spent across showings like a short one', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  hideAlert(seen, 'a', T0 + 200 * SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'a', T0 + 900 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 900 * SECOND_MS, LONG_WINDOW_MS), 400 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 1300 * SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'a', T0 + 2000 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 2000 * SECOND_MS, LONG_WINDOW_MS), 0);
+});
+
+test('a window that grows while an alert shows counts what is spent against the new length', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  const now = T0 + 2 * SECOND_MS;
+  assert.equal(attentionLeftMs(seen, 'a', now, 3 * SECOND_MS), SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', now, 6 * SECOND_MS), 4 * SECOND_MS);
+});
+
+test('a window that shrinks below what an alert has spent holds it at once', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  const now = T0 + 5 * SECOND_MS;
+  assert.equal(attentionLeftMs(seen, 'a', now, LONG_WINDOW_MS), LONG_WINDOW_MS - 5 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', now, 3 * SECOND_MS), 0);
+});
+
+test('a window that shrinks below what a hidden alert has spent holds it too', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  hideAlert(seen, 'a', T0 + 5 * SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'a', T0 + 60 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, 3 * SECOND_MS), 0);
+});
+
+test('an alert hidden with time left gets the rest of a longer window', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  hideAlert(seen, 'a', T0 + 3 * SECOND_MS, WINDOW_MS);
+  showAlert(seen, 'a', T0 + 60 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, LONG_WINDOW_MS), LONG_WINDOW_MS - 3 * SECOND_MS);
+});
+
+test('an alert hidden after its window ended stays held under a longer window', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  hideAlert(seen, 'a', T0 + 3 * SECOND_MS, 3 * SECOND_MS);
+  showAlert(seen, 'a', T0 + 60 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, LONG_WINDOW_MS), 0);
+});
+
+test('an alert whose window ended while it showed stays held under a longer window', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  spendAttention(seen, 'a', T0 + 3 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 3 * SECOND_MS, LONG_WINDOW_MS), 0);
+  hideAlert(seen, 'a', T0 + 4 * SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'a', T0 + 60 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, LONG_WINDOW_MS), 0);
+});
+
+test('a clock that steps back leaves nothing to blink however long the window', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  assert.equal(attentionLeftMs(seen, 'a', T0 - 5 * SECOND_MS, LONG_WINDOW_MS), 0);
+  hideAlert(seen, 'a', T0 - 5 * SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'a', T0 + 60 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, LONG_WINDOW_MS), 0);
+});
+
+test('spendExhausted holds what a shrunken window no longer covers, showing or not, and nothing else', () => {
+  const seen = new Map();
+  showAlert(seen, 'hidden', T0);
+  hideAlert(seen, 'hidden', T0 + 5 * SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'showing', T0);
+  showAlert(seen, 'brief', T0);
+  hideAlert(seen, 'brief', T0 + SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'never-ended', T0 + 5 * SECOND_MS);
+
+  const now = T0 + 5 * SECOND_MS;
+  spendExhausted(seen, now, 3 * SECOND_MS);
+
+  const later = now + SECOND_MS;
+  assert.equal(attentionLeftMs(seen, 'hidden', later, LONG_WINDOW_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'showing', later, LONG_WINDOW_MS), 0);
+  assert.equal(attentionLeftMs(seen, 'brief', later, LONG_WINDOW_MS), LONG_WINDOW_MS - SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'never-ended', later, LONG_WINDOW_MS), LONG_WINDOW_MS - SECOND_MS);
+});
+
+test('spendExhausted holds a showing alert for good, so it stays held after every box hides', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  spendExhausted(seen, T0 + 5 * SECOND_MS, 3 * SECOND_MS);
+  hideAlert(seen, 'a', T0 + 6 * SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'a', T0 + 60 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, LONG_WINDOW_MS), 0);
+});
+
+test('spendExhausted at a window that still covers every alert changes nothing', () => {
+  const seen = new Map();
+  showAlert(seen, 'a', T0);
+  hideAlert(seen, 'a', T0 + 5 * SECOND_MS, LONG_WINDOW_MS);
+  spendExhausted(seen, T0 + 60 * SECOND_MS, LONG_WINDOW_MS);
+  showAlert(seen, 'a', T0 + 60 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'a', T0 + 60 * SECOND_MS, LONG_WINDOW_MS), LONG_WINDOW_MS - 5 * SECOND_MS);
 });
 
 const TILE_PX = 16;

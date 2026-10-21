@@ -153,6 +153,7 @@ fn validate_appearance(appearance: &Appearance) -> Result<(), ConfigError> {
         "appearance.alert_stripe_step_s",
         appearance.alert_stripe_step_s,
     )?;
+    check_positive_finite("appearance.alert_attention_s", appearance.alert_attention_s)?;
     if appearance.dots.spacing < MIN_DOT_SPACING {
         return Err(invalid(
             "appearance.dots.spacing",
