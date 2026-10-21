@@ -438,6 +438,19 @@ No network. While the `sky` topic is wanted, the feed recomputes once a minute f
 
 With a client subscribed to `sky`, `scripts/measure-cpu.sh` reads 0.00–0.02 % over 60 s, which is its clock-tick floor. Over 120 s from `schedstat` the daemon spent 10.2 ms on CPU (0.0085 %), against 9.7 ms (0.0081 %) with the client subscribed to nothing.
 
+### Plan 2a: INMET alert provider (`ghost-alerts-inmet`)
+
+A separate process that ghostd starts from `location.alerts`. It makes one HTTPS GET every 10 minutes while it runs. Release build, São Paulo:
+
+| Measure | Value |
+|---|---|
+| Response size | 589 791 bytes per fetch (≈ 85 MB a day) |
+| Fetch wall time | 0.35–0.44 s |
+| CPU per fetch | ≈ 2.5 ms (under 10 ms process-wide); 0 between fetches |
+| Parse of the response | 0.18 ms warm (entries read one at a time, so one malformed entry is skipped alone) |
+| Provider RSS | 6.8–7.0 MiB |
+| Daemon's added cost | not measurable (≈ 0.071 ms/s of CPU with the provider, 0.072 without; RSS +0.2 MB) |
+
 ### Plan 2a: per-topic data in the shell
 
 `Data` now keeps one object per topic, so a message re-evaluates only the bindings on its own topic. Previously every message re-ran every topic binding. Default V1 against `ghostd run --fake`, six interleaved 60 s runs; the installed services and several other sessions were running:
