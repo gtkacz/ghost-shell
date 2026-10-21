@@ -5,6 +5,7 @@
 //! relayed to subscribers and cached so a late subscriber still gets the last value.
 
 mod feed;
+mod publish;
 mod sampling;
 mod session;
 mod state;
@@ -23,10 +24,11 @@ use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
 use nix::unistd::gethostname;
 use tokio::net::UnixListener;
-use tokio::task::JoinError;
+use tokio::task::{JoinError, JoinSet};
 
 pub use feed::ConfigFeed;
 use feed::{ProblemReporter, Reloader, follow_config};
+pub use publish::{Demand, Feed, FeedContext, Publisher};
 use sampling::{Collectors, sample_forever};
 use session::accept_forever;
 use state::State;
@@ -125,6 +127,8 @@ pub struct Hub {
     /// Reconciled with `providers` on every config reload.
     pub providers: Supervisor,
     pub on_warning: WarningHook,
+    /// Each is started once and must run for as long as the daemon does.
+    pub feeds: Vec<Feed>,
 }
 
 /// Why [`serve`] stopped while nothing asked it to.
@@ -133,13 +137,26 @@ pub enum ServeError {
     // Clients would still connect and look served, but every built-in topic would stay frozen.
     #[error("sampling stopped: {0}")]
     Sampling(#[from] JoinError),
+    // Feeds never end by design, so one that did has left its topics frozen just the same.
+    #[error("a feed stopped: {0}")]
+    Feed(FeedEnd),
 }
 
-/// Serves UI clients and providers on `listener`, samples the built-in topics every tick and
-/// follows the config, until the returned future is dropped or the sampling task fails.
+/// How a feed ended.
+#[derive(Debug, thiserror::Error)]
+pub enum FeedEnd {
+    #[error("it returned")]
+    Returned,
+    #[error("{0}")]
+    Failed(JoinError),
+}
+
+/// Serves UI clients and providers on `listener`, samples the subscribed built-in topics every
+/// tick, runs the feeds and follows the config, until the returned future is dropped or the
+/// sampling task or a feed stops.
 ///
-/// A failed sampling task is returned rather than carried on without, so that the daemon can exit
-/// and be restarted instead of looking healthy with every topic frozen.
+/// A stopped sampling task or feed is returned rather than carried on without, so that the daemon
+/// can exit and be restarted instead of looking healthy with topics frozen.
 pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
     let Hub {
         mut config,
@@ -148,6 +165,7 @@ pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
         widget_dirs,
         providers,
         on_warning,
+        feeds,
     } = hub;
     let initial = config.updates.borrow_and_update().clone();
     let collectors = Collectors::new(sampler, &initial, tick_ms);
@@ -166,6 +184,8 @@ pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
     reloader.report();
     let shared = reloader.shared();
     let updates = config.subscribe();
+    let demand = shared.lock().demand();
+    let mut running_feeds = start_feeds(feeds, &shared, &config);
 
     let clients = {
         let shared = shared.clone();
@@ -178,9 +198,30 @@ pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
         }
     };
     tokio::select! {
-        error = sample_forever(shared, collectors, tick_ms, updates) => error,
+        error = sample_forever(shared, collectors, tick_ms, updates, demand) => error,
+        Some(ended) = running_feeds.join_next() => ServeError::Feed(match ended {
+            Ok(()) => FeedEnd::Returned,
+            Err(error) => FeedEnd::Failed(error),
+        }),
         never = clients => match never {},
     }
+}
+
+/// Spawns every feed with a publisher into the hub, in a set that aborts them when dropped.
+fn start_feeds(feeds: Vec<Feed>, shared: &Shared, config: &ConfigFeed) -> JoinSet<()> {
+    let publisher = {
+        let shared = shared.clone();
+        Publisher::new(move |topic, data| shared.lock().publish(topic, data))
+    };
+    let mut running = JoinSet::new();
+    for feed in feeds {
+        running.spawn(feed(FeedContext {
+            publisher: publisher.clone(),
+            demand: shared.lock().demand(),
+            config: config.subscribe(),
+        }));
+    }
+    running
 }
 
 fn host_name() -> String {

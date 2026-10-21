@@ -14,10 +14,10 @@ use ghostd::collect::{
 use ghostd::config::{DEFAULT_TOML, default_path};
 use ghostd::sampler::Sampler;
 use ghostd::selfmon::SelfMon;
-use ghostd::server::{self, ConfigFeed, Hub, WarningHook, WidgetDirs};
+use ghostd::server::{self, ConfigFeed, Feed, Hub, WarningHook, WidgetDirs};
 use ghostd::sysroot::SysRoot;
 use ghostd::widgets::default_dirs;
-use ghostd::{fake, notify, providers};
+use ghostd::{fake, feeds, notify, providers};
 use serde::Serialize;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
@@ -174,10 +174,10 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
 
     let config = ConfigFeed::open(&config_path);
     let providers = providers::supervise(&config.current().providers, &socket);
-    let sampler = if options.fake {
-        fake::sampler()
+    let (sampler, feeds) = if options.fake {
+        (fake::sampler(), fake::feeds())
     } else {
-        host_sampler(config.subscribe())
+        (host_sampler(config.subscribe()), host_feeds())
     };
     let hub = Hub {
         config,
@@ -186,6 +186,7 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
         widget_dirs: widget_search_dirs(options.widgets_dir),
         providers,
         on_warning: desktop_warning(),
+        feeds,
     };
 
     let exit_code = tokio::select! {
@@ -255,6 +256,10 @@ fn host_sampler(config: watch::Receiver<ResolvedConfig>) -> Sampler {
             DiskCollector::new(&disks_root, Box::new(StatvfsFs), labels)
         })),
     )
+}
+
+fn host_feeds() -> Vec<Feed> {
+    vec![feeds::host::feed(SysRoot::host())]
 }
 
 fn open_gpu() -> Option<Box<dyn GpuSource>> {

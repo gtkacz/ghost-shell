@@ -63,8 +63,10 @@ async fn ui_handshake_then_subscribed_topics_only() {
         cpu_lines += 1;
     }
 
-    // The ticks so far recorded every series, `gpu_load` included, so a history that leaks
+    // Another client keeps the gpu sampled, so `gpu_load` is recorded and a history that leaks
     // unsubscribed series would show it now.
+    let mut gpu_watcher = daemon.subscribed_ui(&["gpu"]).await;
+    gpu_watcher.recv_data("gpu").await;
     ui.send(json!({"t": "subscribe", "topics": ["cpu"]})).await;
     let history = loop {
         let message = ui.recv().await;

@@ -71,6 +71,18 @@ fn drive_state_wire_names() {
     );
 }
 #[test]
+fn a_missing_history_sample_round_trips_as_null() {
+    let history = ServerMsg::History {
+        step_ms: 1000,
+        series: [("load".to_owned(), vec![Some(12.5), None, Some(40.0)])].into(),
+    };
+
+    let line = encode_line(&history);
+
+    assert!(line.contains("\"load\":[12.5,null,40.0]"), "{line}");
+    assert_eq!(serde_json::from_str::<ServerMsg>(&line).unwrap(), history);
+}
+#[test]
 fn rejects_garbage() {
     assert!(decode_client_line("{nope").is_err());
 }

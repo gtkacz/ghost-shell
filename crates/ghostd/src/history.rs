@@ -11,9 +11,11 @@ pub fn history_len(history_minutes: u32, tick_ms: NonZeroU32) -> usize {
 }
 
 /// Fixed-capacity sample buffers keyed by series name, newest samples winning once full.
+///
+/// A `None` sample marks a tick without a reading.
 pub struct History {
     len: usize,
-    series: BTreeMap<String, VecDeque<f32>>,
+    series: BTreeMap<String, VecDeque<Option<f32>>>,
 }
 
 impl History {
@@ -24,7 +26,7 @@ impl History {
         }
     }
 
-    pub fn push(&mut self, key: &str, v: f32) {
+    pub fn push(&mut self, key: &str, v: Option<f32>) {
         let len = self.len;
         // Pushing happens every tick for every series, and only the first push of a series needs
         // an owned key.
@@ -37,8 +39,16 @@ impl History {
         self.series.insert(key.to_owned(), buffer);
     }
 
+    /// Pushes one `None` per tick in `ticks`; more than the capacity would only evict each other.
+    pub fn push_gap(&mut self, key: &str, ticks: u64) {
+        let nulls = usize::try_from(ticks).map_or(self.len, |ticks| ticks.min(self.len));
+        for _ in 0..nulls {
+            self.push(key, None);
+        }
+    }
+
     /// Every series, oldest sample first.
-    pub fn series(&self) -> BTreeMap<String, Vec<f32>> {
+    pub fn series(&self) -> BTreeMap<String, Vec<Option<f32>>> {
         self.series
             .iter()
             .map(|(key, buffer)| (key.clone(), buffer.iter().copied().collect()))
@@ -55,7 +65,7 @@ impl History {
     }
 }
 
-fn push_bounded(buffer: &mut VecDeque<f32>, len: usize, v: f32) {
+fn push_bounded(buffer: &mut VecDeque<Option<f32>>, len: usize, v: Option<f32>) {
     // Evict before pushing so a full buffer never grows past its allocation.
     if buffer.len() >= len {
         buffer.pop_front();
@@ -70,7 +80,7 @@ mod tests {
     fn filled(len: usize, values: impl IntoIterator<Item = f32>) -> History {
         let mut history = History::new(len);
         for value in values {
-            history.push("load", value);
+            history.push("load", Some(value));
         }
         history
     }
@@ -80,10 +90,10 @@ mod tests {
         let mut history = filled(5, [1.0, 2.0, 3.0, 4.0, 5.0]);
 
         history.resize(2);
-        assert_eq!(history.series()["load"], [4.0, 5.0]);
+        assert_eq!(history.series()["load"], [Some(4.0), Some(5.0)]);
 
-        history.push("load", 6.0);
-        assert_eq!(history.series()["load"], [5.0, 6.0]);
+        history.push("load", Some(6.0));
+        assert_eq!(history.series()["load"], [Some(5.0), Some(6.0)]);
     }
 
     #[test]
@@ -91,11 +101,14 @@ mod tests {
         let mut history = filled(2, [1.0, 2.0]);
 
         history.resize(4);
-        history.push("load", 3.0);
-        history.push("load", 4.0);
-        history.push("load", 5.0);
+        history.push("load", Some(3.0));
+        history.push("load", Some(4.0));
+        history.push("load", Some(5.0));
 
-        assert_eq!(history.series()["load"], [2.0, 3.0, 4.0, 5.0]);
+        assert_eq!(
+            history.series()["load"],
+            [Some(2.0), Some(3.0), Some(4.0), Some(5.0)]
+        );
     }
 
     #[test]
@@ -103,11 +116,30 @@ mod tests {
         let mut history = History::new(2);
 
         for (key, value) in [("a", 1.0), ("b", 10.0), ("a", 2.0), ("a", 3.0), ("b", 20.0)] {
-            history.push(key, value);
+            history.push(key, Some(value));
         }
 
-        assert_eq!(history.series()["a"], [2.0, 3.0]);
-        assert_eq!(history.series()["b"], [10.0, 20.0]);
+        assert_eq!(history.series()["a"], [Some(2.0), Some(3.0)]);
+        assert_eq!(history.series()["b"], [Some(10.0), Some(20.0)]);
+    }
+
+    #[test]
+    fn a_gap_is_one_null_per_tick() {
+        let mut history = filled(5, [1.0]);
+
+        history.push_gap("load", 2);
+        history.push("load", Some(2.0));
+
+        assert_eq!(history.series()["load"], [Some(1.0), None, None, Some(2.0)]);
+    }
+
+    #[test]
+    fn a_gap_longer_than_the_history_leaves_only_nulls() {
+        let mut history = filled(3, [1.0, 2.0, 3.0]);
+
+        history.push_gap("load", u64::MAX);
+
+        assert_eq!(history.series()["load"], [None, None, None]);
     }
 
     fn tick(ms: u32) -> NonZeroU32 {

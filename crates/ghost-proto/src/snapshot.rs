@@ -91,6 +91,14 @@ pub enum DriveState {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct HostSnapshot {
+    pub hostname: String,
+    pub kernel: String,
+    /// Seconds since the Unix epoch.
+    pub boot_time_s: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PerfSnapshot {
     pub daemon_cpu: f32,
     pub daemon_rss_kib: u64,

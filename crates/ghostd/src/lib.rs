@@ -1,6 +1,7 @@
 pub mod collect;
 pub mod config;
 pub mod fake;
+pub mod feeds;
 pub mod history;
 pub mod notify;
 pub mod providers;

@@ -1,15 +1,15 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ghost_proto::{PROTO_VERSION, ServerMsg, data_msg, is_valid_topic, topics};
 use serde_json::Value;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{debug, warn};
 
 use super::sampling::Tick;
-use super::{invalid_topic, line};
+use super::{Demand, invalid_topic, line};
 use crate::sampler::HISTORY_KEYS;
 
 /// The output a UI client may leave unread before it is disconnected.
@@ -48,10 +48,11 @@ pub(super) struct State {
     config: Arc<str>,
     layout: LayoutLines,
     config_error: Option<Arc<str>>,
-    series: BTreeMap<String, Vec<f32>>,
+    series: BTreeMap<String, Vec<Option<f32>>>,
     topics: HashMap<String, Topic>,
     clients: BTreeMap<u64, UiClient>,
     next_id: u64,
+    demand: watch::Sender<BTreeSet<String>>,
 }
 
 impl State {
@@ -69,6 +70,7 @@ impl State {
             topics: HashMap::new(),
             clients: BTreeMap::new(),
             next_id: 0,
+            demand: watch::Sender::new(BTreeSet::new()),
         }
     }
 
@@ -108,6 +110,28 @@ impl State {
 
     pub(super) fn remove_ui(&mut self, id: u64) {
         self.clients.remove(&id);
+        self.update_demand();
+    }
+
+    /// A receiver of the union of every UI client's subscriptions.
+    pub(super) fn demand(&self) -> Demand {
+        self.demand.subscribe()
+    }
+
+    /// Recomputes the union of every client's subscriptions, notifying only when it changed.
+    fn update_demand(&mut self) {
+        let union: BTreeSet<String> = self
+            .clients
+            .values()
+            .flat_map(|client| client.topics.iter().cloned())
+            .collect();
+        self.demand.send_if_modified(|current| {
+            let changed = *current != union;
+            if changed {
+                *current = union;
+            }
+            changed
+        });
     }
 
     /// Replaces the client's subscriptions, then queues the history of the subscribed built-ins
@@ -143,6 +167,7 @@ impl State {
             return;
         };
         client.topics = wanted;
+        self.update_demand();
         for reply in &replies {
             self.send(id, reply);
         }
@@ -223,8 +248,10 @@ impl State {
         for message in &tick.messages {
             self.relay(message);
         }
-        let seq = self.next_seq(topics::PERF);
-        self.relay(&data_msg(topics::PERF, seq, &tick.perf));
+        if let Some(perf) = &tick.perf {
+            let seq = self.next_seq(topics::PERF);
+            self.relay(&data_msg(topics::PERF, seq, perf));
+        }
     }
 
     /// Sends a newly loaded config and its layout to every UI client.
@@ -284,6 +311,7 @@ impl State {
             Undelivered::Gone => debug!(client = id, "UI client connection already closed"),
         }
         self.clients.remove(&id);
+        self.update_demand();
     }
 }
 

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use ghostd::fake;
 use ghostd::providers;
-use ghostd::server::{self, ConfigFeed, Hub, ServeError, SocketLock};
+use ghostd::server::{self, ConfigFeed, Feed, Hub, ServeError, SocketLock};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
@@ -60,6 +60,14 @@ impl Daemon {
     }
 
     pub async fn start_with_widgets(toml: &str, installed: &[&str]) -> Self {
+        Self::launch(toml, installed, Vec::new()).await
+    }
+
+    pub async fn start_with_feeds(feeds: Vec<Feed>) -> Self {
+        Self::launch(&single_widget_config("clock", 55), &["clock"], feeds).await
+    }
+
+    async fn launch(toml: &str, installed: &[&str], feeds: Vec<Feed>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join(CONFIG_DIR).join(CONFIG_FILE);
         fs::create_dir_all(config.parent().unwrap()).unwrap();
@@ -79,6 +87,7 @@ impl Daemon {
             // Only the temp dir, so widgets installed on this machine cannot leak into the tests.
             widget_dirs: Box::new(move |_| vec![widgets.clone()]),
             on_warning: Box::new(|_, _| {}),
+            feeds,
         };
         let (listener, lock) = server::bind(&socket).unwrap();
         let serve = tokio::spawn(server::serve(listener, hub));

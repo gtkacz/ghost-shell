@@ -3,14 +3,17 @@
 //! and an RTX 4080 SUPER. Every value follows a sine over the sample count, so runs repeat exactly.
 
 use std::f64::consts::TAU;
+use std::future::pending;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ghost_proto::{
-    CcdLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, MemSnapshot, ProcUsage,
-    Reading, SensorSnapshot,
+    CcdLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, HostSnapshot, MemSnapshot,
+    ProcUsage, Reading, SensorSnapshot, topics,
 };
 
 use crate::collect::Source;
 use crate::sampler::Sampler;
+use crate::server::Feed;
 
 /// A [`Sampler`] over the fake sources.
 pub fn sampler() -> Sampler {
@@ -21,6 +24,11 @@ pub fn sampler() -> Sampler {
         Box::new(FakeGpu::default()),
         Box::new(FakeDisks::default()),
     )
+}
+
+/// The fake feeds, one per feed topic.
+pub fn feeds() -> Vec<Feed> {
+    vec![host()]
 }
 
 /// A sine between `low` and `high` that repeats every `period` samples, starting `phase` of a
@@ -450,11 +458,35 @@ impl Source<DiskSnapshot> for FakeDisks {
     }
 }
 
+const HOSTNAME: &str = "tkacz-workstation";
+const KERNEL: &str = "7.2.11-200.fc44.x86_64";
+// The mockup's uptime of 2:14:07.
+const UPTIME_S: u64 = 8047;
+
+fn host() -> Feed {
+    Box::new(|context| {
+        Box::pin(async move {
+            let now_s = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |since_epoch| since_epoch.as_secs());
+            context.publisher.publish(
+                topics::HOST,
+                &HostSnapshot {
+                    hostname: HOSTNAME.to_owned(),
+                    kernel: KERNEL.to_owned(),
+                    boot_time_s: now_s.saturating_sub(UPTIME_S),
+                },
+            );
+            pending::<()>().await;
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
-    use ghost_proto::{ServerMsg, topics};
+    use ghost_proto::ServerMsg;
 
     use super::*;
     use crate::history::History;
@@ -485,7 +517,12 @@ mod tests {
 
     #[test]
     fn machine_specifics_survive_the_sampler() {
-        let messages = sampler().tick(&mut History::new(1));
+        let every_topic = topics::BUILTIN
+            .iter()
+            .map(|&topic| topic.to_owned())
+            .collect();
+
+        let messages = sampler().tick(&mut History::new(1), &every_topic);
 
         let disks: DiskSnapshot = data(&messages, topics::DISKS);
         let dead: Vec<_> = disks

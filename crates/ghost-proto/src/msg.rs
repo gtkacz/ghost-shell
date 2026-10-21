@@ -44,7 +44,9 @@ pub enum ServerMsg {
     },
     History {
         step_ms: u32,
-        series: BTreeMap<String, Vec<f32>>,
+        /// `None` (`null` on the wire) marks a tick without a reading: the source was not sampled,
+        /// or had nothing to measure, as with an absent GPU.
+        series: BTreeMap<String, Vec<Option<f32>>>,
     },
     Data {
         topic: String,

@@ -20,8 +20,18 @@ pub mod topics {
     pub const GPU: &str = "gpu";
     pub const DISKS: &str = "disks";
     pub const PERF: &str = "perf";
+    pub const HOST: &str = "host";
+    pub const DESKTOP: &str = "desktop";
+    pub const WEATHER: &str = "weather";
+    pub const SKY: &str = "sky";
+    pub const SPECTRUM: &str = "audio.spectrum";
+    /// Published by an alerts provider, so it is well known without being built in.
+    pub const WEATHER_ALERTS: &str = "weather.alerts";
 
-    pub const BUILTIN: [&str; 6] = [CPU, MEM, SENSORS, GPU, DISKS, PERF];
+    // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
+    pub const BUILTIN: [&str; 11] = [
+        CPU, MEM, SENSORS, GPU, DISKS, PERF, HOST, DESKTOP, WEATHER, SKY, SPECTRUM,
+    ];
 }
 
 /// Accepts names matching `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$` of at most 64 characters.
