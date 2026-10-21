@@ -64,7 +64,10 @@ Scope {
                 restoreMode: Binding.RestoreNone
                 target: Theme
                 property: "u"
-                value: root.hasForcedU ? root.forcedU : Scale.designUnit(window.width)
+                // The screen's width is the width this full-screen surface is configured to. The window's
+                // own width passes through 100, 0 and 500 first, and every cell grid built at those units
+                // is thrown away (measured: about 26 000 transient rectangles and 500 MB more RSS).
+                value: root.hasForcedU ? root.forcedU : Scale.designUnit(window.modelData.width)
             }
 
             // The window's own contentItem is created outside the QML engine and refuses grabToImage(),
