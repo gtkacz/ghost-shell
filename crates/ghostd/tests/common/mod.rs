@@ -15,6 +15,8 @@ pub const CURRENT_FREQ_KHZ: u32 = 4_500_000;
 const CCD_WIDTH: usize = 8;
 const VCACHE_CPU_LIST: &str = "0-7,16-23";
 const PLAIN_CPU_LIST: &str = "8-15,24-31";
+// Fields 4 to 13 of /proc/<pid>/stat sit between the state and utime.
+const PROC_STAT_FIELDS_BEFORE_UTIME: usize = 10;
 
 pub struct FakeRoot {
     dir: TempDir,
@@ -44,6 +46,31 @@ impl FakeRoot {
 
     pub fn root(&self) -> SysRoot {
         SysRoot::new(self.dir.path())
+    }
+
+    /// A `None` `rss_kib` omits the `VmRSS` line, as the kernel does for kernel threads.
+    pub fn write_process(
+        &self,
+        pid: u32,
+        comm: &str,
+        utime: u64,
+        stime: u64,
+        rss_kib: Option<u64>,
+    ) {
+        let dir = format!("proc/{pid}");
+        let before_utime = ["0"; PROC_STAT_FIELDS_BEFORE_UTIME].join(" ");
+        self.write(
+            &format!("{dir}/stat"),
+            &format!("{pid} ({comm}) S {before_utime} {utime} {stime} 0 0 20 0 1 0 0\n"),
+        );
+        self.write(&format!("{dir}/comm"), &format!("{comm}\n"));
+        let memory = rss_kib.map_or_else(String::new, |rss| {
+            format!("VmPeak:\t{rss} kB\nVmRSS:\t{rss} kB\nVmHWM:\t{rss} kB\n")
+        });
+        self.write(
+            &format!("{dir}/status"),
+            &format!("Name:\t{comm}\nState:\tS (sleeping)\n{memory}Threads:\t1\n"),
+        );
     }
 }
 
@@ -75,6 +102,18 @@ pub fn proc_stat(aggregate: Ticks, cpus: &[Ticks]) -> String {
     format!(
         "{}{per_cpu}intr 0\nctxt 0\nbtime 0\n",
         aggregate.line("cpu")
+    )
+}
+
+pub fn meminfo(
+    total_kib: u64,
+    available_kib: u64,
+    swap_total_kib: u64,
+    swap_free_kib: u64,
+) -> String {
+    format!(
+        "MemTotal:       {total_kib} kB\nMemFree:        1000 kB\nMemAvailable:   {available_kib} kB\n\
+         SwapCached:     2000 kB\nSwapTotal:      {swap_total_kib} kB\nSwapFree:       {swap_free_kib} kB\n"
     )
 }
 

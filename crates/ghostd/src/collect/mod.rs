@@ -1,6 +1,8 @@
 mod cpu;
+mod mem;
 
 pub use cpu::{CpuCollector, parse_cpu_list};
+pub use mem::MemCollector;
 
 /// A telemetry collector that yields one snapshot per tick.
 ///
