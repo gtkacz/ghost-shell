@@ -378,6 +378,18 @@ The running service grew linearly, by 213 KiB/min (≈ 12.5 MB/h), for 2 h 35 mi
 
   The service itself read 1.50 % on the idle machine at 04:55 and 0.70 % at 07:33 while another session's test run kept the CPU busy. Task 17's 1.03–1.25 % and acceptance run 1's 0.95 % were taken while other work ran.
 
+#### After the NVIDIA drop-in (installed service)
+
+`scripts/install.sh` now gives the shell unit an NVIDIA-only drop-in: `egl-wayland` 1.x, only NVIDIA's EGL, and a private shader cache. The service was restarted with it at 08:15. Its process maps `libnvidia-egl-wayland.so.1.1.24` and no `libLLVM`.
+
+| | Before (old service, 3 h 38 min up) | After the restart |
+|---|---|---|
+| Shell VmRSS | 284 340 KiB at 08:14, still growing | 251 708 KiB at 08:16 |
+| Growth | 207–213 KiB/min | +348 KiB in 15 min (≈ 23 KiB/min), within the ±200 KiB minute-to-minute noise |
+| Shell + daemon | ≈ 317 600 KiB (over the 307 200 KiB budget) | **285 000 KiB** |
+
+- This first start found the private shader cache empty, so it carries the ≈ 74 MiB compiler block. Later starts read the cache: the same environment measured 189 MB warm against 249 MB cold in a development copy.
+
 ### Plan 2a: demand-driven sampling (daemon)
 
 The daemon now reads only the sources that some client is subscribed to. It also runs on-demand feeds (desktop state, weather, sky) only while something wants them. Release build, real collectors, 60 s:
@@ -390,6 +402,10 @@ The daemon now reads only the sources that some client is subscribed to. It also
 
 - While the dashboard is covered (Plan 2a's occlusion work), the daemon can drop to the first or second row.
 - The history graphs show the skipped time as a gap, not as joined-up lines.
+
+### Plan 2a: KWin desktop script
+
+The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
 
 ## License
 
