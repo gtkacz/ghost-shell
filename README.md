@@ -119,10 +119,23 @@ Five drives: three NVMe, one of them dead, plus two SATA. Thirteen loop devices 
 
 **≈ 0.03 % of a core.** `statvfs` on a hung FUSE or network mount would block the sample. The Kingston drive's NTFS partition is mounted through FUSE (`fuseblk`).
 
+#### The whole daemon (`ghostd run`)
+
+Release build, real collectors, 1 s tick, measured over 60 s with `scripts/measure-cpu.sh`:
+
+| State | CPU (% of one core) | RSS |
+|---|---|---|
+| No client connected | **0.53 %** | 31.4 MiB |
+| One UI client subscribed to all six built-in topics | **0.55 %** | 31.5 MiB |
+
+- **Budget.** The daemon alone uses about half of the 1 % "nothing animating" budget, so the shell has roughly 0.45 % left.
+- **Breakdown.** The collector figures above roughly account for the total: about 0.25 % for processes, about 0.1 % for sensors, about 0.08 % for the GPU, about 0.03 % for drives, plus CPU sampling, JSON encoding and the socket.
+- **`perf` granularity.** The daemon's own per-tick `perf` value moves in 1 % steps (clock-tick resolution), so the shell should average it.
+
 #### Not yet measured
 
-- CPU (`collect/cpu.rs`): `/proc/stat` plus 32 `scaling_cur_freq` reads per sample.
-- The daemon and shell as a whole. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
+- CPU (`collect/cpu.rs`) on its own: `/proc/stat` plus 32 `scaling_cur_freq` reads per sample.
+- The shell with real panels, and the shell and daemon together. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
 
 ## License
 
