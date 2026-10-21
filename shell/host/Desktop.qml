@@ -26,7 +26,14 @@ Scope {
     readonly property bool hasForcedU: Number.isFinite(forcedU) && forcedU > 0
 
     readonly property var mainScreen: Scale.pickScreen(Quickshell.screens, Data.config ? Data.config.display.model : "")
+    readonly property string mainScreenName: mainScreen ? mainScreen.name : ""
+    // Only the main screen's window shows the dashboard; the others show the dot grid alone, which
+    // draws nothing after its first frame.
+    readonly property bool covered: (Data.topic("desktop").value?.covered_outputs ?? []).includes(mainScreenName)
 
+    // The first evaluation of the name's binding counts as a change, so this also logs at start.
+    onMainScreenNameChanged: console.info("desktop on " + mainScreenName)
+    onCoveredChanged: console.info(covered ? "dashboard covered" : "dashboard visible")
     Component.onCompleted: {
         if (forcedUText !== "" && !hasForcedU) {
             console.warn("GHOST_FORCE_U must be a positive number, got '" + forcedUText + "'; using the screen width");
@@ -34,6 +41,20 @@ Scope {
         if (viewOverride !== "" && viewOverride !== galleryView) {
             console.warn("GHOST_VIEW must be '" + galleryView + "', got '" + viewOverride + "'; ignoring it");
         }
+    }
+
+    // While covered nothing on the dashboard is seen, so nothing animates and the daemon collects only
+    // what the bar needs.
+    Binding {
+        target: FrameClock.hostControl
+        property: "suspended"
+        value: root.covered
+    }
+
+    Binding {
+        target: Data.hostControl
+        property: "covered"
+        value: root.covered
     }
 
     Component {
@@ -117,11 +138,14 @@ Scope {
                     anchors.fill: parent
                 }
 
+                // Inactive while covered, so every widget is destroyed and gives back its wants and clock
+                // holds; a print under way ends with its PrintSwap. Uncovering creates a PrintSwap, which
+                // shows the current view without a print: windows moving away is not a view change.
                 Loader {
                     id: viewLoader
 
                     anchors.fill: parent
-                    active: window.isMain
+                    active: window.isMain && !root.covered
                     sourceComponent: root.viewOverride === root.galleryView ? galleryComponent : layoutComponent
                 }
 
