@@ -12,6 +12,7 @@ use ghostd::collect::{
     SensorCollector, Source, StatvfsFs,
 };
 use ghostd::config::{DEFAULT_TOML, default_path};
+use ghostd::feeds::shortcuts::Registration;
 use ghostd::sampler::Sampler;
 use ghostd::selfmon::SelfMon;
 use ghostd::server::{self, ConfigFeed, Feed, Hub, WarningHook, WidgetDirs};
@@ -179,8 +180,9 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
     } else {
         (host_sampler(config.subscribe()), host_feeds())
     };
+    let shortcuts = Registration::default();
     // Real in fake mode too, so a smoke run can drive the views over its own private bus.
-    feeds.push(feeds::desktop::feed());
+    feeds.push(feeds::desktop::feed(shortcuts.clone()));
     let hub = Hub {
         config,
         sampler,
@@ -199,10 +201,12 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
         }
         _ = terminate.recv() => {
             info!("SIGTERM received; stopping");
+            shortcuts.release().await;
             ExitCode::SUCCESS
         }
         _ = interrupt.recv() => {
             info!("SIGINT received; stopping");
+            shortcuts.release().await;
             ExitCode::SUCCESS
         }
     };

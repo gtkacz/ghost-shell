@@ -4,7 +4,10 @@ pub mod desktop;
 pub mod host;
 pub mod shortcuts;
 
-use std::future::pending;
+use std::future::{pending, poll_fn};
+use std::pin::Pin;
+
+use futures_core::Stream;
 
 use crate::server::Demand;
 
@@ -24,4 +27,9 @@ pub async fn until_wanted(demand: &mut Demand, topic: &str) {
     {
         pending::<()>().await;
     }
+}
+
+/// The next item of `stream`, or `None` once it has ended.
+pub(crate) async fn next<S: Stream + Unpin>(stream: &mut S) -> Option<S::Item> {
+    poll_fn(|context| Pin::new(&mut *stream).poll_next(context)).await
 }

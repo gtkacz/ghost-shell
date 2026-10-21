@@ -1,15 +1,19 @@
+mod common;
+
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
+use common::bus::{PrivateBus, RunningDesktop, call_desktop};
 use ghost_proto::{DesktopSnapshot, ViewAction, topics};
 use ghostd::feeds::desktop::{DesktopService, DesktopState};
+use ghostd::feeds::shortcuts::Registration;
 use ghostd::server::Publisher;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use zbus::{Connection, Guid, connection, fdo};
 
-// The contract the KWin script (Task 4) and the smoke tests call.
+// The contract the KWin script and the smoke tests call.
 const OBJECT_PATH: &str = "/org/ghostshell/Desktop";
 const INTERFACE: &str = "org.ghostshell.Desktop1";
 const WAIT: Duration = Duration::from_secs(5);
@@ -53,6 +57,18 @@ fn report_changes_only_when_values_change() {
     assert!(state.report(outputs(&["DP-1"]), true));
     assert!(state.report(Vec::new(), true));
     assert!(!state.report(Vec::new(), true));
+}
+
+#[test]
+fn reports_ignore_order_repeats_and_blanks() {
+    let mut state = DesktopState::default();
+    assert!(state.report(outputs(&["HDMI-A-1", "DP-1"]), false));
+
+    assert!(!state.report(outputs(&[" DP-1", "", "HDMI-A-1 ", "DP-1"]), false));
+    assert_eq!(
+        state.snapshot().covered_outputs,
+        outputs(&["DP-1", "HDMI-A-1"])
+    );
 }
 
 #[test]
@@ -122,5 +138,76 @@ async fn dbus_activate_rejects_unknown_actions() {
     assert_eq!(
         fdo::Error::from(error),
         fdo::Error::InvalidArgs("unknown view action \"nope\"".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn dbus_report_of_an_empty_string_covers_no_output() {
+    let (_service, client, mut published) = serve_peer_to_peer().await;
+
+    client
+        .call_method(
+            None::<&str>,
+            OBJECT_PATH,
+            Some(INTERFACE),
+            "Report",
+            &("", true),
+        )
+        .await
+        .unwrap();
+
+    let (_, data) = timeout(WAIT, published.recv())
+        .await
+        .expect("nothing was published in time")
+        .unwrap();
+    let snapshot: DesktopSnapshot = serde_json::from_value(data).unwrap();
+    assert!(snapshot.covered_outputs.is_empty());
+    assert!(snapshot.active);
+}
+
+#[tokio::test]
+async fn the_desktop_resets_when_its_reporter_leaves_the_bus() {
+    let bus = PrivateBus::start();
+    let mut desktop = RunningDesktop::start(&bus, Registration::default()).await;
+    let kwin = bus.connect().await;
+    call_desktop(&kwin, "Report", &("DP-1", true)).await;
+    desktop.next_snapshot().await;
+    call_desktop(&kwin, "Activate", &("monitor",)).await;
+    desktop.next_snapshot().await;
+
+    kwin.close().await.unwrap();
+
+    // The action count stays, since clients compare against it.
+    assert_eq!(
+        desktop.next_snapshot().await,
+        DesktopSnapshot {
+            covered_outputs: Vec::new(),
+            active: false,
+            action: Some(ViewAction::Monitor),
+            action_seq: 1,
+        }
+    );
+}
+
+#[tokio::test]
+async fn only_the_last_reporter_leaving_resets_the_desktop() {
+    let bus = PrivateBus::start();
+    let mut desktop = RunningDesktop::start(&bus, Registration::default()).await;
+    let old = bus.connect().await;
+    call_desktop(&old, "Report", &("DP-1", true)).await;
+    desktop.next_snapshot().await;
+    let new = bus.connect().await;
+    call_desktop(&new, "Report", &("HDMI-A-1", true)).await;
+    desktop.next_snapshot().await;
+
+    old.close().await.unwrap();
+    call_desktop(&new, "Report", &("HDMI-A-1", false)).await;
+
+    assert_eq!(
+        desktop.next_snapshot().await,
+        DesktopSnapshot {
+            covered_outputs: outputs(&["HDMI-A-1"]),
+            ..DesktopSnapshot::default()
+        }
     );
 }

@@ -1,6 +1,7 @@
 // Every test binary compiles this module but uses only part of it.
 #![allow(dead_code)]
 
+pub mod bus;
 pub mod disk;
 pub mod server;
 

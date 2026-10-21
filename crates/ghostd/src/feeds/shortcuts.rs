@@ -3,17 +3,20 @@
 //! The keys always come from `shortcuts.*` in the config, never from what KGlobalAccel stored, and
 //! a press takes the same path as a D-Bus `Activate`.
 
-use std::future::poll_fn;
-use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use futures_core::Stream;
 use ghost_proto::{ResolvedConfig, Shortcuts};
 use tokio::sync::watch;
+use tokio::time::timeout;
 use tracing::warn;
+use zbus::fdo::{self, NameOwnerChanged};
 use zbus::proxy::CacheProperties;
 use zbus::{Connection, MatchRule, Message, MessageStream, message, proxy};
 
 use super::desktop::{DesktopService, MONITOR, SWAP};
+use super::next;
 use crate::keyseq;
 
 const KGLOBALACCEL: &str = "org.kde.kglobalaccel";
@@ -22,13 +25,29 @@ const COMPONENT: &str = "ghost-shell";
 const COMPONENT_PATH: &str = "/component/ghost_shell";
 const COMPONENT_INTERFACE: &str = "org.kde.kglobalaccel.Component";
 const PRESSED_SIGNAL: &str = "globalShortcutPressed";
-const MONITOR_DESCRIPTION: &str = "Toggle the monitor view";
-const SWAP_DESCRIPTION: &str = "Next main view";
+const MONITOR_ID: [&str; 4] = [COMPONENT, MONITOR, COMPONENT, "Toggle the monitor view"];
+const SWAP_ID: [&str; 4] = [COMPONENT, SWAP, COMPONENT, "Next main view"];
 // `SetShortcutFlag` in kglobalaccel 6.31's src/kglobalaccel_p.h.
 const SET_PRESENT: u32 = 2;
 const NO_AUTOLOADING: u32 = 4;
+// `KGlobalAccel::MatchType::Equal` in kglobalaccel 6.31's src/kglobalaccel.h.
+const MATCH_EQUAL: i32 = 0;
 // A Qt key sequence holds four keys, and KGlobalAccel's own client always sends all four.
 const NO_KEY: i32 = 0;
+const RELEASE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// An action that holds a key: its id and name, its component's, its context's, then its keys and
+/// default keys.
+type ShortcutInfo = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    Vec<i32>,
+    Vec<i32>,
+);
 
 #[proxy(
     interface = "org.kde.KGlobalAccel",
@@ -47,21 +66,82 @@ trait KGlobalAccel {
         keys: &[(&[i32],)],
         flags: u32,
     ) -> zbus::Result<Vec<(Vec<i32>,)>>;
+
+    #[zbus(name = "globalShortcutsByKey")]
+    fn global_shortcuts_by_key(
+        &self,
+        key: (&[i32],),
+        match_type: (i32,),
+    ) -> zbus::Result<Vec<ShortcutInfo>>;
+
+    /// Stops grabbing the action's keys, keeping them stored.
+    #[zbus(name = "setInactive")]
+    fn set_inactive(&self, action_id: &[&str]) -> zbus::Result<()>;
 }
 
-/// Registers the view shortcuts on `conn`, registers them again whenever `shortcuts.*` changes,
-/// and activates a shortcut's view when it is pressed.
+/// Whether this daemon registered the view shortcuts, so that a clean stop releases them, and only
+/// then: a ghostd that never got the bus name must leave the shortcuts of the one that did alone.
+#[derive(Debug, Clone, Default)]
+pub struct Registration(Arc<AtomicBool>);
+
+impl Registration {
+    fn mark(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    fn is_marked(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Marks the shortcuts inactive over a new session-bus connection, so that KGlobalAccel stops
+    /// grabbing their keys while ghostd is stopped. Gives up after `RELEASE_TIMEOUT`, so that a
+    /// stuck bus cannot hold up the stop.
+    pub async fn release(&self) {
+        if !self.is_marked() {
+            return;
+        }
+        let released = timeout(RELEASE_TIMEOUT, async {
+            self.release_on(&Connection::session().await?).await
+        })
+        .await;
+        match released {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => warn!(%error, "cannot release the view shortcuts"),
+            Err(_elapsed) => warn!(
+                "KGlobalAccel did not answer within {RELEASE_TIMEOUT:?}; the view shortcuts stay \
+                 grabbed"
+            ),
+        }
+    }
+
+    /// As [`Self::release`], over `conn` and without a time limit.
+    pub async fn release_on(&self, conn: &Connection) -> zbus::Result<()> {
+        if !self.is_marked() {
+            return Ok(());
+        }
+        let kglobalaccel = kglobalaccel(conn).await?;
+        for action_id in [MONITOR_ID, SWAP_ID] {
+            kglobalaccel.set_inactive(&action_id).await?;
+        }
+        Ok(())
+    }
+}
+
+/// Registers the view shortcuts on `conn`, noting it in `registration`, and activates a shortcut's
+/// view when it is pressed. Registers them again whenever `shortcuts.*` changes, and whenever
+/// KGlobalAccel appears: it lives inside KWin, which can start after ghostd or restart.
 ///
-/// Without KGlobalAccel it logs once and keeps waiting for config changes; `Activate` still works.
-/// Returns once the connection is closed and the config can no longer change, or at once when it
-/// cannot listen for presses at all.
+/// Without KGlobalAccel it logs once and keeps waiting; `Activate` still works. Returns once the
+/// connection is closed and the config can no longer change, or at once when it cannot listen.
 pub async fn run(
     conn: Connection,
     mut config: watch::Receiver<ResolvedConfig>,
     desktop: DesktopService,
+    registration: Registration,
 ) {
-    // Listening starts before registering, so that no press can slip in between.
-    let (kglobalaccel, mut presses) = match connect(&conn).await {
+    // Listening starts before registering, so that neither a press nor KGlobalAccel's arrival can
+    // slip in between.
+    let (kglobalaccel, mut presses, mut arrivals) = match connect(&conn).await {
         Ok(connected) => connected,
         Err(error) => {
             warn!(%error, "cannot listen for global shortcuts; only Activate changes views");
@@ -69,15 +149,22 @@ pub async fn run(
         }
     };
     let mut shortcuts = config.borrow_and_update().shortcuts.clone();
-    let mut failing = register_or_log(&kglobalaccel, &shortcuts, false).await;
+    let mut failing = register_or_log(&kglobalaccel, &shortcuts, &registration, false).await;
     loop {
         tokio::select! {
             Some(press) = next(&mut presses) => activate(&desktop, press),
+            Some(change) = next(&mut arrivals) => {
+                if has_new_owner(&change) {
+                    failing =
+                        register_or_log(&kglobalaccel, &shortcuts, &registration, failing).await;
+                }
+            }
             Ok(()) = config.changed() => {
                 let latest = config.borrow_and_update().shortcuts.clone();
                 if latest != shortcuts {
                     shortcuts = latest;
-                    failing = register_or_log(&kglobalaccel, &shortcuts, failing).await;
+                    failing =
+                        register_or_log(&kglobalaccel, &shortcuts, &registration, failing).await;
                 }
             }
             else => return,
@@ -85,7 +172,13 @@ pub async fn run(
     }
 }
 
-async fn connect(conn: &Connection) -> zbus::Result<(KGlobalAccelProxy<'static>, MessageStream)> {
+async fn connect(
+    conn: &Connection,
+) -> zbus::Result<(
+    KGlobalAccelProxy<'static>,
+    MessageStream,
+    fdo::NameOwnerChangedStream,
+)> {
     // The bus, not zbus, applies a rule's well-known sender, following the name to its owner.
     let pressed = MatchRule::builder()
         .msg_type(message::Type::Signal)
@@ -95,11 +188,25 @@ async fn connect(conn: &Connection) -> zbus::Result<(KGlobalAccelProxy<'static>,
         .member(PRESSED_SIGNAL)
         .build()?;
     let presses = MessageStream::for_match_rule(pressed, conn, None).await?;
-    let kglobalaccel = KGlobalAccelProxy::builder(conn)
+    let arrivals = fdo::DBusProxy::builder(conn)
         .cache_properties(CacheProperties::No)
         .build()
+        .await?
+        .receive_name_owner_changed_with_args(&[(0, KGLOBALACCEL)])
         .await?;
-    Ok((kglobalaccel, presses))
+    Ok((kglobalaccel(conn).await?, presses, arrivals))
+}
+
+async fn kglobalaccel(conn: &Connection) -> zbus::Result<KGlobalAccelProxy<'static>> {
+    KGlobalAccelProxy::builder(conn)
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await
+}
+
+/// Whether KGlobalAccel has just appeared, rather than left.
+fn has_new_owner(change: &NameOwnerChanged) -> bool {
+    change.args().is_ok_and(|args| args.new_owner().is_some())
 }
 
 /// Logs a failure only after a success or at the start, so a session without KGlobalAccel logs
@@ -107,9 +214,10 @@ async fn connect(conn: &Connection) -> zbus::Result<(KGlobalAccelProxy<'static>,
 async fn register_or_log(
     kglobalaccel: &KGlobalAccelProxy<'_>,
     shortcuts: &Shortcuts,
+    registration: &Registration,
     failed_before: bool,
 ) -> bool {
-    match register(kglobalaccel, shortcuts).await {
+    match register(kglobalaccel, shortcuts, registration).await {
         Ok(()) => false,
         Err(error) => {
             if !failed_before {
@@ -120,28 +228,51 @@ async fn register_or_log(
     }
 }
 
-async fn register(kglobalaccel: &KGlobalAccelProxy<'_>, shortcuts: &Shortcuts) -> zbus::Result<()> {
-    let actions = [
-        (MONITOR, MONITOR_DESCRIPTION, &shortcuts.monitor),
-        (SWAP, SWAP_DESCRIPTION, &shortcuts.swap),
-    ];
-    for (action, description, sequence) in actions {
+async fn register(
+    kglobalaccel: &KGlobalAccelProxy<'_>,
+    shortcuts: &Shortcuts,
+    registration: &Registration,
+) -> zbus::Result<()> {
+    for (action_id, sequence) in [(MONITOR_ID, &shortcuts.monitor), (SWAP_ID, &shortcuts.swap)] {
         // Loading the config already rejected sequences that do not parse.
         let key = match keyseq::parse(sequence) {
             Ok(key) => key,
             Err(error) => {
-                warn!(%error, "the {action} shortcut is not registered");
+                warn!(%error, "the {} shortcut is not registered", action_id[1]);
                 continue;
             }
         };
-        let action_id = [COMPONENT, action, COMPONENT, description];
-        kglobalaccel.do_register(&action_id).await?;
         let keys: &[i32] = &[key, NO_KEY, NO_KEY, NO_KEY];
+        kglobalaccel.do_register(&action_id).await?;
         kglobalaccel
             .set_shortcut_keys(&action_id, &[(keys,)], SET_PRESENT | NO_AUTOLOADING)
             .await?;
+        registration.mark();
+        warn_if_shared(kglobalaccel, sequence, keys).await;
     }
     Ok(())
+}
+
+/// KGlobalAccel accepts a key that another component already holds, and a press then runs only
+/// one of the two.
+async fn warn_if_shared(kglobalaccel: &KGlobalAccelProxy<'_>, sequence: &str, keys: &[i32]) {
+    match kglobalaccel
+        .global_shortcuts_by_key((keys,), (MATCH_EQUAL,))
+        .await
+    {
+        Ok(holders) => {
+            for (action, _, component, ..) in holders
+                .iter()
+                .filter(|(_, _, component, ..)| component != COMPONENT)
+            {
+                warn!(
+                    "{sequence} is also bound to {component}'s {action:?}; pressing it may run \
+                     that instead of the ghost-shell view"
+                );
+            }
+        }
+        Err(error) => warn!(%error, "cannot check whether another shortcut holds {sequence}"),
+    }
 }
 
 fn activate(desktop: &DesktopService, press: zbus::Result<Message>) {
@@ -153,9 +284,4 @@ fn activate(desktop: &DesktopService, press: zbus::Result<Message>) {
     if let Err(error) = activated {
         warn!(%error, "cannot act on a pressed shortcut");
     }
-}
-
-/// The next item of `stream`, or `None` once it has ended.
-async fn next<S: Stream + Unpin>(stream: &mut S) -> Option<S::Item> {
-    poll_fn(|context| Pin::new(&mut *stream).poll_next(context)).await
 }
