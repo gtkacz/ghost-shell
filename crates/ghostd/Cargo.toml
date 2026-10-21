@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 ghost-proto = { path = "../ghost-proto" }
+nix = { workspace = true, features = ["feature"] }
 notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true

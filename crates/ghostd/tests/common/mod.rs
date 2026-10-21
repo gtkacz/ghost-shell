@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 
 use ghostd::sysroot::SysRoot;
+use nix::unistd::{SysconfVar, sysconf};
 use tempfile::TempDir;
 
 pub const CPU_COUNT: usize = 32;
@@ -18,6 +19,11 @@ const VCACHE_CPU_LIST: &str = "0-7,16-23";
 const PLAIN_CPU_LIST: &str = "8-15,24-31";
 // Fields 4 to 13 of /proc/<pid>/stat sit between the state and utime.
 const PROC_STAT_FIELDS_BEFORE_UTIME: usize = 10;
+// Fields 16 to 21 sit between stime and starttime.
+const PROC_STAT_FIELDS_BEFORE_START_TIME: usize = 6;
+const DEFAULT_START_TIME: u64 = 1000;
+pub const DEFAULT_RSS_KIB: u64 = 4096;
+const BYTES_PER_KIB: u64 = 1024;
 
 pub struct FakeRoot {
     dir: TempDir,
@@ -58,30 +64,78 @@ impl FakeRoot {
         symlink(target, path).unwrap();
     }
 
-    /// A `None` `rss_kib` omits the `VmRSS` line, as the kernel does for kernel threads.
-    pub fn write_process(
-        &self,
-        pid: u32,
-        comm: &str,
-        utime: u64,
-        stime: u64,
-        rss_kib: Option<u64>,
-    ) {
-        let dir = format!("proc/{pid}");
-        let before_utime = ["0"; PROC_STAT_FIELDS_BEFORE_UTIME].join(" ");
-        self.write(
-            &format!("{dir}/stat"),
-            &format!("{pid} ({comm}) S {before_utime} {utime} {stime} 0 0 20 0 1 0 0\n"),
-        );
-        self.write(&format!("{dir}/comm"), &format!("{comm}\n"));
-        let memory = rss_kib.map_or_else(String::new, |rss| {
-            format!("VmPeak:\t{rss} kB\nVmRSS:\t{rss} kB\nVmHWM:\t{rss} kB\n")
-        });
-        self.write(
-            &format!("{dir}/status"),
-            &format!("Name:\t{comm}\nState:\tS (sleeping)\n{memory}Threads:\t1\n"),
-        );
+    pub fn write_bytes(&self, rel: &str, content: &[u8]) {
+        let path = self.dir.path().join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
     }
+
+    pub fn write_process(&self, process: &FakeProcess) {
+        let page_size_kib = page_size_kib();
+        assert_eq!(
+            process.rss_kib % page_size_kib,
+            0,
+            "rss_kib must be a whole number of {page_size_kib} KiB pages"
+        );
+        let rss_pages = process.rss_kib / page_size_kib;
+        let before_utime = ["0"; PROC_STAT_FIELDS_BEFORE_UTIME].join(" ");
+        let before_start_time = ["0"; PROC_STAT_FIELDS_BEFORE_START_TIME].join(" ");
+        let mut stat = format!("{} (", process.pid).into_bytes();
+        stat.extend_from_slice(&process.comm);
+        stat.extend_from_slice(
+            format!(
+                ") S {before_utime} {} {} {before_start_time} {} 0 {rss_pages} 0\n",
+                process.utime, process.stime, process.start_time
+            )
+            .as_bytes(),
+        );
+        self.write_bytes(&format!("proc/{}/stat", process.pid), &stat);
+    }
+}
+
+/// A `/proc/<pid>/stat` entry; an `rss_kib` of 0 makes it look like a kernel thread.
+pub struct FakeProcess {
+    pid: u32,
+    comm: Vec<u8>,
+    utime: u64,
+    stime: u64,
+    start_time: u64,
+    rss_kib: u64,
+}
+
+impl FakeProcess {
+    pub fn new(pid: u32, comm: impl AsRef<[u8]>) -> Self {
+        Self {
+            pid,
+            comm: comm.as_ref().to_vec(),
+            utime: 0,
+            stime: 0,
+            start_time: DEFAULT_START_TIME,
+            rss_kib: DEFAULT_RSS_KIB,
+        }
+    }
+
+    pub fn ticks(self, utime: u64, stime: u64) -> Self {
+        Self {
+            utime,
+            stime,
+            ..self
+        }
+    }
+
+    pub fn start_time(self, start_time: u64) -> Self {
+        Self { start_time, ..self }
+    }
+
+    pub fn rss_kib(self, rss_kib: u64) -> Self {
+        Self { rss_kib, ..self }
+    }
+}
+
+/// Fake RSS values must be multiples of this so they are whole pages on 4 KiB, 16 KiB and 64 KiB hosts.
+pub fn page_size_kib() -> u64 {
+    let bytes = sysconf(SysconfVar::PAGE_SIZE).unwrap().unwrap();
+    u64::try_from(bytes).unwrap() / BYTES_PER_KIB
 }
 
 /// The `/proc/stat` columns the collectors care about; the rest are written as zero.

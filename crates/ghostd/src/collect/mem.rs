@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::ops::Range;
 
 use ghost_proto::{MemSnapshot, ProcUsage};
+use nix::unistd::{SysconfVar, sysconf};
 
 use super::Source;
 use super::cpu::parse_proc_stat;
@@ -9,88 +11,226 @@ use crate::sysroot::SysRoot;
 const PROC_DIR: &str = "proc";
 const PROC_STAT: &str = "proc/stat";
 const PROC_MEMINFO: &str = "proc/meminfo";
+const PID_STAT_FILE: &str = "stat";
 
 const MEM_TOTAL_KEY: &str = "MemTotal";
 const MEM_AVAILABLE_KEY: &str = "MemAvailable";
 const SWAP_TOTAL_KEY: &str = "SwapTotal";
 const SWAP_FREE_KEY: &str = "SwapFree";
-const VM_RSS_KEY: &str = "VmRSS";
 
 // 1-based positions in /proc/<pid>/stat, counting the pid as field 1.
 const UTIME_FIELD: usize = 14;
 const STIME_FIELD: usize = 15;
+const START_TIME_FIELD: usize = 22;
+const RSS_FIELD: usize = 24;
 // comm is field 2 and may itself contain spaces, so parsing resumes after its closing parenthesis.
 const FIRST_FIELD_AFTER_COMM: usize = 3;
-const FULL_SHARE_PCT: f64 = 100.0;
 
-struct ProcReading {
+const FULL_SHARE_PCT: f64 = 100.0;
+const BYTES_PER_KIB: u64 = 1024;
+// Holds a typical /proc/<pid>/stat line in one read; larger files grow the buffer once and keep it.
+const FILE_BUFFER_BYTES: usize = 4096;
+
+/// A process identity that survives pid reuse: a recycled pid starts at a later `start_time`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ProcId {
     pid: u32,
-    name: String,
-    rss_kib: u64,
+    start_time: u64,
+}
+
+struct ProcRow {
+    id: ProcId,
     cpu_ticks: u64,
+    rss_pages: u64,
+    /// Where this process's comm sits in `MemCollector::names`.
+    name: Range<usize>,
+    cpu: f32,
+}
+
+struct StatFields<'a> {
+    name: &'a [u8],
+    cpu_ticks: u64,
+    start_time: u64,
+    rss_pages: u64,
+}
+
+#[derive(Default)]
+struct MemInfo {
+    total_kib: u64,
+    available_kib: u64,
+    swap_total_kib: u64,
+    swap_free_kib: u64,
 }
 
 pub struct MemCollector {
     root: SysRoot,
     top_n: usize,
-    previous_all_cpu_ticks: u64,
-    previous_proc_ticks: HashMap<u32, u64>,
+    page_size_bytes: u64,
+    previous_all_cpu_ticks: Option<u64>,
+    previous_proc_ticks: HashMap<ProcId, u64>,
+    // Everything below is per-tick scratch, kept so a 1 Hz tick does not reallocate it.
+    current_proc_ticks: HashMap<ProcId, u64>,
+    rows: Vec<ProcRow>,
+    names: Vec<u8>,
+    file: Vec<u8>,
+    path: String,
 }
 
 impl MemCollector {
     /// Reads a baseline of CPU ticks, so the first `sample` already has deltas for live processes.
     pub fn new(root: &SysRoot, top_n: usize) -> Self {
-        Self {
-            previous_all_cpu_ticks: read_all_cpu_ticks(root).unwrap_or_default(),
-            previous_proc_ticks: ticks_by_pid(&read_processes(root)),
+        let mut collector = Self {
             root: root.clone(),
             top_n,
+            // A page size sysconf cannot report leaves every `mem` at 0 rather than a guess.
+            page_size_bytes: sysconf(SysconfVar::PAGE_SIZE)
+                .ok()
+                .flatten()
+                .and_then(|bytes| u64::try_from(bytes).ok())
+                .unwrap_or_default(),
+            previous_all_cpu_ticks: None,
+            previous_proc_ticks: HashMap::new(),
+            current_proc_ticks: HashMap::new(),
+            rows: Vec::new(),
+            names: Vec::new(),
+            file: Vec::with_capacity(FILE_BUFFER_BYTES),
+            path: String::new(),
+        };
+        let all_cpu_ticks = collector.read_all_cpu_ticks();
+        collector.scan_processes();
+        collector.commit_baseline(all_cpu_ticks);
+        collector
+    }
+
+    fn read_text(&mut self, rel: &str) -> Option<&str> {
+        self.root.read_into(rel, &mut self.file).ok()?;
+        std::str::from_utf8(&self.file).ok()
+    }
+
+    fn read_meminfo(&mut self) -> MemInfo {
+        let Some(text) = self.read_text(PROC_MEMINFO) else {
+            return MemInfo::default();
+        };
+        let kib = |key| kib_field(text, key).unwrap_or_default();
+        MemInfo {
+            total_kib: kib(MEM_TOTAL_KEY),
+            available_kib: kib(MEM_AVAILABLE_KEY),
+            swap_total_kib: kib(SWAP_TOTAL_KEY),
+            swap_free_kib: kib(SWAP_FREE_KEY),
         }
+    }
+
+    fn read_all_cpu_ticks(&mut self) -> Option<u64> {
+        let stat = parse_proc_stat(self.read_text(PROC_STAT)?).ok()?;
+        Some(stat.aggregate.total)
+    }
+
+    /// Refills `rows` and `current_proc_ticks` from `/proc`, skipping kernel threads and any
+    /// process that exits while its file is being read.
+    fn scan_processes(&mut self) {
+        self.rows.clear();
+        self.names.clear();
+        self.current_proc_ticks.clear();
+        let Ok(entries) = self.root.entries(PROC_DIR) else {
+            return;
+        };
+        for entry in entries {
+            let Some(dir_name) = entry.to_str() else {
+                continue;
+            };
+            let Ok(pid) = dir_name.parse() else {
+                continue;
+            };
+            self.path.clear();
+            self.path
+                .extend([PROC_DIR, "/", dir_name, "/", PID_STAT_FILE]);
+            if self.root.read_into(&self.path, &mut self.file).is_err() {
+                continue;
+            }
+            let Some(stat) = parse_stat(&self.file) else {
+                continue;
+            };
+            // Kernel threads have no address space, so the kernel reports an RSS of 0.
+            if stat.rss_pages == 0 {
+                continue;
+            }
+            let id = ProcId {
+                pid,
+                start_time: stat.start_time,
+            };
+            let name_start = self.names.len();
+            self.names.extend_from_slice(stat.name);
+            self.current_proc_ticks.insert(id, stat.cpu_ticks);
+            self.rows.push(ProcRow {
+                id,
+                cpu_ticks: stat.cpu_ticks,
+                rss_pages: stat.rss_pages,
+                name: name_start..self.names.len(),
+                cpu: 0.0,
+            });
+        }
+    }
+
+    /// Orders `rows` by cpu share and keeps the busiest `top_n`.
+    fn rank_by_cpu(&mut self, elapsed_ticks: u64) {
+        for row in &mut self.rows {
+            row.cpu = self.previous_proc_ticks.get(&row.id).map_or(0.0, |before| {
+                percent_of(row.cpu_ticks.saturating_sub(*before), elapsed_ticks)
+            });
+        }
+        self.rows.sort_unstable_by(|a, b| {
+            b.cpu
+                .total_cmp(&a.cpu)
+                .then_with(|| a.id.pid.cmp(&b.id.pid))
+        });
+        self.rows.truncate(self.top_n);
+    }
+
+    fn commit_baseline(&mut self, all_cpu_ticks: Option<u64>) {
+        // Process ticks only mean something against the /proc/stat total read alongside them, so
+        // a tick without that total leaves the old pair in place as the baseline.
+        let Some(ticks) = all_cpu_ticks else {
+            return;
+        };
+        self.previous_all_cpu_ticks = Some(ticks);
+        std::mem::swap(&mut self.previous_proc_ticks, &mut self.current_proc_ticks);
     }
 }
 
 impl Source<MemSnapshot> for MemCollector {
     fn sample(&mut self) -> MemSnapshot {
-        let meminfo = self.root.read(PROC_MEMINFO).unwrap_or_default();
-        let kib = |key| kib_field(&meminfo, key).unwrap_or_default();
-        let total_kib = kib(MEM_TOTAL_KEY);
-        let swap_total_kib = kib(SWAP_TOTAL_KEY);
+        let meminfo = self.read_meminfo();
+        let all_cpu_ticks = self.read_all_cpu_ticks();
+        let elapsed_ticks = match (all_cpu_ticks, self.previous_all_cpu_ticks) {
+            (Some(now), Some(before)) => now.saturating_sub(before),
+            _ => 0,
+        };
 
-        // An unreadable /proc/stat reads as no elapsed time, since sampling has no way to fail.
-        let all_cpu_ticks = read_all_cpu_ticks(&self.root).unwrap_or(self.previous_all_cpu_ticks);
-        let elapsed_ticks = all_cpu_ticks.saturating_sub(self.previous_all_cpu_ticks);
-
-        let processes = read_processes(&self.root);
-        let current_proc_ticks = ticks_by_pid(&processes);
-        let mut top: Vec<ProcUsage> = processes
-            .into_iter()
-            .map(|process| {
-                let cpu = self
-                    .previous_proc_ticks
-                    .get(&process.pid)
-                    .map_or(0.0, |before| {
-                        let used_ticks = process.cpu_ticks.saturating_sub(*before);
-                        percent_of(used_ticks, elapsed_ticks)
-                    });
-                ProcUsage {
-                    pid: process.pid,
-                    name: process.name,
-                    cpu,
-                    mem: percent_of(process.rss_kib, total_kib),
-                }
+        self.scan_processes();
+        self.rank_by_cpu(elapsed_ticks);
+        let total_bytes = meminfo.total_kib.saturating_mul(BYTES_PER_KIB);
+        let top = self
+            .rows
+            .iter()
+            .map(|row| ProcUsage {
+                pid: row.id.pid,
+                // Names are copied out only for the survivors, and lossily so that a comm which is
+                // not UTF-8 (any process can set one) still shows up.
+                name: String::from_utf8_lossy(&self.names[row.name.clone()]).into_owned(),
+                cpu: row.cpu,
+                mem: percent_of(
+                    row.rss_pages.saturating_mul(self.page_size_bytes),
+                    total_bytes,
+                ),
             })
             .collect();
-        top.sort_by(|a, b| b.cpu.total_cmp(&a.cpu).then_with(|| a.pid.cmp(&b.pid)));
-        top.truncate(self.top_n);
-
-        self.previous_all_cpu_ticks = all_cpu_ticks;
-        self.previous_proc_ticks = current_proc_ticks;
+        self.commit_baseline(all_cpu_ticks);
 
         MemSnapshot {
-            total_kib,
-            used_kib: total_kib.saturating_sub(kib(MEM_AVAILABLE_KEY)),
-            swap_total_kib,
-            swap_used_kib: swap_total_kib.saturating_sub(kib(SWAP_FREE_KEY)),
+            total_kib: meminfo.total_kib,
+            used_kib: meminfo.total_kib.saturating_sub(meminfo.available_kib),
+            swap_total_kib: meminfo.swap_total_kib,
+            swap_used_kib: meminfo.swap_total_kib.saturating_sub(meminfo.swap_free_kib),
             top,
         }
     }
@@ -105,7 +245,7 @@ fn percent_of(part: u64, whole: u64) -> f32 {
     (FULL_SHARE_PCT * part as f64 / whole as f64).min(FULL_SHARE_PCT) as f32
 }
 
-/// The value of a `Key:   1234 kB` line in `/proc/meminfo` or `/proc/<pid>/status`.
+/// The value of a `Key:   1234 kB` line in `/proc/meminfo`.
 fn kib_field(text: &str, key: &str) -> Option<u64> {
     text.lines()
         .filter_map(|line| line.split_once(':'))
@@ -113,50 +253,34 @@ fn kib_field(text: &str, key: &str) -> Option<u64> {
         .and_then(|(_, value)| value.split_whitespace().next()?.parse().ok())
 }
 
-fn read_all_cpu_ticks(root: &SysRoot) -> Option<u64> {
-    let stat = parse_proc_stat(&root.read(PROC_STAT).ok()?).ok()?;
-    Some(stat.aggregate.total)
-}
+fn parse_stat(stat: &[u8]) -> Option<StatFields<'_>> {
+    // The first '(' opens comm because only the pid's digits precede it, and the last ')' closes it
+    // because comm may contain parentheses of its own.
+    let name_start = stat.iter().position(|byte| *byte == b'(')? + 1;
+    let name_end = stat.iter().rposition(|byte| *byte == b')')?;
+    let name = stat.get(name_start..name_end)?;
+    let after_comm = std::str::from_utf8(&stat[name_end + 1..]).ok()?;
 
-fn ticks_by_pid(processes: &[ProcReading]) -> HashMap<u32, u64> {
-    processes
-        .iter()
-        .map(|process| (process.pid, process.cpu_ticks))
-        .collect()
-}
-
-fn read_processes(root: &SysRoot) -> Vec<ProcReading> {
-    let Ok(entries) = root.list(PROC_DIR) else {
-        return Vec::new();
-    };
-    entries
-        .iter()
-        .filter_map(|entry| read_process(root, entry.parse().ok()?))
-        .collect()
-}
-
-/// `None` for kernel threads and for processes that exit while their files are being read.
-fn read_process(root: &SysRoot, pid: u32) -> Option<ProcReading> {
-    let dir = format!("{PROC_DIR}/{pid}");
-    // Kernel threads have no address space, so the kernel reports no VmRSS or a zero one.
-    let rss_kib = kib_field(&root.read(&format!("{dir}/status")).ok()?, VM_RSS_KEY)
-        .filter(|rss_kib| *rss_kib > 0)?;
-    let cpu_ticks = parse_cpu_ticks(&root.read(&format!("{dir}/stat")).ok()?)?;
-    let comm = root.read(&format!("{dir}/comm")).ok()?;
-    Some(ProcReading {
-        pid,
-        name: comm.trim_end_matches('\n').to_owned(),
-        rss_kib,
-        cpu_ticks,
+    let mut utime: Option<u64> = None;
+    let mut stime: Option<u64> = None;
+    let mut start_time: Option<u64> = None;
+    let mut rss_pages: Option<u64> = None;
+    for (offset, token) in after_comm.split_ascii_whitespace().enumerate() {
+        match FIRST_FIELD_AFTER_COMM + offset {
+            UTIME_FIELD => utime = token.parse().ok(),
+            STIME_FIELD => stime = token.parse().ok(),
+            START_TIME_FIELD => start_time = token.parse().ok(),
+            RSS_FIELD => {
+                rss_pages = token.parse().ok();
+                break;
+            }
+            _ => {}
+        }
+    }
+    Some(StatFields {
+        name,
+        cpu_ticks: utime?.saturating_add(stime?),
+        start_time: start_time?,
+        rss_pages: rss_pages?,
     })
-}
-
-fn parse_cpu_ticks(stat: &str) -> Option<u64> {
-    // The last ')' ends comm, which may contain parentheses of its own.
-    let after_comm = &stat[stat.rfind(')')? + 1..];
-    let fields: Vec<&str> = after_comm.split_whitespace().collect();
-    let field = |number: usize| -> Option<u64> {
-        fields.get(number - FIRST_FIELD_AFTER_COMM)?.parse().ok()
-    };
-    Some(field(UTIME_FIELD)?.saturating_add(field(STIME_FIELD)?))
 }

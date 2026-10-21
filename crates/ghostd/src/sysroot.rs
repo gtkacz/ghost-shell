@@ -1,3 +1,6 @@
+use std::ffi::OsString;
+use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 use std::{fs, io};
 
@@ -27,6 +30,17 @@ impl SysRoot {
         fs::read_to_string(self.path(rel))
     }
 
+    /// Replaces the contents of `buf` with the file's bytes, so a hot loop can reuse one allocation.
+    pub fn read_into(&self, rel: &str, buf: &mut Vec<u8>) -> io::Result<()> {
+        buf.clear();
+        // `Take` hides `File::read_to_end`, which stats and seeks to presize the buffer. Procfs
+        // files report a size of 0, so those two syscalls per file buy nothing.
+        File::open(self.path(rel))?
+            .take(u64::MAX)
+            .read_to_end(buf)?;
+        Ok(())
+    }
+
     /// Entry names under `rel`, sorted so callers see a stable order across reads.
     pub fn list(&self, rel: &str) -> io::Result<Vec<String>> {
         let mut names = fs::read_dir(self.path(rel))?
@@ -34,5 +48,13 @@ impl SysRoot {
             .collect::<io::Result<Vec<_>>>()?;
         names.sort();
         Ok(names)
+    }
+
+    /// Entry names under `rel` in directory order, for hot loops that have no use for `list`'s sort.
+    ///
+    /// Entries that fail to read are dropped: in `/proc` they are processes that exited mid-walk.
+    pub fn entries(&self, rel: &str) -> io::Result<impl Iterator<Item = OsString> + use<>> {
+        Ok(fs::read_dir(self.path(rel))?
+            .filter_map(|entry| entry.ok().map(|entry| entry.file_name())))
     }
 }
