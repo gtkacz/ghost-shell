@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cpuModelShort, gpuNameShort, ccdTitle, reading } from '../kit/GhostKit/lib/labels.mjs';
+import { cpuModelShort, gpuNameShort, ccdTitle, readingByLabel } from '../kit/GhostKit/lib/labels.mjs';
 
 test('short names', () => {
   assert.equal(cpuModelShort('AMD Ryzen 9 9950X3D 16-Core Processor'), 'RYZEN 9 9950X3D');
@@ -28,21 +28,30 @@ test('the non-vcache die is titled FREQ', () => {
 });
 
 const SNAPSHOT = {
-  temps: [{ id: 'cpu_tctl', label: 'CPU', value: 57.9 }],
-  fans: [{ id: 'fan1', label: 'Fan 1', value: 1670 }, { id: 'fan2', label: 'Fan 2', value: null }],
+  temps: [{ id: 'k10temp/Tctl', label: 'CPU TCTL', value: 57.9 }],
+  fans: [{ id: 'nct6799/fan1', label: 'PUMP', value: 1670 }, { id: 'nct6799/fan2', label: 'CPU FAN', value: null }],
 };
 
-test('reading finds a temperature or a fan by id', () => {
-  assert.deepEqual(reading(SNAPSHOT, 'cpu_tctl'), { id: 'cpu_tctl', label: 'CPU', value: 57.9 });
-  assert.equal(reading(SNAPSHOT, 'fan1').value, 1670);
+test('readingByLabel finds a temperature or a fan by the label the daemon reports', () => {
+  assert.deepEqual(readingByLabel(SNAPSHOT, 'CPU TCTL'), { id: 'k10temp/Tctl', label: 'CPU TCTL', value: 57.9 });
+  assert.equal(readingByLabel(SNAPSHOT, 'PUMP').value, 1670);
 });
 
-test('reading keeps a reading whose value is unavailable', () => {
-  assert.equal(reading(SNAPSHOT, 'fan2').value, null);
+test('readingByLabel follows a label the user gave a sensor, not the chip it sits on', () => {
+  const renamed = { temps: [{ id: 'coretemp/Package id 0', label: 'CPU TCTL', value: 44 }], fans: [] };
+  assert.equal(readingByLabel(renamed, 'CPU TCTL').value, 44);
 });
 
-test('reading is null for an unknown id or a missing snapshot', () => {
-  assert.equal(reading(SNAPSHOT, 'nope'), null);
-  assert.equal(reading(null, 'fan1'), null);
-  assert.equal(reading({}, 'fan1'), null);
+test('readingByLabel keeps a reading whose value is unavailable', () => {
+  assert.equal(readingByLabel(SNAPSHOT, 'CPU FAN').value, null);
+});
+
+test('readingByLabel does not match on the sensor id', () => {
+  assert.equal(readingByLabel(SNAPSHOT, 'k10temp/Tctl'), null);
+});
+
+test('readingByLabel is null for an unknown label or a missing snapshot', () => {
+  assert.equal(readingByLabel(SNAPSHOT, 'nope'), null);
+  assert.equal(readingByLabel(null, 'CPU FAN'), null);
+  assert.equal(readingByLabel({}, 'CPU FAN'), null);
 });

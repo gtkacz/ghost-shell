@@ -75,8 +75,8 @@ Singleton {
         return Labels.ccdTitle(ccd);
     }
 
-    function reading(snapshot, id) {
-        return Labels.reading(snapshot, id);
+    function readingByLabel(snapshot, label) {
+        return Labels.readingByLabel(snapshot, label);
     }
 
     function levelAbove(value, warnAt, critAt) {

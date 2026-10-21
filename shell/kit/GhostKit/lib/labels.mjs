@@ -20,13 +20,15 @@ export function ccdTitle(ccd) {
   return 'CCD' + ccd.id + ' · ' + (ccd.vcache ? 'V-CACHE' : 'FREQ');
 }
 
-export function reading(snapshot, id) {
+// Ids name this machine's chips, so widgets look readings up by the daemon's labels, which a user
+// maps their own sensors onto through sensors.labels.
+export function readingByLabel(snapshot, label) {
   if (!snapshot) {
     return null;
   }
   const readings = (snapshot.temps || []).concat(snapshot.fans || []);
   for (let i = 0; i < readings.length; i += 1) {
-    if (readings[i].id === id) {
+    if (readings[i].label === label) {
       return readings[i];
     }
   }

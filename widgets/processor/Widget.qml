@@ -18,10 +18,10 @@ Panel {
     readonly property real groupTitleTracking: 0.14
     readonly property int kvCount: 4
 
-    readonly property string tctlId: "k10temp/Tctl"
-    // k10temp numbers its CCD sensors from 1, so CCD n reads Tccd(n + 1).
-    readonly property string ccdTempPrefix: "k10temp/Tccd"
-    readonly property string cpuFanId: "nct6799/fan2"
+    // The daemon's labels for these readings; sensors.labels maps another machine's chips onto them.
+    readonly property string tctlLabel: "CPU TCTL"
+    readonly property string ccdTempLabelPrefix: "CCD"
+    readonly property string cpuFanLabel: "CPU FAN"
 
     property var settings
 
@@ -30,8 +30,8 @@ Panel {
     readonly property bool live: Data.connected && !Data.stale
     readonly property var ccds: cpu ? cpu.ccds : []
 
-    function readingValue(id) {
-        const found = Fmt.reading(sensors, id);
+    function readingValue(label) {
+        const found = Fmt.readingByLabel(sensors, label);
         return found ? found.value : null;
     }
 
@@ -67,7 +67,7 @@ Panel {
 
                 required property int index
                 readonly property var ccd: root.ccds[index]
-                readonly property var temp: root.readingValue(root.ccdTempPrefix + (ccd.id + 1))
+                readonly property var temp: root.readingValue(root.ccdTempLabelPrefix + ccd.id)
 
                 x: index * (groups.groupWidth + groups.gap)
                 width: groups.groupWidth
@@ -138,8 +138,8 @@ Panel {
         id: readings
 
         readonly property real cellWidth: (width - (root.kvCount - 1) * spacing) / root.kvCount
-        readonly property var tctl: root.readingValue(root.tctlId)
-        readonly property var fan: root.readingValue(root.cpuFanId)
+        readonly property var tctl: root.readingValue(root.tctlLabel)
+        readonly property var fan: root.readingValue(root.cpuFanLabel)
 
         anchors {
             left: parent.left
