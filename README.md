@@ -238,6 +238,16 @@ This is the desktop surface with the dot grid and scanlines and no panels yet, c
 - With no animation running, the surface renders no frames.
 - Most of the RSS is Qt and the scene graph, the same ≈ 155 MiB the rendering spike showed.
 
+### GhostKit component gallery (`GHOST_VIEW=gallery`)
+
+This view shows three panels, four segmented meters, a block-graph ramp, a "20:07" digit readout and two animated alert boxes (moving stripes and the held-step blink). It runs against `ghostd --fake` and was measured over 60 s:
+
+| CPU (% of one core) | Frames/s | RSS |
+|---|---|---|
+| **0.73 %** | 14.92 (never above 15) | 204 MiB |
+
+- **A memory bug found while measuring this.** At startup the window reports a few provisional widths (100, 0, 500 px) before its real one. The design unit followed them, so the block graph briefly built ≈ 26 000 cells, and RSS reached 367 MB after 65 s. The design unit now comes from the screen width.
+
 #### Not yet measured
 
 - The shell with real panels, and the shell and daemon together. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
