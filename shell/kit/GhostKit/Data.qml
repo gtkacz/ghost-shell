@@ -249,10 +249,11 @@ Singleton {
         }
 
         // Data that lands between two clock ticks would render a frame of its own, so while anything
-        // animates it waits for the next tick.
+        // animates it waits for the next tick. Otherwise the messages of one daemon tick arrive back to
+        // back, and callLater publishes them together instead of once per message.
         function publishUnlessAnimating() {
             if (!FrameClock.running) {
-                publish();
+                Qt.callLater(publish);
             }
         }
 
