@@ -3,7 +3,7 @@ import Quickshell
 import "lib/segments.mjs" as Segments
 
 // Columns of stacked cells, one column per level, stretched across the width and lit from the bottom like a
-// BlockGraph at the ok level. One shader draws every cell: the spectrum redraws at 30 frames/s, and a Rectangle per
+// BlockGraph at the ok level. One shader draws every cell: the spectrum redraws up to 30 frames/s, and a Rectangle per
 // cell would be some 300 items for the scene graph to update each frame.
 ShaderEffect {
     id: root

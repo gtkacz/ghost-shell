@@ -583,6 +583,20 @@ The remaining 1 frame/s is the data panels repainting with each sample. The held
 - With a placeholder clock, the held alert is the only thing on the seconds clock, so its once-a-second frame doesn't line up with the data frame. That costs about 0.035 % of a core.
 - Any widget that already runs once a second (clock, weather, media) absorbs the step, so it adds nothing.
 
+### Plan 2a: media widget
+
+V1 with the media widget and the user's music playing. Release daemon, read-only on the user's session, rendered into a headless KWin. Load average 0.2–1.5:
+
+| Setting | Shell + daemon | Shell | Daemon |
+|---|---|---|---|
+| `spectrum_fps = 15` (default), two runs | **1.90 %** each (budget ≤ 2 %) | 1.25–1.27 % | 0.63–0.65 % |
+| `spectrum_fps = 30` | 2.43 % | 1.80 % | 0.63 % |
+| Media placeholder instead | 0.90 % | 0.42 % | 0.48 % |
+
+- **Frame rates:** 15 frames/s at the default, 30 at `spectrum_fps = 30`, and 0 while paused. Paused, the widget releases the spectrum and its clock hold.
+- **The spectrum is drawn by one shader** (`SegBars`), not ≈ 300 rectangles.
+- **The daemon still analyses audio at 30 Hz** when the shell draws at 15. Feeding at 15 Hz would win back about 0.16 %.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.

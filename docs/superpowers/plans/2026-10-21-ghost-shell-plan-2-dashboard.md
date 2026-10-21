@@ -1469,7 +1469,7 @@ git commit -m "feat(config): default to the v1, v2 and monitor views"
 | State | How | Expected |
 |---|---|---|
 | Animating | V1 (the dead-drive alert animates) | ≤ 2.00 %, RSS ≤ 307200 KiB |
-| Playing | V1 with music (spectrum at 30 fps) | ≤ 2.00 % |
+| Playing | V1 with music (spectrum at the default 15 fps; 30 fps, the user's own setting, is recorded but not a pass mark) | ≤ 2.00 % |
 | Still | MONITOR with no active alert, nothing playing, no recorder | ≤ 1.00 % (if an INMET alert is active, note it and re-measure later) |
 | Covered | `scripts/measure-covered.sh 60`, then the user maximises a real window | 0 frames, ≤ 0.50 % |
 

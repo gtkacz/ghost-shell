@@ -118,7 +118,7 @@ Panel {
 
     readonly property bool hasSpectrum: style !== compactStyle
     readonly property int spectrumFps: Theme.spectrumFps
-    // The spec's "30 fps only while playing and visible".
+    // The spec's "only while playing and visible"; the rate is appearance.spectrum_fps.
     readonly property bool spectrumLive: hasSpectrum && visible && playing
     readonly property var spectrumTopic: Data.topic("audio.spectrum")
     readonly property var levels: spectrumLive && spectrumTopic.live && spectrumTopic.value ? spectrumTopic.value.bands.map(band => band / bandMax) : darkLevels
@@ -228,15 +228,18 @@ Panel {
         if (fps === heldFps) {
             return;
         }
-        if (heldFps === fastSpectrumFps) {
-            FrameClock.releaseFast();
-        } else if (heldFps > 0) {
-            FrameClock.release();
-        }
+        const previous = heldFps;
+        // The new hold is taken before the old one goes, so a widget that is the clock's only holder never lets it
+        // stop for an instant between the two.
         if (fps === fastSpectrumFps) {
             FrameClock.acquireFast();
         } else if (fps > 0) {
             FrameClock.acquire();
+        }
+        if (previous === fastSpectrumFps) {
+            FrameClock.releaseFast();
+        } else if (previous > 0) {
+            FrameClock.release();
         }
         heldFps = fps;
     }

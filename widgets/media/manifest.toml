@@ -4,7 +4,8 @@ version = "0.1.0"
 api = 1
 kinds = ["panel"]
 requires = []
-# The spectrum redraws at 30 frames/s while the player plays, and a new track's title scrambles in.
+# The spectrum redraws at appearance.spectrum_fps (15 or 30 frames/s) while the player plays, and a new track's
+# title scrambles in.
 animates = true
 
 [settings.style]
