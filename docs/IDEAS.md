@@ -1,4 +1,5 @@
 - Several clocks/timezones
 - Setting file UI changer
-- Filelight-like component
+- Filelight-like component OR an interactable tree viewer of disks
 - Agent usage component
+- Toggleable icons on notifications
