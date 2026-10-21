@@ -107,9 +107,19 @@ Rendering spike with a full-screen transparent surface (dot grid plus test conte
 |---|---|---|---|
 | First version (`stat` + `status` + `comm` per pid, `read_to_string`) | 7.87 / 7.36 ms | 6.06 / 5.70 ms | 4.67 / 4.69 ms |
 | `stat` only, reused buffer, unsorted listing | 4.13 / 4.09 ms | 2.47 / 2.58 ms | 1.61 / 1.62 ms |
-| Plus kernel threads skipped after first sight (current) | **2.56 / 2.51 ms** | 1.14 / 1.15 ms | 0.90 / 0.91 ms |
+| Plus kernel threads skipped after first sight | **2.56 / 2.51 ms** | 1.14 / 1.15 ms | 0.90 / 0.91 ms |
 
-All figures are medians. The current version costs **≈ 0.25 % of a core** at the real 1 Hz cadence. Most of what remains is the kernel generating `stat` lines for about 340 user processes from cold caches.
+All figures are medians. At the real 1 Hz cadence this version costs **≈ 0.25 % of a core**. Most of that is the kernel generating `stat` lines for about 340 user processes from cold caches.
+
+**Current: processes rescanned every 2 samples.** Memory totals stay at 1 Hz, the top list is repeated in between, and process CPU % is the share over the 2 s window. Mean CPU per sample at 1 s spacing, 40 samples per run:
+
+| Run | Every sample | Every 2 samples |
+|---|---|---|
+| 1 | 2.9 ms | 1.55 ms |
+| 2 | 5.1 ms | 2.98 ms |
+| 3 | 5.3 ms | 2.33 ms |
+
+The new figures are 44–58 % of the old ones. The runs differ with machine activity.
 
 Where the cost came from (one pass over every pid, ~790–850 entries):
 
@@ -161,8 +171,8 @@ RTX 4080 SUPER, driver 615.78.08. Two runs of 40 reads each, at 1 s spacing:
 | First `read()` | 4–9 ms | — |
 | Steady-state `read()` | 0.76 ms median, 0.78–0.79 ms mean | ≈ the same (no blocking) |
 
-- At 1 Hz a read costs **≈ 0.08 % of a core**.
-- About 0.61 ms of each read is `fan_speed`. Reading the fan less often is the obvious lever if that's ever needed.
+- About 0.61 ms of each read was `fan_speed`, so at 1 Hz reads cost ≈ 0.08 % of a core.
+- **Current: the fan is read every 5 reads**, and the cached value is repeated in between. A failed fan read keeps the GPU absent until the next successful one. Mean CPU per read fell from 0.77–1.00 ms to **0.22–0.32 ms** (≈ 0.03 % of a core). There were no absent reads in 120.
 - NVML init adds **+25.7 MiB RSS** to the daemon, about 20 MiB of it anonymous memory.
 
 #### Drives (`collect/disk.rs`)
@@ -187,10 +197,18 @@ Release build, real collectors, 1 s tick, measured over 60 s with `scripts/measu
 | One UI client subscribed to all six built-in topics | **0.55 %** | 31.5 MiB |
 
 - **Variance.** Idle CPU varies with what else the machine is doing. The same build, measured over four alternating 60 s rounds, ranged from **0.57 % to 1.17 %**. The live widget and config watchers used 0 CPU ticks in those runs, so the variance comes from the collectors: busier machines have more processes and colder caches to read.
-- **Budget.** On a quiet machine the daemon alone uses about half of the 1 % "nothing animating" budget. On a busy one it can use all of it. If the acceptance run confirms this, the next cuts are:
-  1. refresh the top-process list every 2 samples;
-  2. read the GPU fan every 5 samples;
+- **Budget.** On a quiet machine the daemon alone used about half of the 1 % "nothing animating" budget. On a busy one it could use all of it. Three cuts were considered:
+  1. refresh the top-process list every 2 samples — done;
+  2. read the GPU fan every 5 samples — done;
   3. ~~cache the per-CPU frequency reads~~ — measured below: ≤ 0.01 % to gain, not worth doing.
+- **After cuts 1 and 2.** Three alternating 60 s idle runs, no client, in separate builds:
+
+  | Build | Runs | Mean |
+  |---|---|---|
+  | Before | 0.55, 0.52, 0.50 % | 0.52 % |
+  | After | 0.30, 0.33, 0.30 % | **0.31 %** |
+
+  RSS is unchanged at ≈ 32 MiB. The machine was quieter during these runs than during the 0.57–1.17 % runs above.
 - **Breakdown.** The collector figures above roughly account for the total: about 0.25 % for processes, about 0.1 % for sensors, about 0.08 % for the GPU, about 0.03 % for drives, plus CPU sampling, JSON encoding and the socket.
 - **`perf` granularity.** The daemon's own per-tick `perf` value moves in 1 % steps (clock-tick resolution), so the shell should average it.
 
