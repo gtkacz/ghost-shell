@@ -1,0 +1,18 @@
+id = "clock"
+name = "Clock"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+requires = ["host"]
+# The digits step once a second with no frame of their own; only a weather alert, which the clock wants for
+# itself, animates, and only while one is in force.
+animates = false
+
+[settings.style]
+type = "enum"
+values = ["hero", "band", "compact"]
+default = "hero"
+
+[settings.weather]
+type = "bool"
+default = true
