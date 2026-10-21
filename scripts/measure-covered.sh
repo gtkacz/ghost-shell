@@ -188,6 +188,10 @@ if [[ -z $output ]]; then
     fail "the shell logged no \"${output_prefix#qml: }<output>\" line; see $shell_log"
 fi
 check_bus_owner
+# frames=0 only means something if the counter can see frames at all.
+if (( $(line_count "$frame_line") == 0 )); then
+    fail "no frames counted before the cover, so the frame counter is blind; see $shell_log"
+fi
 
 covered_before=$(line_count "$covered_line")
 report "$output"
