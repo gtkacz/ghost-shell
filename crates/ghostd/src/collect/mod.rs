@@ -1,9 +1,11 @@
 mod cpu;
+mod gpu;
 mod hwmon;
 mod labels;
 mod mem;
 
 pub use cpu::{CpuCollector, parse_cpu_list};
+pub use gpu::{GpuCollector, GpuReading, GpuSource, NvmlSource};
 pub use hwmon::SensorCollector;
 pub use mem::MemCollector;
 
