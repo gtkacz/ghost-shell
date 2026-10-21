@@ -118,6 +118,26 @@ fn bad_shortcut_names_the_key() {
 }
 
 #[test]
+fn a_bare_key_shortcut_is_rejected() {
+    assert_eq!(
+        load_str_with_user("[shortcuts]\nswap = \"M\"\n", "u")
+            .unwrap_err()
+            .message,
+        "shortcuts.swap: \"M\" needs a modifier (Meta, Ctrl, Alt or Shift)"
+    );
+}
+
+#[test]
+fn the_two_shortcuts_must_differ() {
+    assert_eq!(
+        load_str_with_user("[shortcuts]\nswap = \"meta+m\"\n", "u")
+            .unwrap_err()
+            .message,
+        "shortcuts.swap: \"meta+m\" is the same key as shortcuts.monitor"
+    );
+}
+
+#[test]
 fn default_shortcuts_parse() {
     assert!(load_str_with_user("", "u").is_ok());
 }

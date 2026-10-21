@@ -321,8 +321,17 @@ fn check_view_defined(path: &str, view: &str, layout: &LayoutConfig) -> Result<(
 }
 
 fn validate_shortcuts(shortcuts: &Shortcuts) -> Result<(), ConfigError> {
-    for (name, sequence) in [("monitor", &shortcuts.monitor), ("swap", &shortcuts.swap)] {
-        keyseq::parse(sequence).map_err(|error| invalid(format!("shortcuts.{name}"), error))?;
+    let parse = |name: &str, sequence: &str| {
+        keyseq::parse(sequence).map_err(|error| invalid(format!("shortcuts.{name}"), error))
+    };
+    let monitor = parse("monitor", &shortcuts.monitor)?;
+    let swap = parse("swap", &shortcuts.swap)?;
+    // KGlobalAccel would take one key for both, and a press would run only one of them.
+    if swap == monitor {
+        return Err(invalid(
+            "shortcuts.swap",
+            format!("{:?} is the same key as shortcuts.monitor", shortcuts.swap),
+        ));
     }
     Ok(())
 }
