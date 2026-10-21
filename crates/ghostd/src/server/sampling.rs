@@ -6,9 +6,8 @@ use ghost_proto::{PerfSnapshot, ResolvedConfig, ServerMsg};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::{MissedTickBehavior, interval};
-use tracing::error;
 
-use super::Shared;
+use super::{ServeError, Shared};
 use crate::collect::Source;
 use crate::history::{History, history_len};
 use crate::sampler::Sampler;
@@ -60,7 +59,7 @@ pub(super) async fn sample_forever(
     mut collectors: Collectors,
     tick_ms: NonZeroU32,
     config: watch::Receiver<ResolvedConfig>,
-) {
+) -> ServeError {
     let mut ticks = interval(Duration::from_millis(tick_ms.get().into()));
     ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
@@ -78,10 +77,7 @@ pub(super) async fn sample_forever(
                 collectors = returned;
                 shared.lock().record_tick(tick);
             }
-            Err(error) => {
-                error!(%error, "a collector panicked; the built-in topics stop updating");
-                return;
-            }
+            Err(error) => return error.into(),
         }
     }
 }

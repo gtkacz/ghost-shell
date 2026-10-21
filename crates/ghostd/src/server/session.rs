@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -93,7 +94,7 @@ impl LineReader {
     }
 }
 
-pub(super) async fn accept_forever(listener: UnixListener, shared: Shared) {
+pub(super) async fn accept_forever(listener: UnixListener, shared: Shared) -> Infallible {
     // Owning the sessions ties them to `serve`: dropping it closes every connection.
     let mut sessions = JoinSet::new();
     loop {

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use ghostd::fake;
 use ghostd::providers;
-use ghostd::server::{self, ConfigFeed, Hub, SocketLock};
+use ghostd::server::{self, ConfigFeed, Hub, ServeError, SocketLock};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
@@ -40,7 +40,7 @@ pub fn install_widget(widgets: &Path, id: &str) {
 
 pub struct Daemon {
     pub dir: TempDir,
-    pub serve: JoinHandle<()>,
+    pub serve: JoinHandle<ServeError>,
     _lock: SocketLock,
 }
 

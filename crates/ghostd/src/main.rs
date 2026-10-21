@@ -188,15 +188,25 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
         on_warning: desktop_warning(),
     };
 
-    tokio::select! {
-        () = server::serve(listener, hub) => {}
-        _ = terminate.recv() => info!("SIGTERM received; stopping"),
-        _ = interrupt.recv() => info!("SIGINT received; stopping"),
-    }
+    let exit_code = tokio::select! {
+        error = server::serve(listener, hub) => {
+            // A non-zero exit is what makes `Restart=on-failure` bring the daemon back.
+            error!(%error, "the daemon can no longer do its job; exiting");
+            ExitCode::FAILURE
+        }
+        _ = terminate.recv() => {
+            info!("SIGTERM received; stopping");
+            ExitCode::SUCCESS
+        }
+        _ = interrupt.recv() => {
+            info!("SIGINT received; stopping");
+            ExitCode::SUCCESS
+        }
+    };
     if let Err(error) = fs::remove_file(&socket) {
         warn!(%error, socket = %socket.display(), "cannot remove the socket file");
     }
-    ExitCode::SUCCESS
+    exit_code
 }
 
 /// The default search order, with `builtin` (from `--widgets-dir`) in place of the built-in dir.

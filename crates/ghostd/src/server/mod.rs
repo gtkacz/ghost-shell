@@ -23,6 +23,7 @@ use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
 use nix::unistd::gethostname;
 use tokio::net::UnixListener;
+use tokio::task::JoinError;
 
 pub use feed::ConfigFeed;
 use feed::{ProblemReporter, Reloader, follow_config};
@@ -126,9 +127,20 @@ pub struct Hub {
     pub on_warning: WarningHook,
 }
 
+/// Why [`serve`] stopped while nothing asked it to.
+#[derive(Debug, thiserror::Error)]
+pub enum ServeError {
+    // Clients would still connect and look served, but every built-in topic would stay frozen.
+    #[error("sampling stopped: {0}")]
+    Sampling(#[from] JoinError),
+}
+
 /// Serves UI clients and providers on `listener`, samples the built-in topics every tick and
-/// follows the config, until the returned future is dropped.
-pub async fn serve(listener: UnixListener, hub: Hub) {
+/// follows the config, until the returned future is dropped or the sampling task fails.
+///
+/// A failed sampling task is returned rather than carried on without, so that the daemon can exit
+/// and be restarted instead of looking healthy with every topic frozen.
+pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
     let Hub {
         mut config,
         sampler,
@@ -153,12 +165,22 @@ pub async fn serve(listener: UnixListener, hub: Hub) {
     }
     reloader.report();
     let shared = reloader.shared();
+    let updates = config.subscribe();
 
-    tokio::join!(
-        accept_forever(listener, shared.clone()),
-        sample_forever(shared, collectors, tick_ms, config.subscribe()),
-        follow_config(reloader, config),
-    );
+    let clients = {
+        let shared = shared.clone();
+        async move {
+            let (never, _) = tokio::join!(
+                accept_forever(listener, shared),
+                follow_config(reloader, config),
+            );
+            never
+        }
+    };
+    tokio::select! {
+        error = sample_forever(shared, collectors, tick_ms, updates) => error,
+        never = clients => match never {},
+    }
 }
 
 fn host_name() -> String {

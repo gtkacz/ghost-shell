@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -257,7 +258,7 @@ async fn resolve_layout(dirs: Vec<PathBuf>, layout: &LayoutConfig) -> ResolvedLa
     })
 }
 
-pub(super) async fn follow_config(mut reloader: Reloader, mut feed: ConfigFeed) {
+pub(super) async fn follow_config(mut reloader: Reloader, mut feed: ConfigFeed) -> Infallible {
     loop {
         tokio::select! {
             Ok(()) = feed.updates.changed() => {
