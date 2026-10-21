@@ -248,9 +248,21 @@ This view shows three panels, four segmented meters, a block-graph ramp, a "20:0
 
 - **A memory bug found while measuring this.** At startup the window reports a few provisional widths (100, 0, 500 px) before its real one. The design unit followed them, so the block graph briefly built ≈ 26 000 cells, and RSS reached 367 MB after 65 s. The design unit now comes from the screen width.
 
+### Default V1 with real panels (Processor, Graphics, Memory)
+
+Measured against the real release daemon over 60 s. Storage and Sensors weren't built yet, so their two slots showed animated red error cards.
+
+| State | Shell CPU / RSS / frames/s | Daemon CPU / RSS | Shell + daemon |
+|---|---|---|---|
+| Two error cards animating | 1.22 % / 219 MB / 14.93 | 0.33 % / 32 MB | **1.55 %** (budget ≤ 2 %) |
+| Nothing animating | 0.55 % / — / 1 | 0.33 % | **≈ 0.9 %** (budget ≤ 1 %) |
+
+- **Alert blink.** It first changed each alert's opacity directly, which made Qt rebuild every scene batch four times a second (about 2 600 elements). That alone put the view at 2.01 %. The blink now goes through a shader uniform on the alert's own layer, at the same held steps.
+- **A stress layout** with large graphs everywhere costs 2.42 % / 297 MB in the shell. The block graph draws one rectangle per cell, so Plan 2's full-width lanes need a shader-based graph.
+
 #### Not yet measured
 
-- The shell with real panels, and the shell and daemon together. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
+- The full default V1, with Storage and Sensors, against the budgets above. That is the acceptance run at the end of plan 1.
 
 ## License
 
