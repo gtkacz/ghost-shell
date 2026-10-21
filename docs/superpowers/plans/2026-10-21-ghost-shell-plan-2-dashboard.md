@@ -63,7 +63,7 @@ Assumptions, each marked **[spec]** (derived from the spec or Plan 1) or **[assu
 1. **[spec]** The dashboard **Notifications** list belongs to **Plan 3**, with the notification server. Spec §11 makes ghost-shell the `org.freedesktop.Notifications` server, and the list is that server's history (read rules, bell count). Plan 1's roadmap also puts notifications in Plan 3. V1 and V2 keep a `placeholder {label="Notifications"}` until then. The INMET and dead-drive *notifications* (§11, built-in sources) also go to Plan 3.
 2. **[spec]** The media and audio widgets use Quickshell's MPRIS and PipeWire services directly, which §13 allows ("Widgets may also use Quickshell's own services"). The spectrum still needs an FFT, which Quickshell lacks, so ghostd computes it (spec §12: "cava-style FFT [call]").
 3. **[spec]** Built-in topics come from ghostd. The forecast (Open-Meteo) is built in (§4, §12). Weather alerts are an external provider (§13).
-4. **[assumption]** The view shortcuts are registered with KGlobalAccel by ghostd, so `shortcuts.*` in config.toml stays authoritative and reloads live. The alternative is KWin's `registerShortcut`, where config.toml only supplies a default and System Settings wins after the first change. The "on the desktop" test comes from the KWin script's focus report. §18 leaves both to the builder.
+4. **[decided 2026-10-21]** The view shortcuts are registered with KGlobalAccel by ghostd, so `shortcuts.*` in config.toml stays authoritative and reloads live. The alternative is KWin's `registerShortcut`, where config.toml only supplies a default and System Settings wins after the first change. The "on the desktop" test comes from the KWin script's focus report. §18 leaves both to the builder.
 5. **[assumption]** "The daemon collects only what the bar shows" (§15) is implemented as "the daemon samples only subscribed topics". While covered, the shell subscribes only to `desktop`, `perf` and the bar's topics. The bar arrives in Plan 3, so in 2a "the bar's topics" is the empty set.
 6. **[assumption]** If Plan 1's Task 18 ships the R46 keeper as its own KWin script, Task 4 here extends that script rather than creating a second one. The path below is the one this plan assumes.
 7. **[spec]** The ledger rulings stand:
@@ -135,7 +135,7 @@ Every constraint of Plan 1 that is restated here still applies. Plan 2 adds the 
   | telem | 遠隔 | テレメトリ |
   | switch | 窓切替 | スイッチ |
 
-  Chips, from the mockup's `CHIPS` table, plus `pause` and `stop` (see Values to confirm):
+  Chips, from the mockup's `CHIPS` table, plus `pause` and `stop` (see Decisions):
 
   | Key | Kanji | Katakana |
   |---|---|---|
@@ -178,6 +178,7 @@ Every constraint of Plan 1 that is restated here still applies. Plan 2 adds the 
   - blocking reads and HTTP run on blocking threads;
   - **every new collector or feed states its cadence and is measured (wall and on-CPU per run) in its task, and the controller records the figures in README's Performance section**;
   - a broken source degrades one row.
+- **Microphone:** the shell opens a capture stream on the microphone only while another app is recording (for the IN level), never otherwise (decision 2).
 - **Network access** is limited to Open-Meteo forecast and air quality (ghostd) and INMET (the provider). Tests never touch the network.
 - **D-Bus in tests:** zbus peer-to-peer connections, or `dbus-run-session`. Never the user's session bus.
 - **Formats:** dates `DD.MM.YY`, 24-hour time, °C, weekdays `SUN…SAT`.
@@ -204,7 +205,7 @@ Every constraint of Plan 1 that is restated here still applies. Plan 2 adds the 
 
    *Tests: Tasks 9 and 12.*
 4. **A player that quits mid-track, several players, a stream without a length:** media shows `STOPPED · LAST PLAYED …` with the remembered track; progress is hidden without a length; play reopens the player. *Tests: Task 15.*
-5. **ghost-shell's own capture streams** (the spectrum's sink monitor, the mic peak meter) never raise MIC LIVE. A muted mic with an app recording still reads LIVE. *Tests: Task 16.*
+5. **ghost-shell's own capture streams** (the spectrum's sink monitor, the mic peak meter) never raise MIC LIVE. The mic peak meter exists only while another app records, so the shell never keeps itself live. A muted mic with an app recording still reads LIVE. *Tests: Task 16.*
 
 ---
 
@@ -351,12 +352,12 @@ git commit -m "feat(ghostd): sample only subscribed topics and run on-demand fee
 **Interfaces:**
 - Consumes: `Publisher`, `Feed`, `FeedContext` (Task 2); `Shortcuts { monitor, swap }` (Plan 1 config).
 - Produces:
-  - `DesktopSnapshot { covered_outputs: Vec<String>, active: bool, action: Option<ViewAction>, action_seq: u64 }` and `ViewAction { Monitor, Swap }` (snake_case). Before the first report the defaults are `covered_outputs: []` and `active: false` **[call]**: the dashboard renders, and shortcuts stay off until the KWin script says no window has focus.
+  - `DesktopSnapshot { covered_outputs: Vec<String>, active: bool, action: Option<ViewAction>, action_seq: u64 }` and `ViewAction { Monitor, Swap }` (snake_case). Before the first report the defaults are `covered_outputs: []` and `active: false`: the dashboard renders, and shortcuts stay off until the KWin script says no window has focus.
   - `DesktopState`:
     - `report(&mut self, covered_outputs: Vec<String>, active: bool) -> bool` returns whether anything changed;
     - `activate(&mut self, action: ViewAction) -> bool` succeeds only while `active`, setting `action` and incrementing `action_seq`;
     - `snapshot(&self) -> DesktopSnapshot`.
-  - **D-Bus service** **[call: names]**:
+  - **D-Bus service:**
     - well-known name `org.ghostshell.Ghostd` on the session bus, object `/org/ghostshell/Desktop`, interface `org.ghostshell.Desktop1`;
     - `Report(covered_outputs: s, active: b)`, where `covered_outputs` holds output names joined by `,` and `""` means none **[call]**: KWin's `callDBus` marshals a JS array as `av`, not `as`;
     - `Activate(action: s)` takes `monitor` or `swap` and returns D-Bus `InvalidArgs` with `unknown view action "x"` for anything else. It is the path the shortcut handler uses, and it lets tests drive views on a private bus **[call]**.
@@ -461,7 +462,7 @@ git commit -m "feat(ghostd): add the desktop service with view actions and globa
       - per window: `frameGeometryChanged`, `minimizedChanged`, `opacityChanged`, `desktopsChanged`, `activitiesChanged`, `fullScreenChanged`.
 
       KWin's JS API names must be checked against KWin 6's scripting docs while implementing. A ghostd that restarts gets its first report at the next window event **[call]**: a KWin script can't watch bus names, and polling is banned.
-  - **Coverage is about window geometry.** A window that is translucent through its *content* (its own alpha) counts as opaque **[call]**. KWin's `alpha` flag is also true for opaque CSD windows. See the open questions.
+  - **Coverage is about window geometry.** A window that is translucent through its *content* (its own alpha) counts as opaque, so it covers (decision 3). KWin's `alpha` flag is also true for opaque CSD windows. An allowlist of apps that never count as covering is a possible later addition, if the user reports translucent windows over the desktop.
   - **`scripts/kwin-script.sh install|enable|disable`:**
     - `install` runs `kpackagetool6 --type KWin/Script --install`, or `--upgrade` when already installed;
     - `enable` and `disable` run `kwriteconfig6 --file kwinrc --group Plugins --key ghost-shell-desktopEnabled true|false`, then `qdbus6 org.kde.KWin /KWin reconfigure`.
@@ -782,7 +783,7 @@ git commit -m "perf(shell): stop rendering and collecting while the dashboard is
   - **Parsing:**
     - `weather::parse_forecast(json: &str, now_s: u64) -> Result<Forecast, WeatherError>`:
       - `hours` are the 6 hourly entries from the next full hour on;
-      - `rain_peak` is the highest `precipitation_probability` in `[now, now + 12 h]` **[call]** (the mockup's `RAIN 95% AT 22H`), the earliest on ties, and `None` when the highest is 0;
+      - `rain_peak` is the highest `precipitation_probability` in `[now, now + 12 h]` (the mockup's `RAIN 95% AT 22H`), the earliest on ties, and `None` when the highest is 0;
       - `high_c` and `low_c` come from `daily[0]`.
     - `weather::parse_air(json: &str) -> Result<u32, WeatherError>` reads `current.us_aqi`.
     - `weather::condition(code: u8) -> &'static str` maps the WMO codes (Open-Meteo's table):
@@ -814,8 +815,8 @@ git commit -m "perf(shell): stop rendering and collecting while the dashboard is
   - **`weather::feed(fetch: Arc<dyn Fetch>) -> Feed`:**
     - runs only while `weather` is wanted;
     - fetches the forecast every 15 min and air quality every 30 min (spec §12), on `spawn_blocking`;
-    - after a failed fetch, retries after 60 s, doubling up to that cadence **[call]**;
-    - sets `stale = true` once the last good forecast is older than 30 min, two cadences **[call]**;
+    - after a failed fetch, retries after 60 s, doubling up to that cadence;
+    - sets `stale = true` once the last good forecast is older than 30 min, two cadences;
     - refetches at once when the location changes;
     - publishes after each successful fetch and on each location change.
   - **Config validation:** `location: lat and lon must be set together`; `location.lat: must be -90..=90, got 95`; `location.lon: must be -180..=180, got 200`.
@@ -883,7 +884,7 @@ git commit -m "feat(ghostd): add the open-meteo weather and air quality feed"
   - `sky::moon(at_s: i64) -> Moon { phase: f64, illumination: f64, name: &'static str }`:
     - `phase` is `((at_s − 947_182_440) / 86_400 / 29.530_588_853) mod 1`, from the reference new moon of 2000-01-06 18:14 UTC;
     - `illumination = (1 − cos 2πp) / 2`;
-    - `name` is one of `NEW`, `WAXING CRESCENT`, `FIRST QUARTER`, `WAXING GIBBOUS`, `FULL`, `WANING GIBBOUS`, `LAST QUARTER`, `WANING CRESCENT`. The four principal names apply within ±1 day of their exact phase **[call]**.
+    - `name` is one of `NEW`, `WAXING CRESCENT`, `FIRST QUARTER`, `WAXING GIBBOUS`, `FULL`, `WANING GIBBOUS`, `LAST QUARTER`, `WANING CRESCENT`. The four principal names apply within ±1 day of their exact phase.
   - **Feed:** recomputes every 60 s (spec §12) while `sky` is wanted. `available = false` without lat/lon. The fake publishes fixed values.
   - **Cost:** microseconds per minute.
 
@@ -932,7 +933,7 @@ git commit -m "feat(ghostd): compute sunrise, sunset and moon phase locally"
   - **Types:** `WeatherAlerts { source: String, updated_s: u64, alerts: Vec<WeatherAlert> }`; `WeatherAlert { id: String, title: String, severity: String, level: AlertLevel, start_s: u64, end_s: u64, risks: Vec<String> }`; `AlertLevel { Warn, Crit }` (snake_case).
   - **`parse_alerts(json: &str, area: &str) -> Result<Vec<WeatherAlert>, ParseError>`** reads the entries of `hoje`, then `futuro`, whose `geocodes` (comma-separated, trimmed) contain `area`. This is the user's `storm_alert.py` logic:
     - a duplicate `id` keeps its first occurrence;
-    - `title` is `descricao` uppercased and `severity` is `severidade` uppercased; the wording is INMET's own, untranslated **[call]**;
+    - `title` is `descricao` uppercased and `severity` is `severidade` uppercased; the wording is INMET's own, untranslated;
     - `level`: `Perigo Potencial` → Warn, `Perigo` and `Grande Perigo` → Crit (spec §5.2); anything else → Warn, logged **[call]**;
     - `start_s` and `end_s` come from `data_inicio` + `hora_inicio` and `data_fim` + `hora_fim`, read in `America/Sao_Paulo` with jiff (tzdb, in case daylight saving returns);
     - an entry whose times don't parse is skipped and logged;
@@ -942,9 +943,9 @@ git commit -m "feat(ghostd): compute sunrise, sunset and moon phase locally"
     - blocking std I/O, no tokio;
     - connects to `$GHOST_SOCKET` and sends the provide line;
     - every 10 min (spec §12), GETs `https://apiprevmet3.inmet.gov.br/avisos/ativos` (15 s timeout) and publishes `weather.alerts` as `WeatherAlerts { source: "INMET", .. }`;
-    - a failed fetch publishes nothing, so ghostd keeps the last value, and retries after 60 s, doubling to 10 min **[call]**;
+    - a failed fetch publishes nothing, so ghostd keeps the last value, and retries after 60 s, doubling to 10 min;
     - a socket write error exits 1, and the supervisor restarts it.
-  - **`providers::effective_providers(config: &ResolvedConfig) -> Vec<ProviderSpec>`** returns `config.providers` and, when `location.alerts.provider` is non-empty, `ProviderSpec { name: "alerts-<provider>", exec: ["ghost-alerts-<provider>", "--area", <area>], restart: true }` **[call: naming]**. `supervise` and `reconcile` both use it, so other countries plug in with a binary of that name.
+  - **`providers::effective_providers(config: &ResolvedConfig) -> Vec<ProviderSpec>`** returns `config.providers` and, when `location.alerts.provider` is non-empty, `ProviderSpec { name: "alerts-<provider>", exec: ["ghost-alerts-<provider>", "--area", <area>], restart: true }`. `supervise` and `reconcile` both use it, so other countries plug in with a binary of that name.
   - **Validation:**
     - `location.alerts.provider: "In Met" must match ^[a-z][a-z0-9-]*$`;
     - `location.alerts.area: must not be empty when a provider is set`;
@@ -1151,8 +1152,6 @@ git commit -m "feat(widgets): add the clock widget in hero, band and compact sty
     - the spectrum is split into `BANDS = 32` log-spaced bands (the mockup's 32 columns) from `LOW_HZ = 50` to `HIGH_HZ = 16_000`;
     - a band's value is its largest bin magnitude in dBFS, mapped from `FLOOR_DB = −60` → 0 up to 0 dB → 255;
     - a band rises at once and falls to no less than `FALL = 0.8` × its previous value per frame.
-
-    The constants are **[call]**, except 32 bands and 30 frames/s.
   - `band_of(hz: f32) -> usize` gives a frequency's band.
   - **Capture:** a dedicated thread runs a PipeWire main loop with one capture stream on the default sink's monitor:
     - properties `stream.capture.sink = "true"`, `media.type = "Audio"`, `media.category = "Capture"`, `node.name = "ghostd-spectrum"`, `application.name = "ghostd"`;
@@ -1240,7 +1239,7 @@ git commit -m "feat(ghostd): add the audio spectrum feed"
     - **Status row:** a `Chip` (`play`, `pause` or `stop`) and the status text (8.5 px, tracking .14 em, `dim`).
     - **Title and artist:** the title at 18 px bold in `hi` (15 px in compact) and the artist at 10 px in `text`. Both are `ScrambleText` keyed `media:<title>|<artist>`, so a new track scrambles once (spec §5.3). Both elide.
     - **Art:** the `trackArtUrl` image at 124 px (stack, centred), 84 px (strip) or 44 px (compact), with a 1 px `hair` border, `sourceSize` = displayed size × `u`, loaded asynchronously and cached.
-      - With `bar.icons == "mono"` it is tinted by `duotone.frag` (luminance → signal, alpha kept) **[call]**; it is shown as-is in `colour`.
+      - With `bar.icons == "mono"` it is tinted by `duotone.frag` (luminance → signal, alpha kept); it is shown as-is in `colour`.
       - Without art, it shows the mockup's ring pattern.
     - **Spectrum** (stack and strip only): `SegBars` with 32 columns, 3 px cells and 2 px gaps (mockup), sampled from `audio.spectrum` on FrameClock ticks.
       - While playing **and** visible, the widget holds `Data.want("audio.spectrum")` and `FrameClock.acquireFast()` (spec: 30 fps only while playing and visible).
@@ -1250,7 +1249,7 @@ git commit -m "feat(ghostd): add the audio spectrum feed"
       - with a player present and stopped, calls `player.play()`;
       - with no player, calls `DesktopEntries.byId(remembered.desktopEntry)?.execute()` (spec: "play resumes it or opens the player");
       - with an unknown entry, does nothing.
-    - **Persistence:** the remembered track lives in `$XDG_STATE_HOME/ghost-shell/media.json` (default `~/.local/state/ghost-shell/media.json`) **[call]**, through `FileView`. It is written on each track change and when the player disappears.
+    - **Persistence:** the remembered track lives in `$XDG_STATE_HOME/ghost-shell/media.json` (default `~/.local/state/ghost-shell/media.json`), through `FileView`. It is written on each track change and when the player disappears.
   - **`SegBars { levels: list<real>; rows; cellH; gap }`** (GhostKit, public) is a single `ShaderEffect`. Up to 32 levels are packed into 8 `vector4d` uniforms, coloured per `cellColor` (unlit signal 6 %, the top lit cell `hi`, the rest signal 35–85 %). It replaces ~300 `Rectangle`s for the one widget that redraws at 30 fps.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1315,15 +1314,22 @@ git commit -m "feat(widgets): add the media widget with idle states and spectrum
       - its `props["application.process.id"]` is not in `ownPids` (which excludes the shell's own peak meter).
 
       The name is `application.name` (else `node.name`), uppercased, unique, in order. Mute is ignored: a muted mic with a recording app is still live.
+    - `micLevelEnabled(apps, visible, muted) -> bool` is true only while another app records (`apps` non-empty), the widget is visible and the source isn't muted (decision 2).
     - `micAlertText(apps)` returns `MIC LIVE · DISCORD IS RECORDING` (spec) for one app, and `MIC LIVE · DISCORD, OBS ARE RECORDING` for several.
     - `volumeText(volume, muted)` returns `64%` or `MUTED`.
-  - **Rows** (styles `stack` and `strip` while `audio` is set; `compact` shows only the MIC LIVE alert **[call]**, since the 104 px band has no room for two rows):
-    - `OUT  <default sink description>  [SegMeter volume]  64%|MUTED`;
-    - `IN  <default source description>  [SegMeter level]  LIVE|MUTED|--`. The level comes from a `PwNodePeakMonitor` on the default source (`enabled` only while the widget is visible and the source isn't muted), copied on FrameClock ticks (spec: ~15 Hz, only while visible).
-    - While any app records, `IN` reads `LIVE` in `warn`, and a warn `AlertBox` with chip `live` shows `micAlertText(apps)`.
+  - **Rows** (styles `stack` and `strip` while `audio` is set; `compact` shows only the MIC LIVE alert, since the 104 px band has no room for two rows):
+    - `OUT  <default sink description>  [SegMeter volume]  64%|MUTED`.
+    - **While no app records:** `IN  <default source description>  MUTED|--`. There is no level meter, and the shell opens no capture stream on the microphone.
+    - **While any app records:**
+      - the row becomes `IN  <default source description>  [SegMeter level]  LIVE`, with `LIVE` in `warn`;
+      - the level comes from a `PwNodePeakMonitor` on the default source whose `enabled` is `micLevelEnabled(apps, visible, muted)`, copied on FrameClock ticks (spec: ~15 Hz, only while visible);
+      - a warn `AlertBox` with chip `live` shows `micAlertText(apps)`.
+
+      The peak monitor's own stream is excluded by `ownPids`, so it never counts as an app recording and never keeps itself running: it ends when the last other app stops.
     - The control row shows `VOL <out %>` (mockup).
     - Clicking a row's value toggles that device's mute **[call]**.
   - `ownPids = [Quickshell.processId]`. Nodes are tracked with `PwObjectTracker` if `properties` stays empty until bound.
+  - The spectrum (Task 14) captures the sink monitor inside ghostd, not the microphone, so its capture path is unaffected.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1332,6 +1338,8 @@ const node = (props, extra = {}) => ({ isStream: true, isSink: false, isAudio: t
 test('a capture stream is recording', () => assert.deepEqual(recordingApps([node({ 'application.name': 'Discord', 'application.process.id': '900' })], [42]), ['DISCORD']));
 test('sink monitors and our own streams are not', () => assert.deepEqual(recordingApps([node({ 'application.name': 'ghostd', 'stream.capture.sink': 'true' }), node({ 'application.name': 'quickshell', 'application.process.id': '42' })], [42]), []));
 test('playback streams and devices are not', () => assert.deepEqual(recordingApps([node({ 'application.name': 'Spotify' }, { isSink: true }), node({ 'node.name': 'alsa_input' }, { isStream: false })], []), []));
+test('the level meter runs only while another app records', () => { assert.equal(micLevelEnabled(['DISCORD'], true, false), true); assert.equal(micLevelEnabled([], true, false), false); assert.equal(micLevelEnabled(['DISCORD'], false, false), false); assert.equal(micLevelEnabled(['DISCORD'], true, true), false); });
+test('our own meter never keeps itself running', () => assert.equal(micLevelEnabled(recordingApps([node({ 'application.name': 'quickshell', 'application.process.id': '42' })], [42]), true, false), false));
 test('alert text names one or several apps', () => { assert.equal(micAlertText(['DISCORD']), 'MIC LIVE · DISCORD IS RECORDING'); assert.equal(micAlertText(['DISCORD', 'OBS']), 'MIC LIVE · DISCORD, OBS ARE RECORDING'); });
 test('volume text', () => { assert.equal(volumeText(0.64, false), '64%'); assert.equal(volumeText(0.64, true), 'MUTED'); });
 ```
@@ -1350,9 +1358,13 @@ Expected: PASS and `smoke: ok`.
 
 - [ ] **Step 5: Live check on the user's session**
 
-1. With the dashboard visible and no recorder running, check that no MIC LIVE appears while the IN meter moves.
-2. Run `pw-record /tmp/gs-mic.wav` for 5 s. Expected: `IN` reads `LIVE` in warn, and `MIC LIVE · PW-RECORD IS RECORDING` blinks.
+1. With the dashboard visible and no recorder running, check that:
+   - no MIC LIVE appears;
+   - the IN row shows no level;
+   - `pw-cli ls Node` lists no stream whose `application.process.id` is the shell's pid.
+2. Run `pw-record /tmp/gs-mic.wav` for 5 s. Expected: `IN` reads `LIVE` in warn, its level moves, and `MIC LIVE · PW-RECORD IS RECORDING` blinks.
 3. Mute the mic while it records. Expected: still LIVE.
+4. Stop the recorder. Expected: within 2 s the level and the alert disappear, and `pw-cli ls Node` again lists no stream from the shell.
 
 Delete `/tmp/gs-mic.wav` afterwards.
 
@@ -1467,14 +1479,13 @@ git commit -m "feat(config): default to the v1, v2 and monitor views"
 - Covering and uncovering the desktop logs `dashboard covered` and `dashboard visible`, and the dashboard returns with its tab selections.
 - Real weather, sun, moon and AQI appear. An active INMET alert, if any, counts down.
 - Media: pausing darkens the spectrum. Quitting the player gives `STOPPED · LAST PLAYED`. Play reopens it.
-- MIC LIVE appears with a recorder, and never from the dashboard itself.
+- MIC LIVE appears with a recorder, and never from the dashboard itself. The shell opens no microphone stream while nothing records.
 
 - [ ] **Step 4: Write the note and update README**
 
 Record:
 - every measurement;
-- the deviations;
-- the answers to the open questions below.
+- the deviations.
 
 - [ ] **Step 5: Commit**
 
@@ -1553,28 +1564,27 @@ Open questions for 2b:
 - The view chip calls `Views.toggleMonitor()` and `Views.swap()`. The chip reads `MAIN`/`MONITOR` from `Views.isMonitor`.
 - Bar items read `weather` through `Fmt.activeAlerts`, never animated (spec §5.4).
 
-## Values to confirm
+## Decisions (2026-10-21)
 
-Non-trivial values this plan chose that the spec doesn't fix (the user's rule):
+The user's answers to the draft's questions:
 
-1. **Retry after a failed fetch** (weather and INMET): 60 s, doubling up to the normal cadence (15 min, 30 min, 10 min).
-2. **Weather stale:** after 30 min without a good forecast (two cadences).
-3. **Rain peak window:** the next 12 h (`RAIN 95% AT 22H`).
-4. **Spectrum DSP:** FFT 2048 with a Hann window, bands from 50 Hz to 16 kHz, a −60 dB floor, falling to ×0.8 per frame. The 32 bands and 30 fps come from the mockup and spec.
-5. **Moon names:** a principal phase (new, first quarter, full, last quarter) is named within ±1 day of it.
-6. **Japanese for the new chips:** `pause` 一時停止 / ポーズ, `stop` 停止 / ストップ.
-7. **The remembered-track file:** `$XDG_STATE_HOME/ghost-shell/media.json`.
-8. **D-Bus names:** `org.ghostshell.Ghostd`, `/org/ghostshell/Desktop`, `org.ghostshell.Desktop1`. KGlobalAccel component `ghost-shell` with actions `monitor` and `swap`.
-9. **Alert provider naming:** a binary `ghost-alerts-<provider>`, supervised as `alerts-<provider>`.
-10. **Before the first KWin report:** the dashboard renders and shortcuts are off.
-11. **`ago()` buckets:** `NOW` under 60 s, then `M`, `H`, `D`.
-12. **INMET wording:** INMET's own Portuguese `descricao` and `severidade`, uppercased and untranslated (`INMET · TEMPESTADE · PERIGO`).
+1. **Split:** Parts 2a, 2b and 2c as drafted. The dashboard Notifications list moves to Plan 3.
+2. **Mic level:** the IN level shows **only while another app is recording**. Otherwise the IN row shows the device and mute state, with no level and no capture stream. The shell's own capture stream never counts as an app recording (Task 16).
+3. **Translucent windows:** no allowlist. A translucent window counts as covering (Task 4). An app allowlist is a possible later addition if the user reports translucent windows over the desktop.
+4. **Shortcuts:** config.toml is authoritative. ghostd registers them with KGlobalAccel, and rebinding them in System Settings doesn't persist.
+5. **Album art:** tinted to the signal colour in `mono` icon style, original in `colour`.
+6. **Compact MONITOR player:** no OUT/IN rows, only the MIC LIVE alert.
 
-## Open questions
-
-1. **The split:** Part 2a/2b/2c as above, with the dashboard Notifications list moved to Plan 3 alongside the notification server. Is that right?
-2. **Mic level and privacy indicators:** the live IN level opens a PipeWire capture stream on the microphone whenever the media panel is visible. Plasma's mic-in-use indicator may then show the shell as using the microphone, and the hardware stays active. Accept that, or show the level only while another app is recording?
-3. **Translucent windows:** a window that is translucent through its own content (e.g. Konsole's background transparency) counts as covering, so the dashboard behind it would freeze. Do you use translucent windows over the desktop? If so, a config list of apps that never count as covering is a small addition.
-4. **Shortcut authority:** ghostd registers the view shortcuts with KGlobalAccel, so config.toml always wins and reloads live, but rebinding them in System Settings has no lasting effect. Is that the behaviour you want?
-5. **Album art:** tinted to the signal colour in `mono` icon style (colour reserved for attention), original in `colour`. Or always original?
-6. **The compact MONITOR player** has no OUT/IN rows (only the MIC LIVE alert), because the 104 px band has no room. Acceptable?
+The proposed values are all approved:
+1. retry after a failed fetch (weather and INMET): 60 s, doubling up to the normal cadence;
+2. weather goes stale after 30 min without a good forecast;
+3. the rain-peak window is the next 12 h;
+4. spectrum DSP: FFT 2048 with a Hann window, 50 Hz to 16 kHz, a −60 dB floor, falling to ×0.8 per frame;
+5. principal moon phases are named within ±1 day;
+6. chips `pause` 一時停止 / ポーズ and `stop` 停止 / ストップ;
+7. the remembered track lives in `$XDG_STATE_HOME/ghost-shell/media.json`;
+8. D-Bus names `org.ghostshell.Ghostd`, `/org/ghostshell/Desktop`, `org.ghostshell.Desktop1`, with KGlobalAccel component `ghost-shell` and actions `monitor` and `swap`;
+9. alert providers are binaries named `ghost-alerts-<provider>`, supervised as `alerts-<provider>`;
+10. before the first KWin report, the dashboard renders and shortcuts are off;
+11. `ago()` buckets are `NOW`, then `M`, `H`, `D`;
+12. INMET wording is passed through untranslated.
