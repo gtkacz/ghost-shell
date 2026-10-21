@@ -38,6 +38,6 @@ test('a new alert gets its own window while an old one stays still', () => {
   assert.equal(attentionLeftMs(firstShown(seen, 'new', later), later), ATTENTION_MS);
 });
 
-test('a clock that steps back does not give more than the whole window', () => {
-  assert.equal(attentionLeftMs(T0, T0 - 5_000), ATTENTION_MS);
+test('a clock that steps back to before the first showing leaves nothing to blink', () => {
+  assert.equal(attentionLeftMs(T0, T0 - 5_000), 0);
 });

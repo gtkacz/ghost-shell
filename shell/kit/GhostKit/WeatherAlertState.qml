@@ -2,7 +2,8 @@ import QtQuick
 
 // The most urgent weather alert still in force, read from the weather.alerts topic, as the clock and the weather
 // widget both show it. Every output is a scalar except the alert itself, so a keyed Repeater on hasAlert and key is
-// rebuilt when the alert changes and not when its countdown ticks.
+// rebuilt when the alert changes and not when its countdown ticks. It only reads the topic: the widget using it
+// must subscribe, through its manifest's requires or Data.want, or it never has an alert.
 QtObject {
     id: root
 

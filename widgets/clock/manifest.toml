@@ -4,7 +4,8 @@ version = "0.1.0"
 api = 1
 kinds = ["panel"]
 requires = ["host"]
-# The hero and the band show the weather's alert box, whose stripes scroll and whose text blinks (R35).
+# The hero and the band show the weather's alert box, whose stripes scroll and whose text blinks for the first
+# seconds after an alert appears.
 animates = true
 
 [settings.style]

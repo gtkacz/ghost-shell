@@ -4,7 +4,7 @@ version = "0.1.0"
 api = 1
 kinds = ["panel"]
 requires = ["disks"]
-# A dead drive is shown as a boxed alert, whose stripes scroll and whose text blinks.
+# A dead drive is shown as a boxed alert, whose stripes scroll and whose text blinks for the first seconds after it appears.
 animates = true
 
 # Whether drives with nothing mounted are listed.

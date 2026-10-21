@@ -11,7 +11,11 @@ export function firstShown(seen, key, nowMs) {
   return seen.get(key);
 }
 
-// Clamped so a wall clock that steps back never lengthens the window.
+// A wall clock that stepped back to before the first showing counts as a spent window, so an alert already shown
+// never blinks again because of the step.
 export function attentionLeftMs(shownMs, nowMs) {
-  return Math.min(ATTENTION_MS, Math.max(0, ATTENTION_MS - (nowMs - shownMs)));
+  if (nowMs < shownMs) {
+    return 0;
+  }
+  return Math.max(0, ATTENTION_MS - (nowMs - shownMs));
 }
