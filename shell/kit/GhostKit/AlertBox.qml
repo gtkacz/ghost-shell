@@ -126,7 +126,7 @@ Item {
         layer.effect: ShaderEffect {
             property real level: root.contentOpacity
 
-            fragmentShader: Qt.resolvedUrl("shaders/fade.frag.qsb")
+            fragmentShader: Qt.resolvedUrl("shaders/blink.frag.qsb")
         }
 
         Rectangle {
