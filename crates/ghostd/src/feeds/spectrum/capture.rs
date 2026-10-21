@@ -247,7 +247,7 @@ mod tests {
 
     /// The default quantum: 21 ms at 48 kHz.
     const SMALL_BUFFER: usize = 1024;
-    /// The largest quantum PipeWire allows by default: 171 ms at 48 kHz.
+    /// PipeWire's hard ceiling on a quantum (`quantum-limit`; the default `max-quantum` is 2048): 171 ms at 48 kHz.
     const LARGE_BUFFER: usize = 8192;
     const LARGE_BUFFER_GAP: Duration = Duration::from_millis(170);
     const ARRIVALS: u32 = 10;
