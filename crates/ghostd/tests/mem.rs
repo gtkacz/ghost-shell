@@ -33,6 +33,14 @@ fn advance_clock(fake: &FakeRoot, all_cpu_ticks: u64) {
     fake.write("proc/stat", &proc_stat(idle, &[]));
 }
 
+/// One scan window: the sample that rescans /proc and the in-between one that repeats its list.
+/// Returns the rescan's snapshot.
+fn scan_window(mem: &mut MemCollector) -> MemSnapshot {
+    let scan = mem.sample();
+    mem.sample();
+    scan
+}
+
 fn pids(snapshot: &MemSnapshot) -> Vec<u32> {
     snapshot.top.iter().map(|process| process.pid).collect()
 }
@@ -175,11 +183,11 @@ fn unreadable_proc_stat_keeps_the_previous_baseline() {
 
     fake.remove("proc/stat");
     fake.write_process(&FakeProcess::new(1, "init").ticks(32, 0));
-    assert_eq!(mem.sample().top[0].cpu, 0.0);
+    assert_eq!(scan_window(&mut mem).top[0].cpu, 0.0);
 
     advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
     fake.write_process(&FakeProcess::new(1, "init").ticks(64, 0));
-    let snapshot = mem.sample();
+    let snapshot = scan_window(&mut mem);
 
     // Both intervals of process time against both intervals of total time, not one against two.
     assert_eq!(snapshot.top[0].cpu, 2.0);
@@ -232,7 +240,7 @@ fn vanished_process_skipped() {
     advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
     fake.remove("proc/2");
     fake.remove("proc/3/stat");
-    assert_eq!(pids(&mem.sample()), vec![1]);
+    assert_eq!(pids(&scan_window(&mut mem)), vec![1]);
 
     // Back with ticks far above anything they had at the baseline: a baseline that outlived
     // the missing tick would turn that gap into a cpu share.
@@ -240,7 +248,7 @@ fn vanished_process_skipped() {
     for pid in 2..=3 {
         fake.write_process(&FakeProcess::new(pid, "worker").ticks(640, 0));
     }
-    let snapshot = mem.sample();
+    let snapshot = scan_window(&mut mem);
 
     assert_eq!(pids(&snapshot), vec![1, 2, 3]);
     assert!(snapshot.top.iter().all(|process| process.cpu == 0.0));
@@ -277,9 +285,9 @@ fn kernel_thread_is_read_once_then_skipped() {
 
     // Were pid 2 read again, this stat would list it as a user process.
     fake.write_process(&FakeProcess::new(2, "impostor"));
-    assert_eq!(pids(&mem.sample()), vec![4]);
+    assert_eq!(pids(&scan_window(&mut mem)), vec![4]);
     fake.write_bytes("proc/2/stat", b"not a stat line\n");
-    assert_eq!(pids(&mem.sample()), vec![4]);
+    assert_eq!(pids(&scan_window(&mut mem)), vec![4]);
 }
 
 #[test]
@@ -289,12 +297,56 @@ fn pid_recycled_after_a_kernel_thread_is_read_again() {
     let mut mem = MemCollector::new(&fake.root(), TOP_N);
 
     fake.remove("proc/2");
-    assert!(mem.sample().top.is_empty());
+    assert!(scan_window(&mut mem).top.is_empty());
     fake.write_process(&FakeProcess::new(2, "reborn").start_time(2_000));
-    let snapshot = mem.sample();
+    let snapshot = scan_window(&mut mem);
 
     assert_eq!(pids(&snapshot), vec![2]);
     assert_eq!(snapshot.top[0].name, "reborn");
+}
+
+#[test]
+fn top_repeats_between_scans_while_memory_totals_stay_live() {
+    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
+    fake.write_process(&FakeProcess::new(1, "init"));
+    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+    let scan = mem.sample();
+    assert_eq!(pids(&scan), vec![1]);
+
+    fake.remove("proc/1");
+    fake.write_process(&FakeProcess::new(2, "latecomer"));
+    let reclaimed = meminfo(
+        TOTAL_KIB,
+        AVAILABLE_KIB - 1_000,
+        SWAP_TOTAL_KIB,
+        SWAP_FREE_KIB,
+    );
+    fake.write("proc/meminfo", &reclaimed);
+    let between = mem.sample();
+
+    assert_eq!(between.top, scan.top);
+    assert_eq!(between.used_kib, scan.used_kib + 1_000);
+    assert_eq!(pids(&mem.sample()), vec![2]);
+}
+
+#[test]
+fn process_share_is_measured_over_the_scan_window() {
+    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
+    fake.write_process(&FakeProcess::new(1, "worker"));
+    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+
+    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
+    fake.write_process(&FakeProcess::new(1, "worker").ticks(100, 0));
+    let first_scan = mem.sample();
+    advance_clock(&fake, BASELINE_TICKS + 2 * INTERVAL_TICKS);
+    mem.sample();
+    advance_clock(&fake, BASELINE_TICKS + 3 * INTERVAL_TICKS);
+    fake.write_process(&FakeProcess::new(1, "worker").ticks(300, 0));
+    let second_scan = mem.sample();
+
+    assert_eq!(first_scan.top[0].cpu, 3.125);
+    // 200 of the 6400 ticks in the two seconds since the last scan, not 200 of the last 3200.
+    assert_eq!(second_scan.top[0].cpu, 3.125);
 }
 
 #[test]

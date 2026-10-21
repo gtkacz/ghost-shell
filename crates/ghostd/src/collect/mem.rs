@@ -30,6 +30,10 @@ const FIRST_FIELD_AFTER_COMM: usize = 3;
 // Set in a task's flags when it is a kernel thread (include/linux/sched.h).
 const PF_KTHREAD: u64 = 0x0020_0000;
 
+// Walking every /proc/<pid> is most of a sample's cost, so the process list is refreshed every
+// second sample and repeated in between. Memory totals stay fresh on every sample.
+const PROCESS_SCAN_EVERY: u32 = 2;
+
 const FULL_SHARE_PCT: f64 = 100.0;
 const BYTES_PER_KIB: u64 = 1024;
 // Holds a typical /proc/<pid>/stat line in one read; larger files grow the buffer once and keep it.
@@ -71,13 +75,15 @@ pub struct MemCollector {
     root: SysRoot,
     top_n: usize,
     page_size_bytes: u64,
+    samples_until_scan: u32,
+    top: Vec<ProcUsage>,
     previous_all_cpu_ticks: Option<u64>,
     previous_proc_ticks: HashMap<ProcId, u64>,
     // A kernel thread stays one for as long as its pid lives, so it is read once and then skipped.
     // Keyed by pid alone, since the start time is unknowable without the read being avoided: an
-    // entry survives only while its pid is listed every tick, so a recycled pid is read afresh.
+    // entry survives only while its pid is listed on every scan, so a recycled pid is read afresh.
     known_kernel_threads: HashSet<u32>,
-    // Everything below is per-tick scratch, kept so a 1 Hz tick does not reallocate it.
+    // Everything below is per-scan scratch, kept so a scan does not reallocate it.
     current_proc_ticks: HashMap<ProcId, u64>,
     current_kernel_threads: HashSet<u32>,
     rows: Vec<ProcRow>,
@@ -98,6 +104,8 @@ impl MemCollector {
                 .flatten()
                 .and_then(|bytes| u64::try_from(bytes).ok())
                 .unwrap_or_default(),
+            samples_until_scan: 0,
+            top: Vec::new(),
             previous_all_cpu_ticks: None,
             previous_proc_ticks: HashMap::new(),
             known_kernel_threads: HashSet::new(),
@@ -212,20 +220,9 @@ impl MemCollector {
         self.rows.truncate(self.top_n);
     }
 
-    fn commit_baseline(&mut self, all_cpu_ticks: Option<u64>) {
-        // Process ticks only mean something against the /proc/stat total read alongside them, so
-        // a tick without that total leaves the old pair in place as the baseline.
-        let Some(ticks) = all_cpu_ticks else {
-            return;
-        };
-        self.previous_all_cpu_ticks = Some(ticks);
-        std::mem::swap(&mut self.previous_proc_ticks, &mut self.current_proc_ticks);
-    }
-}
-
-impl Source<MemSnapshot> for MemCollector {
-    fn sample(&mut self) -> MemSnapshot {
-        let meminfo = self.read_meminfo();
+    /// Rescans `/proc` and replaces `top`. Cpu is each process's share of the ticks that passed
+    /// since the previous scan, so it reads the same however many samples that took.
+    fn refresh_top(&mut self, total_kib: u64) {
         let all_cpu_ticks = self.read_all_cpu_ticks();
         let elapsed_ticks = match (all_cpu_ticks, self.previous_all_cpu_ticks) {
             (Some(now), Some(before)) => now.saturating_sub(before),
@@ -234,8 +231,8 @@ impl Source<MemSnapshot> for MemCollector {
 
         self.scan_processes();
         self.rank_by_cpu(elapsed_ticks);
-        let total_bytes = meminfo.total_kib.saturating_mul(BYTES_PER_KIB);
-        let top = self
+        let total_bytes = total_kib.saturating_mul(BYTES_PER_KIB);
+        self.top = self
             .rows
             .iter()
             .map(|row| ProcUsage {
@@ -251,13 +248,35 @@ impl Source<MemSnapshot> for MemCollector {
             })
             .collect();
         self.commit_baseline(all_cpu_ticks);
+    }
+
+    fn commit_baseline(&mut self, all_cpu_ticks: Option<u64>) {
+        // Process ticks only mean something against the /proc/stat total read alongside them, so
+        // a scan without that total leaves the old pair in place as the baseline.
+        let Some(ticks) = all_cpu_ticks else {
+            return;
+        };
+        self.previous_all_cpu_ticks = Some(ticks);
+        std::mem::swap(&mut self.previous_proc_ticks, &mut self.current_proc_ticks);
+    }
+}
+
+impl Source<MemSnapshot> for MemCollector {
+    fn sample(&mut self) -> MemSnapshot {
+        let meminfo = self.read_meminfo();
+        if self.samples_until_scan == 0 {
+            self.refresh_top(meminfo.total_kib);
+            self.samples_until_scan = PROCESS_SCAN_EVERY - 1;
+        } else {
+            self.samples_until_scan -= 1;
+        }
 
         MemSnapshot {
             total_kib: meminfo.total_kib,
             used_kib: meminfo.total_kib.saturating_sub(meminfo.available_kib),
             swap_total_kib: meminfo.swap_total_kib,
             swap_used_kib: meminfo.swap_total_kib.saturating_sub(meminfo.swap_free_kib),
-            top,
+            top: self.top.clone(),
         }
     }
 }
