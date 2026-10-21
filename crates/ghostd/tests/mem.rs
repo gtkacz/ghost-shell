@@ -306,6 +306,25 @@ fn pid_recycled_after_a_kernel_thread_is_read_again() {
 }
 
 #[test]
+fn kernel_thread_skip_set_does_not_survive_an_unlistable_proc() {
+    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
+    fake.write_process(&FakeProcess::kernel_thread(2, "kthreadd"));
+    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+
+    fake.remove("proc");
+    assert!(scan_window(&mut mem).top.is_empty());
+    // Nothing says pid 2 is the same task after /proc comes back, so it must be read afresh.
+    fake.write(
+        "proc/meminfo",
+        &meminfo(TOTAL_KIB, AVAILABLE_KIB, SWAP_TOTAL_KIB, SWAP_FREE_KIB),
+    );
+    advance_clock(&fake, BASELINE_TICKS);
+    fake.write_process(&FakeProcess::new(2, "reborn"));
+
+    assert_eq!(pids(&scan_window(&mut mem)), vec![2]);
+}
+
+#[test]
 fn top_repeats_between_scans_while_memory_totals_stay_live() {
     let fake = machine(TOTAL_KIB, BASELINE_TICKS);
     fake.write_process(&FakeProcess::new(1, "init"));

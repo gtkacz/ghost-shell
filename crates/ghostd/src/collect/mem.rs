@@ -153,6 +153,9 @@ impl MemCollector {
         self.current_proc_ticks.clear();
         self.current_kernel_threads.clear();
         let Ok(entries) = self.root.entries(PROC_DIR) else {
+            // The skip set only stays valid while every scan sees its pids, so a scan that sees
+            // none leaves nothing to carry over to a recovered /proc, where a pid may be recycled.
+            self.known_kernel_threads.clear();
             return;
         };
         for entry in entries {
