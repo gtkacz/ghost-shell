@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
 use std::{env, fs};
 
@@ -261,6 +263,55 @@ fn user_dir_overrides_builtin() {
     assert_eq!(
         as_slot(view(&layout)).source,
         Some(format!("file://{}/graphics/Widget.qml", user.display()))
+    );
+}
+
+fn discovered_source(widget_dir: &Path) -> String {
+    let (manifests, problems) = discover(&[widget_dir.to_path_buf()]);
+    assert!(problems.is_empty(), "{problems:?}");
+    manifests["graphics"].source.clone()
+}
+
+#[test]
+fn source_percent_encodes_the_characters_a_url_path_cannot_carry() {
+    let root = tempfile::tempdir().unwrap();
+    let widget_dir = root.path().join("my widgets #1 100% é?");
+    install(
+        &widget_dir,
+        "graphics",
+        &Spec {
+            id: "graphics",
+            ..Spec::default()
+        }
+        .toml(),
+    );
+
+    assert_eq!(
+        discovered_source(&widget_dir),
+        format!(
+            "file://{}/my%20widgets%20%231%20100%25%20%C3%A9%3F/graphics/Widget.qml",
+            root.path().display()
+        )
+    );
+}
+
+#[test]
+fn source_encodes_path_bytes_that_are_not_utf8_instead_of_replacing_them() {
+    let root = tempfile::tempdir().unwrap();
+    let widget_dir = root.path().join(OsString::from_vec(vec![b'w', 0xff]));
+    install(
+        &widget_dir,
+        "graphics",
+        &Spec {
+            id: "graphics",
+            ..Spec::default()
+        }
+        .toml(),
+    );
+
+    assert_eq!(
+        discovered_source(&widget_dir),
+        format!("file://{}/w%FF/graphics/Widget.qml", root.path().display())
     );
 }
 

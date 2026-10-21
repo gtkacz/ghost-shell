@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{self, Path, PathBuf};
 use std::{env, fs, io};
 
@@ -11,6 +12,8 @@ pub const WIDGET_API: u32 = 1;
 const MANIFEST_FILE: &str = "manifest.toml";
 const QML_FILE: &str = "Widget.qml";
 const FILE_URL_SCHEME: &str = "file://";
+// Besides letters and digits; the slash is kept because it separates the path's segments.
+const URL_UNRESERVED_PUNCTUATION: [u8; 5] = *b"-._~/";
 const BUILTIN_DIR_ENV: &str = "GHOST_WIDGETS_DIR";
 const DATA_HOME_SUBDIR: &str = ".local/share";
 const CONFIG_HOME_SUBDIR: &str = ".config";
@@ -164,8 +167,24 @@ fn load_manifest(manifest_path: &Path) -> Result<Manifest, ManifestError> {
     let mut manifest: Manifest = toml::from_str(&fs::read_to_string(manifest_path)?)?;
     validate(&manifest)?;
     let qml = path::absolute(manifest_path.with_file_name(QML_FILE))?;
-    manifest.source = format!("{FILE_URL_SCHEME}{}", qml.display());
+    manifest.source = file_url(&qml);
     Ok(manifest)
+}
+
+/// Qt parses the source as a URL, where an unescaped `#` or `?` would cut the path short and a
+/// `%` would start an escape. Everything outside RFC 3986's unreserved set is escaped, which also
+/// covers the sub-delimiters a path may carry, so the rule stays one line. The bytes are escaped
+/// as the OS holds them, because a path need not be UTF-8.
+fn file_url(path: &Path) -> String {
+    let mut url = String::from(FILE_URL_SCHEME);
+    for &byte in path.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || URL_UNRESERVED_PUNCTUATION.contains(&byte) {
+            url.push(char::from(byte));
+        } else {
+            url.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    url
 }
 
 fn validate(manifest: &Manifest) -> Result<(), ManifestError> {
