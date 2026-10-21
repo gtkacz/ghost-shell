@@ -353,8 +353,8 @@ fn probe_source<T: Serialize>(source: impl Source<T>) -> ExitCode {
 fn probe_with<T: Serialize>(source: impl Source<T>, baseline: Baseline) -> ExitCode {
     let sample = sample_after(source, baseline, || thread::sleep(PROBE_INTERVAL));
     // Piping into `head` closes stdout early, which must not panic like `println!` does. Writing is
-    // the only step that can fail: a snapshot is plain numbers, booleans and strings, which always
-    // serialise.
+    // the only step that can fail: a snapshot always serialises, since a non-finite float encodes as
+    // null and none of its maps has non-string keys.
     let mut stdout = io::stdout().lock();
     let written = serde_json::to_writer(&mut stdout, &sample)
         .map_err(io::Error::from)
