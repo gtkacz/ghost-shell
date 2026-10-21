@@ -4,6 +4,7 @@ import Quickshell
 import "lib/format.mjs" as Format
 import "lib/labels.mjs" as Labels
 import "lib/segments.mjs" as Segments
+import "lib/weather.mjs" as Weather
 
 // Re-exports the formatters so widgets reach them through the GhostKit import instead of by file path.
 Singleton {
@@ -81,5 +82,41 @@ Singleton {
 
     function levelAbove(value, warnAt, critAt) {
         return Segments.levelAbove(value, warnAt, critAt);
+    }
+
+    function activeAlerts(alerts, nowS) {
+        return Weather.activeAlerts(alerts, nowS);
+    }
+
+    function alertLine(alert, source) {
+        return Weather.alertLine(alert, source);
+    }
+
+    function alertsStale(alerts, nowS) {
+        return Weather.alertsStale(alerts, nowS);
+    }
+
+    function alertsEnabled(config) {
+        return Weather.alertsEnabled(config);
+    }
+
+    function hourLabel(atS, offsetMin) {
+        return Weather.hourLabel(atS, offsetMin);
+    }
+
+    function hiLo(weather) {
+        return Weather.hiLo(weather);
+    }
+
+    function detailLine(weather, offsetMin) {
+        return Weather.detailLine(weather, offsetMin);
+    }
+
+    function skyLine(sky, offsetMin) {
+        return Weather.skyLine(sky, offsetMin);
+    }
+
+    function forecastFrom(weather, nowS) {
+        return Weather.forecastFrom(weather, nowS);
     }
 }

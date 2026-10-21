@@ -1,0 +1,8 @@
+id = "weather"
+name = "Weather"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+requires = ["weather", "sky", "weather.alerts"]
+# An active alert is a boxed alert, whose stripes scroll and whose text blinks.
+animates = true
