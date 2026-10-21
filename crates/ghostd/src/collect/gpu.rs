@@ -254,6 +254,27 @@ mod tests {
     }
 
     #[test]
+    fn bytes_to_mib_rounds_down_to_whole_mebibytes() {
+        assert_eq!(bytes_to_mib(BYTES_PER_MIB - 1), Some(0));
+        assert_eq!(bytes_to_mib(BYTES_PER_MIB), Some(1));
+    }
+
+    #[test]
+    fn bytes_to_mib_is_none_past_what_a_u32_of_mebibytes_holds() {
+        let largest_mib = u64::from(u32::MAX);
+
+        assert_eq!(bytes_to_mib(largest_mib * BYTES_PER_MIB), Some(u32::MAX));
+        assert_eq!(bytes_to_mib((largest_mib + 1) * BYTES_PER_MIB), None);
+        assert_eq!(bytes_to_mib(u64::MAX), None);
+    }
+
+    #[test]
+    fn milliwatts_to_watts_keeps_the_fraction() {
+        assert_eq!(milliwatts_to_watts(55_728), 55.728);
+        assert_eq!(milliwatts_to_watts(0), 0.0);
+    }
+
+    #[test]
     fn fan_cache_reads_every_call_when_the_period_is_one() {
         let mut fan = FanCache::new(1);
 
