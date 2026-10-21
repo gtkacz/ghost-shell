@@ -7,11 +7,12 @@ use std::time::Duration;
 use common::FakeRoot;
 use common::server::*;
 use ghost_proto::{HostSnapshot, ResolvedConfig, topics};
+use ghostd::fake;
 use ghostd::feeds::{self, host};
 use ghostd::server::{Feed, FeedContext, FeedEnd, Publisher, ServeError};
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
-use tokio::time::{Instant, timeout, timeout_at};
+use tokio::time::{Instant, sleep, timeout, timeout_at};
 
 const WATCHED_TICKS: u64 = 6;
 const NEW_BUILTINS: [&str; 5] = [
@@ -267,4 +268,46 @@ async fn serving_stops_with_an_error_when_a_feed_panics() {
     assert_eq!(*name, PANICKING_FEED);
     assert!(failure.is_panic(), "{error}");
     assert!(error.to_string().contains("the feed hit a bug"), "{error}");
+}
+
+#[tokio::test]
+async fn the_fake_spectrum_publishes_only_while_wanted() {
+    let (published, mut frames) = mpsc::unbounded_channel();
+    let publisher = Publisher::new(move |topic, data| {
+        if topic == topics::SPECTRUM {
+            published.send(data).unwrap();
+        }
+    });
+    let (demand_tx, demand) = watch::channel(BTreeSet::new());
+    let (_config, config) = watch::channel(ResolvedConfig::default());
+    let _running: Vec<_> = fake::feeds()
+        .into_iter()
+        .map(|feed| {
+            tokio::spawn(feed.run(FeedContext {
+                publisher: publisher.clone(),
+                demand: demand.clone(),
+                config: config.clone(),
+            }))
+        })
+        .collect();
+
+    sleep(ticks(WATCHED_TICKS)).await;
+    assert!(frames.is_empty(), "published while nobody wanted it");
+
+    demand_tx.send_replace(topic_set(&[topics::SPECTRUM]));
+    let first = timeout(WAIT, frames.recv()).await.unwrap().unwrap();
+    let second = timeout(WAIT, frames.recv()).await.unwrap().unwrap();
+    assert_eq!(first["bands"].as_array().unwrap().len(), 32);
+    assert_ne!(first, second);
+
+    demand_tx.send_replace(BTreeSet::new());
+    sleep(ticks(1)).await;
+    // A frame may already be on its way when the release lands, so only the last one counts.
+    let mut last = None;
+    while let Ok(frame) = frames.try_recv() {
+        last = Some(frame);
+    }
+    assert_eq!(last.unwrap(), json!({"bands": vec![0; 32]}), "the release");
+    sleep(ticks(WATCHED_TICKS)).await;
+    assert!(frames.is_empty(), "kept publishing after it was released");
 }

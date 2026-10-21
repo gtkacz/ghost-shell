@@ -231,3 +231,18 @@ fn topic_state_exact_wire_form() {
         assert_eq!(serde_json::from_str::<ServerMsg>(&line).unwrap(), state);
     }
 }
+#[test]
+fn spectrum_snapshot_wire_form() {
+    let snapshot = SpectrumSnapshot {
+        bands: vec![0, 128, 255],
+    };
+
+    assert_eq!(
+        serde_json::to_string(&snapshot).unwrap(),
+        r#"{"bands":[0,128,255]}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&SpectrumSnapshot::default()).unwrap(),
+        r#"{"bands":[]}"#
+    );
+}

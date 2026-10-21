@@ -6,6 +6,7 @@ pub mod http;
 mod kwin_script;
 pub mod shortcuts;
 pub mod sky;
+pub mod spectrum;
 pub mod weather;
 
 use std::future::{pending, poll_fn};
@@ -47,6 +48,18 @@ pub async fn until_wanted(demand: &mut Demand, topic: &str) {
     // the topic again.
     if demand
         .wait_for(|topics| topics.contains(topic))
+        .await
+        .is_err()
+    {
+        pending::<()>().await;
+    }
+}
+
+/// Resolves once no UI client subscribes to `topic`, at once if none does.
+pub async fn until_unwanted(demand: &mut Demand, topic: &str) {
+    // As in `until_wanted`, a closed channel means the demand can never change again.
+    if demand
+        .wait_for(|topics| !topics.contains(topic))
         .await
         .is_err()
     {
