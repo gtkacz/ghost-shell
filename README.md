@@ -504,6 +504,19 @@ The real shell on DP-1 (scale 1.15) against a fake daemon on a private bus, with
 - Covering mid-print drew 1 frame, then none. Uncovering drew 1 frame; a print draws about 26.
 - The visible figure animates at 15 fps because the dead `nvme1n1` keeps the Storage alert running. 1.75 % is inside the 2 % budget with little headroom.
 
+### Plan 2a: weather widget
+
+A V1-like layout with the weather slot, against `ghostd run --fake`, 30 s per state, the shell's `qs` process only:
+
+| State | Shell CPU | Frames in 30 s |
+|---|---|---|
+| Weather with its alert animating | 1.47 / 1.60 % | 478 (15.9/s) |
+| Weather, alert hidden | 0.57 % | 30 |
+| The weather slot replaced by a placeholder | 0.53 % | 30 |
+
+- **Without an alert the widget is nearly free.** It holds the seconds clock while visible, so alert expiry, the dropping of past hours and the staleness check can run. That costs about 0.04 % and adds no frames.
+- **An active alert costs what any alert does:** the 15 fps stripes and blink.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
