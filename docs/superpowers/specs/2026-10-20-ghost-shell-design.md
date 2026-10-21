@@ -470,7 +470,7 @@ These are measurable targets; the user only said "highly performant".
   - The media spectrum runs at 15 fps by default, or 30 with `appearance.spectrum_fps = 30` (user decision, 2026-10-21), only while music is playing and the spectrum is visible.
   - Data panels repaint only when their data changes.
   - The builder chooses how to get there (a frame-paced render loop, separate surfaces for the animated regions, or similar), **before** building panels, because it's expensive to change later.
-- **Desktop visible, default view animating:** shell + daemon ≤ 2 % of one CPU core combined (averaged over 60 s) and ≤ 300 MB RSS combined.
+- **Desktop visible, default view animating:** shell + daemon ≤ 2 % of one CPU core combined (averaged over 60 s) and ≤ 300 MB RSS combined, each resident page counted once: `Rss` in `/proc/<pid>/smaps_rollup`, since VmRSS counts NVIDIA's `/dev/nvidiactl` mappings twice (user decision, 2026-10-21).
 - **Desktop visible, nothing animating** (e.g. the SILICON tab with no alerts): ≤ 1 %.
 - **Covered by windows:** zero dashboard frames, ≤ 0.5 %, and the daemon collects only what the bar shows.
 - **Heavy drawing** lives in native scene-graph nodes or shaders.

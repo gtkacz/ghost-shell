@@ -97,7 +97,7 @@ From the design spec (§15), for the shell and the daemon combined, averaged ove
 
 | State | CPU (% of one core) |
 |---|---|
-| Desktop visible, default view animating | ≤ 2 %, and ≤ 300 MB RSS |
+| Desktop visible, default view animating | ≤ 2 %, and ≤ 300 MB RSS, each page counted once (`smaps_rollup`) |
 | Desktop visible, nothing animating | ≤ 1 % |
 | Covered by windows | ≤ 0.5 %, zero dashboard frames |
 
@@ -671,7 +671,10 @@ The installed binaries: `~/.local/bin/ghostd` with its INMET provider and Open-M
 - The daemon reads 0.48–0.53 % of a core in every visible state and 0.00 % covered. The INMET provider reads 0.00 % at 7.5 MB.
 - Held views render 3 frames/s rather than 2. The data tick, the stripe step and the clock's second don't always share a frame.
 - The user's MONITOR animates because an INMET alert issued for later in the day shows in the weather widget, and the user's 10-minute attention window and scrolling stripes keep it moving.
-- **RSS is over budget on the live display.** Headless, the shell and daemon together are about 283 MiB. Live, the shell is 300 MiB (peak 336 MiB) and the daemon 37 MiB, about 337 MiB together, against ≤ 300 MB. About 94 MiB of the live shell is NVIDIA's driver: `/dev/nvidiactl` 55 MiB, `libnvidia-gpucomp` 28 MiB, `libnvidia-eglcore` 11 MiB. Under investigation.
+- **RSS: within budget, counted once per page.** VmRSS counts the pages NVIDIA maps through `/dev/nvidiactl` twice: VmRSS minus the `smaps` total minus the `nvidiactl` share was a constant 164 KiB over 382 samples. Since then, the budget and `measure-cpu.sh` use `Rss` from `smaps_rollup`. Live at 19:50, the shell reads 250 540 KiB (VmRSS 306 144) and the daemon 37 888, so 288 428 KiB together: 94 % of 307 200.
+- **No leak.** 30 cover and uncover cycles stay between 190 and 192 MiB headless. Switching views adds 8.8 MiB once, at the first switch to V2, then stays within ±1.5 MiB.
+- **The live shell holds about 40 MiB more of NVIDIA's memory than any headless run:** twelve 4 MiB `nvidiactl` chunks against at most three, ten of them from one allocation. Three 2560×1440 buffers would be 42 MiB. The live and headless KWin offer the same Wayland globals apart from `wp_drm_lease_device_v1`, with three dmabuf tranches each. Not yet explained.
+- **The media widget is the largest memory cost added in Plan 2a.** Album art costs about 21.6 MiB, of which Qt's image-format plugins are about 8.5 MiB, and the texture atlas about 60 MiB of VRAM. Playback costs about 10 MiB. PipeWire, the 600 s attention window and the extra views cost nothing measurable. The shell allocates with jemalloc, so `MALLOC_ARENA_MAX` changes nothing.
 
 ### Plan 2a: KWin desktop script
 

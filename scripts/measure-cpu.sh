@@ -31,7 +31,8 @@ sleep "$seconds"
 end_ticks=$(cpu_ticks) || { echo "process $pid exited during measurement" >&2; exit 3; }
 end_time=$EPOCHREALTIME
 
-rss_kib=$(awk '/^VmRSS:/ { print $2 }' "/proc/$pid/status")
+# smaps_rollup counts each resident page once; VmRSS counts NVIDIA's /dev/nvidiactl mappings twice.
+rss_kib=$(awk '/^Rss:/ { print $2 }' "/proc/$pid/smaps_rollup")
 
 # Divide by the measured elapsed time, not the requested one, so scheduler jitter in sleep does not skew the result.
 awk -v ticks=$(( end_ticks - start_ticks )) -v tck="$clk_tck" -v t0="$start_time" -v t1="$end_time" -v rss="$rss_kib" \
