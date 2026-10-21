@@ -426,6 +426,17 @@ Three HTTPS requests per 30 min while the `weather` topic is wanted: the forecas
 
   The HTTP client (ureq with rustls) adds ≈ 3.1 MiB of RSS once used, and the binary grows by 2.69 MiB (8 345 008 → 11 165 144 bytes).
 
+### Plan 2a: sky feed (sun and moon, computed locally)
+
+No network. While the `sky` topic is wanted, the feed recomputes once a minute from the wall clock. Release build:
+
+| Work | CPU |
+|---|---|
+| Sunrise, sunset and moon for one instant | 0.39 µs |
+| One feed cycle (timer, snapshot, serialisation, send) | 1.8 µs |
+
+With a client subscribed to `sky`, `scripts/measure-cpu.sh` reads 0.00–0.02 % over 60 s, which is its clock-tick floor. Over 120 s from `schedstat` the daemon spent 10.2 ms on CPU (0.0085 %), against 9.7 ms (0.0081 %) with the client subscribed to nothing.
+
 ### Plan 2a: per-topic data in the shell
 
 `Data` now keeps one object per topic, so a message re-evaluates only the bindings on its own topic. Previously every message re-ran every topic binding. Default V1 against `ghostd run --fake`, six interleaved 60 s runs; the installed services and several other sessions were running:
