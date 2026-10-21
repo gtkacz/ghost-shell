@@ -106,6 +106,7 @@ Decorative motion runs at ≤ 15 fps in held steps, never at the display's 170 H
 - Shell: `scripts/measure-cpu.sh <pid> 60` on the shell's own `qs` process; frames counted from `QSG_RENDER_TIMING=1` logs.
 - Daemon collectors: release builds driven by a throwaway harness. Wall time comes from `Instant`; CPU time comes from the process's on-CPU time (`/proc/self/schedstat`, `/proc/thread-self/schedstat`). At 1 Hz, 1 ms of CPU per sample is 0.1 % of one core.
 - Other things were running during these measurements, including `plasmashell` and the old `gridlock` HUD (which also polls the hwmon chip). Treat the figures as indicative, not lab-grade.
+- **The shell's CPU figure depends on what else the machine is doing.** The same shell measures 1.05–1.60 % on an otherwise idle machine and 0.64–0.70 % while one unrelated thread keeps a core busy: each of its ≈ 15 wake-ups per second costs about twice as much when the CPU starts from deep idle. The idle-machine figure is the worst case.
 
 ### Rendering (shell)
 
@@ -308,11 +309,73 @@ These measurements are of the installed release build on the live session, with 
 | 2 (60 s) | 1.50 % | 0.42 % | 1.92 % | 253 880 KiB |
 | 3 (300 s) | 1.49 % | 0.40 % | 1.89 % | 254 936 KiB |
 
-- **Memory.** Run 1's overrun came from one ≈ 74 MiB anonymous memory block. It appeared in only 3 of 13 shell instances. It is not the font and not shader compilation, and its cause is still under investigation. Without it, shell + daemon use ≈ 254 MB.
-- **CPU.** The margin is thin. The installed shell measured ≈ 1.5 %, against 1.0–1.25 % for the development copy in Task 17, and the reason is also under investigation.
+- **Memory.** Run 1's overrun came from one ≈ 74 MiB anonymous memory block. It appeared in only 3 of 13 shell instances. Without it, shell + daemon use ≈ 254 MB. The block is NVIDIA's shader compiler; see the investigation below.
+- **CPU.** The margin is thin. The installed shell measured ≈ 1.5 %, against 1.0–1.25 % for the development copy in Task 17. The difference is the machine's background load, not the build; see the investigation below.
 - **The "nothing animating" budget (≤ 1 %) can't be measured on this machine.** Its dead drive keeps a crit alert animating permanently.
 - **Frames.** They were not counted on the service itself, because that needs a restart with a render-timing variable. An identical copy rendered 15.04 frames/s.
 - **Live config.** All four checks passed: panel fill 30, an invalid colour, swapping two slots, and restoring. Each reload took ≈ 150 ms.
+
+### Plan 1 follow-up: the shell's memory and CPU
+
+Measured 2026-10-21 with copies of the installed shell against a release daemon, plus one sample a minute of the running service, read-only. CPU runs were 60 s after a 20 s warm-up, interleaved across variants.
+
+#### The ≈ 74 MiB block: NVIDIA's shader compiler
+
+When NVIDIA's on-disk shader cache has no usable entry at start-up, the driver compiles the shell's shaders itself and keeps ≈ 40–57 MB of compiler memory for the life of the process. The cache misses when it is empty, and when another `qs` process opens the same cache file at the same moment. With a private cache directory, empty at first:
+
+| Start | Anonymous RSS after 10 s |
+|---|---|
+| First, alone, empty cache | 123 868 KiB (block present) |
+| Second, alone | 71 656 KiB |
+| Three at once | 70 608 / 123 104 / 124 008 KiB (block in two) |
+
+With NVIDIA's disk cache turned off, every start has the block: 4 of 4, and 7 of 7 with Qt's own shader cache also off.
+
+#### Steady growth: a leak in NVIDIA's `egl-wayland2`
+
+The running service grew linearly, by 213 KiB/min (≈ 12.5 MB/h), for 2 h 35 min:
+
+| Time | Service VmRSS |
+|---|---|
+| 04:42, end of acceptance run 3 | 222 212 KiB |
+| 04:51, after the five config reloads | 241 312 KiB |
+| 05:08 | 244 980 KiB |
+| 06:38 | 264 084 KiB |
+| 07:43 | 278 052 KiB |
+
+- All of the growth is native heap. The QML/JS heap stayed at 4 860 kB throughout.
+- **Cause:** NVIDIA's `egl-wayland2` 1.0.2 leaves each buffer's `wl_buffer.release` events on an event queue it never dispatches, so one ≈ 225-byte event per frame is never freed: ≈ 3.5 KiB/s at 15 frames/s. With NVIDIA's older `egl-wayland` 1.1.24, 177 releases arrive for 178 frames and the growth stops.
+- With the daemon at ≈ 33 MB, shell + daemon passed the 307 200 KiB budget after ≈ 2 h 48 min of uptime.
+- **Config reloads:** the first one costs a one-off ≈ 19 MB (the rebuilt widget tree plus allocator fragmentation). Later reloads add 0–4 MB.
+
+#### Shell CPU and RSS by variant (idle machine)
+
+| Variant | Mean CPU | RSS |
+|---|---|---|
+| Baseline, development copy (15 runs, 1.05–1.52 %) | **1.33 %** | 213–220 MiB |
+| Installed copy with the service's exact environment | 1.23 % | 214–217 MiB |
+| Fallback font instead of Kode Mono | 1.37 % | 213–216 MiB |
+| `QT_NO_GLIB=1` | 1.42 % | — |
+| `__GL_YIELD=USLEEP` | 1.48 % | — |
+| Threaded render loop | 1.55 % | 232–234 MiB |
+| `egl-wayland` 1.x instead of `egl-wayland2` | 1.38 % | 214–216 MiB |
+| Only NVIDIA's EGL loaded (no Mesa) | 1.39 % | **185–187 MiB** (−29 MiB) |
+| Both of the above plus a private shader cache | 1.36 % | 186 MiB |
+| Animated alert on its own small surface | 1.58 % | 217–219 MiB |
+| Animation clock at 4 / 7.5 / 8 fps | 0.61 / 0.91 / 0.94 % | — |
+| No animation | **0.32 %** | 214–217 MiB |
+| Vulkan instead of OpenGL | — | 355 MiB |
+
+- **About three quarters of the shell's CPU is the alert animation.** Each of its 15 frames per second costs ≈ 0.73 ms of CPU, mostly fixed overhead: NVIDIA's GL driver 34 %, Qt Quick's renderer 18 %, QML bindings 11 %, Qt Gui 9 %, Qt Core 9 %, libc and the allocator 9 %. A smaller surface for the animated region doesn't help.
+- Without Mesa's EGL, LLVM and gallium are no longer loaded. Applied to the acceptance runs, shell + daemon would fall from 253 880 to ≈ 223 840 KiB, and run 1's case with the block from 313 604 to ≈ 283 560 KiB.
+- **Load test.** The same instance, consecutive 25 s windows, with one `yes` loop as the only extra load:
+
+  | Instance | Idle | Busy thread, same CCD | Busy thread, other CCD | Idle again |
+  |---|---|---|---|---|
+  | 1 | 1.40 % | 0.68 % | 0.64 % | 1.36 % |
+  | 2 | 1.48 % | 0.64 % | 0.68 % | 1.48 % |
+
+  The service itself read 1.50 % on the idle machine at 04:55 and 0.70 % at 07:33 while another session's test run kept the CPU busy. Task 17's 1.03–1.25 % and acceptance run 1's 0.95 % were taken while other work ran.
 
 ### Plan 2a: demand-driven sampling (daemon)
 
