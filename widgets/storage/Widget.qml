@@ -233,7 +233,7 @@ Panel {
                 width: list.width
                 level: "crit"
                 chipKey: "crit"
-                text: drive.label + " · " + drive.kernel_name
+                text: drive.kernel_name + " · " + drive.label
                 trailing: "DEAD"
             }
         }
