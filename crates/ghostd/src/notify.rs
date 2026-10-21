@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
+use tokio::time::timeout;
 use tracing::warn;
 use zbus::{Connection, Variant};
 
@@ -13,14 +15,21 @@ const WARNING_ICON: &str = "dialog-warning";
 const NEW_NOTIFICATION: u32 = 0;
 // -1 leaves how long the popup stays to the notification server.
 const SERVER_DEFAULT_TIMEOUT: i32 = -1;
+// A notification server that hangs must not leave the warning task waiting forever.
+const NOTIFY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Shows a desktop notification through `org.freedesktop.Notifications` on the session bus.
 ///
 /// A failure, such as a session without a bus or a notification server, is logged and otherwise
 /// ignored: a warning that cannot be shown must not take anything else down with it.
 pub async fn send_warning(summary: &str, body: &str) {
-    if let Err(error) = notify(summary, body).await {
-        warn!(%error, summary, "cannot show a desktop notification");
+    match timeout(NOTIFY_TIMEOUT, notify(summary, body)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => warn!(%error, summary, "cannot show a desktop notification"),
+        Err(_elapsed) => warn!(
+            summary,
+            "the notification server did not answer within {NOTIFY_TIMEOUT:?}"
+        ),
     }
 }
 

@@ -14,8 +14,9 @@ use ghostd::collect::{
 use ghostd::config::{DEFAULT_TOML, default_path};
 use ghostd::sampler::Sampler;
 use ghostd::selfmon::SelfMon;
-use ghostd::server::{self, ConfigFeed, Hub, WarningHook};
+use ghostd::server::{self, ConfigFeed, Hub, WarningHook, WidgetDirs};
 use ghostd::sysroot::SysRoot;
+use ghostd::widgets::default_dirs;
 use ghostd::{fake, notify, providers};
 use serde::Serialize;
 use tokio::signal::unix::{SignalKind, signal};
@@ -23,8 +24,8 @@ use tokio::sync::watch;
 use tracing::{error, info, warn};
 
 const EXIT_USAGE: u8 = 2;
-const USAGE: &str = "usage: ghostd run [--socket PATH] [--config PATH] [--widgets-dir DIR] [--fake] \
-                     [--tick-ms N]\n       ghostd default-config\n       \
+const USAGE: &str = "usage: ghostd run [--socket PATH] [--config PATH] [--widgets-dir DIR] \
+                     [--fake] [--tick-ms N]\n       ghostd default-config\n       \
                      ghostd probe <cpu | mem | sensors | gpu | disks | perf>";
 const DEFAULT_TICK_MS: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 const RUNTIME_DIR_ENV: &str = "XDG_RUNTIME_DIR";
@@ -170,8 +171,7 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
     info!(socket = %socket.display(), config = %config_path.display(), "listening");
 
     let config = ConfigFeed::open(&config_path);
-    // Kept until the daemon stops; dropping it kills the providers.
-    let _providers = providers::supervise(&config.current().providers, &socket);
+    let providers = providers::supervise(&config.current().providers, &socket);
     let sampler = if options.fake {
         fake::sampler()
     } else {
@@ -181,7 +181,8 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
         config,
         sampler,
         tick_ms: options.tick_ms,
-        widgets_dir: options.widgets_dir,
+        widget_dirs: widget_search_dirs(options.widgets_dir),
+        providers,
         on_warning: desktop_warning(),
     };
 
@@ -194,6 +195,17 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
         warn!(%error, socket = %socket.display(), "cannot remove the socket file");
     }
     ExitCode::SUCCESS
+}
+
+/// The default search order, with `builtin` (from `--widgets-dir`) in place of the built-in dir.
+fn widget_search_dirs(builtin: Option<PathBuf>) -> WidgetDirs {
+    Box::new(move |config| {
+        let mut dirs = default_dirs(&config.widgets.paths);
+        if let (Some(first), Some(replacement)) = (dirs.first_mut(), &builtin) {
+            first.clone_from(replacement);
+        }
+        dirs
+    })
 }
 
 fn desktop_warning() -> WarningHook {

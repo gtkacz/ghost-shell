@@ -11,7 +11,7 @@ use nix::sys::stat::Mode;
 use nix::unistd::mkfifo;
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::UnixStream;
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf, pipe};
 use tokio::task::JoinHandle;
@@ -21,6 +21,7 @@ const TICK_MS: u32 = 50;
 const WAIT: Duration = Duration::from_secs(5);
 const HANDSHAKE_DEADLINE: Duration = Duration::from_millis(2500);
 const RESTART_WINDOW: Duration = Duration::from_secs(3);
+const QUIET_WINDOW: Duration = Duration::from_millis(600);
 // Half the first restart delay, so a supervisor that restarts without waiting is caught while
 // scheduler jitter is not.
 const MIN_RESTART_GAP: Duration = Duration::from_millis(500);
@@ -71,21 +72,31 @@ impl Daemon {
     }
 
     async fn start_with_config(toml: &str) -> Self {
+        Self::start_with_widgets(toml, &["clock"]).await
+    }
+
+    async fn start_with_widgets(toml: &str, installed: &[&str]) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join(CONFIG_DIR).join(CONFIG_FILE);
         fs::create_dir_all(config.parent().unwrap()).unwrap();
         fs::write(&config, toml).unwrap();
         let widgets = dir.path().join(WIDGETS_DIR);
-        install_widget(&widgets, "clock");
+        for id in installed {
+            install_widget(&widgets, id);
+        }
 
+        let socket = dir.path().join(SOCKET_FILE);
+        let config = ConfigFeed::open(&config);
         let hub = Hub {
-            config: ConfigFeed::open(&config),
+            providers: providers::supervise(&config.current().providers, &socket),
+            config,
             sampler: fake::sampler(),
             tick_ms: NonZeroU32::new(TICK_MS).unwrap(),
-            widgets_dir: Some(widgets),
+            // Only the temp dir, so widgets installed on this machine cannot leak into the tests.
+            widget_dirs: Box::new(move |_| vec![widgets.clone()]),
             on_warning: Box::new(|_, _| {}),
         };
-        let listener = server::bind(&dir.path().join(SOCKET_FILE)).unwrap();
+        let listener = server::bind(&socket).unwrap();
         let serve = tokio::spawn(server::serve(listener, hub));
         Self { dir, serve }
     }
@@ -178,8 +189,7 @@ impl Client {
         serde_json::from_str(&line).unwrap()
     }
 
-    /// The next message other than `config_error`, which reports problems outside the test's
-    /// control, such as a broken widget in the user's own widget directory.
+    /// The next message other than `config_error`, which only the config tests look at.
     async fn recv(&mut self) -> Value {
         timeout(WAIT, async {
             loop {
@@ -205,6 +215,20 @@ impl Client {
         })
         .await
         .unwrap_or_else(|_| panic!("no {topic} data arrived in time"))
+    }
+
+    /// Skips ahead to a `layout` whose single `v1` slot satisfies `wanted`.
+    async fn recv_layout_where(&mut self, wanted: impl Fn(&Value) -> bool) -> Value {
+        timeout(WAIT, async {
+            loop {
+                let message = self.recv().await;
+                if message["t"] == "layout" && wanted(&message["data"]["views"]["v1"]) {
+                    return message;
+                }
+            }
+        })
+        .await
+        .expect("no matching layout arrived in time")
     }
 
     async fn expect_error(&mut self, expected: &str) {
@@ -263,6 +287,28 @@ async fn ui_handshake_then_subscribed_topics_only() {
         assert_eq!(message["data"]["threads"].as_array().unwrap().len(), 32);
         cpu_lines += 1;
     }
+
+    // The ticks so far recorded every series, `gpu_load` included, so a history that leaks
+    // unsubscribed series would show it now.
+    ui.send(json!({"t": "subscribe", "topics": ["cpu"]})).await;
+    let history = loop {
+        let message = ui.recv().await;
+        if message["t"] == "history" {
+            break message;
+        }
+        assert_eq!(message["topic"], "cpu", "got {message}");
+    };
+    let series = history["series"].as_object().unwrap();
+    let mut keys: Vec<&str> = series.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    let mut expected = CPU_HISTORY_KEYS;
+    expected.sort_unstable();
+    assert_eq!(keys, expected);
+    assert!(
+        series
+            .values()
+            .all(|samples| !samples.as_array().unwrap().is_empty())
+    );
 }
 
 #[tokio::test]
@@ -407,10 +453,9 @@ async fn reconnect_works() {
 
 #[tokio::test]
 async fn config_change_resends_config_and_layout() {
-    let daemon = Daemon::start().await;
+    let daemon =
+        Daemon::start_with_widgets(&single_widget_config("clock", 55), &["clock", "gauge"]).await;
     let mut ui = daemon.ui().await;
-    // Installed after startup, so it only resolves if the reload rediscovers the widget dirs.
-    install_widget(&daemon.widgets(), "gauge");
 
     fs::write(daemon.config(), single_widget_config("gauge", 40)).unwrap();
 
@@ -437,6 +482,70 @@ async fn next_start(started: &mut Lines<BufReader<pipe::Receiver>>) -> String {
         .expect("provider not started in time")
         .unwrap()
         .expect("the FIFO closed")
+}
+
+#[tokio::test]
+async fn widget_changes_resend_the_layout() {
+    let daemon = Daemon::start_with_config(&single_widget_config("gauge", 55)).await;
+    let mut ui = daemon.connect().await;
+    ui.send(json!({"t": "hello", "proto": 1, "topics": []}))
+        .await;
+    assert_eq!(ui.recv().await["t"], "hello");
+    assert_eq!(ui.recv().await["t"], "config");
+    let layout = ui.recv().await;
+    assert!(layout["data"]["views"]["v1"]["error"].is_string());
+
+    // No config change follows, so only the widget-dir watch can bring the new layout.
+    install_widget(&daemon.widgets(), "gauge");
+    ui.recv_layout_where(|slot| slot["error"].is_null()).await;
+
+    // Discovery reads every manifest, which inotify reports too, so a watch that reacted to its own
+    // reads would resend the layout within a debounce period or two. Absence can only be shown by
+    // waiting, so the window spans several debounce periods.
+    assert!(
+        timeout(QUIET_WINDOW, ui.lines.next_line()).await.is_err(),
+        "the layout was resent without any widget change"
+    );
+
+    fs::remove_dir_all(daemon.widgets().join("gauge")).unwrap();
+    ui.recv_layout_where(|slot| slot["error"].is_string()).await;
+}
+
+#[tokio::test]
+async fn providers_follow_config_reloads() {
+    let daemon = Daemon::start().await;
+    let starts = daemon.dir.path().join("starts");
+    let held = daemon.dir.path().join("held");
+    mkfifo(&starts, Mode::S_IRWXU).unwrap();
+    mkfifo(&held, Mode::S_IRWXU).unwrap();
+    let mut started = BufReader::new(
+        pipe::OpenOptions::new()
+            .read_write(true)
+            .open_receiver(&starts)
+            .unwrap(),
+    )
+    .lines();
+    // Read-only, so once the provider holds the write end, reading ends only when it dies.
+    let mut lifeline = pipe::OpenOptions::new().open_receiver(&held).unwrap();
+    let script = r#"exec 3>"$1"; echo "$$" > "$0"; exec sleep 1000"#;
+    let provider = format!(
+        "\n[[providers]]\nname = \"lingering\"\nexec = [\"sh\", \"-c\", {script:?}, {:?}, {:?}]\n",
+        starts.to_str().unwrap(),
+        held.to_str().unwrap(),
+    );
+    let base = single_widget_config("clock", 55);
+
+    fs::write(daemon.config(), format!("{base}{provider}")).unwrap();
+    let pid = next_start(&mut started).await;
+    assert!(pid.parse::<u32>().is_ok(), "got {pid:?}");
+
+    fs::write(daemon.config(), &base).unwrap();
+    let mut leftover = Vec::new();
+    timeout(WAIT, lifeline.read_to_end(&mut leftover))
+        .await
+        .expect("the removed provider is still running")
+        .unwrap();
+    assert!(leftover.is_empty());
 }
 
 #[tokio::test]

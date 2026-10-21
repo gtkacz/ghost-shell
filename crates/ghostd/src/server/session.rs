@@ -169,6 +169,7 @@ async fn serve_ui(
     match outcome {
         Ending::Refused(problem) => {
             let farewell = line(&ServerMsg::Error { message: problem });
+            // A client too far behind to take the error is closed all the same.
             let _queued = outbox.push(&farewell);
             // With every sender gone, the writer flushes the error and then closes the socket.
             drop(outbox);

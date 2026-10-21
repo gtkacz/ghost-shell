@@ -10,7 +10,8 @@ use tokio::time::timeout;
 
 use super::load::{ConfigError, load_path};
 
-const DEBOUNCE: Duration = Duration::from_millis(150);
+/// How long a watched path must stay quiet before a burst of events is acted on.
+pub(crate) const DEBOUNCE: Duration = Duration::from_millis(150);
 const REMOVED_MESSAGE: &str = "config file removed; keeping last configuration";
 
 /// Keeps the watcher and its reload task running; dropping it stops both.

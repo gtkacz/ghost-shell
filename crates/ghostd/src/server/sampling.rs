@@ -30,8 +30,8 @@ pub(super) struct Tick {
 }
 
 impl Collectors {
-    pub(super) fn new(sampler: Sampler, config: &ResolvedConfig) -> Self {
-        let history_len = history_len(config.dashboard.history_minutes);
+    pub(super) fn new(sampler: Sampler, config: &ResolvedConfig, tick_ms: NonZeroU32) -> Self {
+        let history_len = history_len(config.dashboard.history_minutes, tick_ms);
         Self {
             sampler,
             history: History::new(history_len),
@@ -66,7 +66,7 @@ pub(super) async fn sample_forever(
     loop {
         ticks.tick().await;
         let shell_pid = shared.lock().perf_pid();
-        let history_len = history_len(config.borrow().dashboard.history_minutes);
+        let history_len = history_len(config.borrow().dashboard.history_minutes, tick_ms);
         // Collectors block on sysfs and NVML reads; off the reactor, a slow read delays the
         // built-in topics but never the socket.
         let sampled: JoinHandle<(Collectors, Tick)> = tokio::task::spawn_blocking(move || {

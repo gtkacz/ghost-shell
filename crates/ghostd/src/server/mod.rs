@@ -8,6 +8,7 @@ mod feed;
 mod sampling;
 mod session;
 mod state;
+mod widget_watch;
 
 use std::num::NonZeroU32;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
@@ -16,16 +17,18 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::{fs, io};
 
-use ghost_proto::{ServerMsg, encode_line};
+use ghost_proto::{ResolvedConfig, ServerMsg, encode_line};
 use nix::unistd::gethostname;
 use tokio::net::UnixListener;
 
 pub use feed::ConfigFeed;
-use feed::{ProblemReporter, Reloader, config_lines, follow_config, resolve_layout};
+use feed::{ProblemReporter, Reloader, follow_config};
 use sampling::{Collectors, sample_forever};
 use session::accept_forever;
 use state::State;
+use widget_watch::WidgetWatch;
 
+use crate::providers::Supervisor;
 use crate::sampler::Sampler;
 
 const OWNER_ONLY_MODE: u32 = 0o600;
@@ -72,13 +75,17 @@ pub fn bind(path: &Path) -> Result<UnixListener, BindError> {
 /// reported before.
 pub type WarningHook = Box<dyn Fn(&str, &str) + Send>;
 
+/// The widget search dirs for a config, in discovery order.
+pub type WidgetDirs = Box<dyn Fn(&ResolvedConfig) -> Vec<PathBuf> + Send>;
+
 /// Everything [`serve`] runs.
 pub struct Hub {
     pub config: ConfigFeed,
     pub sampler: Sampler,
     pub tick_ms: NonZeroU32,
-    /// Replaces the built-in widget directory (`$GHOST_WIDGETS_DIR`, else the data-home default).
-    pub widgets_dir: Option<PathBuf>,
+    pub widget_dirs: WidgetDirs,
+    /// Reconciled with `providers` on every config reload.
+    pub providers: Supervisor,
     pub on_warning: WarningHook,
 }
 
@@ -89,34 +96,34 @@ pub async fn serve(listener: UnixListener, hub: Hub) {
         mut config,
         sampler,
         tick_ms,
-        widgets_dir,
+        widget_dirs,
+        providers,
         on_warning,
     } = hub;
     let initial = config.updates.borrow_and_update().clone();
-    let layout = resolve_layout(&initial, widgets_dir.as_deref());
-    let layout_errors = layout.errors.clone();
-    let shared = Shared::new(State::new(
+    let collectors = Collectors::new(sampler, &initial, tick_ms);
+    let mut reloader = Reloader::start(
+        initial,
+        widget_dirs,
+        providers,
+        ProblemReporter::new(on_warning),
         host_name(),
         tick_ms.get(),
-        config_lines(&initial, layout),
-    ));
-    let mut reloader = Reloader::new(
-        shared.clone(),
-        widgets_dir,
-        &initial,
-        layout_errors,
-        ProblemReporter::new(on_warning),
-    );
+    )
+    .await;
     if let Some(error) = config.startup_error.take() {
         reloader.refuse(error);
     }
     reloader.report();
-    let collectors = Collectors::new(sampler, &initial);
+    let shared = reloader.shared();
+    // Watching before the first accept means no client can change a widget unseen.
+    let mut widgets = WidgetWatch::new();
+    widgets.watch(reloader.widget_dirs()).await;
 
     tokio::join!(
         accept_forever(listener, shared.clone()),
         sample_forever(shared, collectors, tick_ms, config.subscribe()),
-        follow_config(reloader, config),
+        follow_config(reloader, config, widgets),
     );
 }
 

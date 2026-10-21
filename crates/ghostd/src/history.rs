@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::num::NonZeroU32;
 
-const SECONDS_PER_MINUTE: usize = 60;
+const MILLIS_PER_MINUTE: u64 = 60_000;
 
-/// Samples to keep so that `history_minutes` of history fit at the 1 Hz sampling rate.
-pub fn history_len(history_minutes: u32) -> usize {
-    history_minutes as usize * SECONDS_PER_MINUTE
+/// Samples to keep so that `history_minutes` of history fit at one sample every `tick_ms`, and
+/// never fewer than one.
+pub fn history_len(history_minutes: u32, tick_ms: NonZeroU32) -> usize {
+    let samples = u64::from(history_minutes) * MILLIS_PER_MINUTE / u64::from(tick_ms.get());
+    usize::try_from(samples).unwrap_or(usize::MAX).max(1)
 }
 
 /// Fixed-capacity sample buffers keyed by series name, newest samples winning once full.
@@ -87,8 +90,18 @@ mod tests {
         assert_eq!(history.series()["load"], [2.0, 3.0, 4.0, 5.0]);
     }
 
+    fn tick(ms: u32) -> NonZeroU32 {
+        NonZeroU32::new(ms).unwrap()
+    }
+
     #[test]
-    fn history_len_is_one_sample_per_second() {
-        assert_eq!(history_len(5), 300);
+    fn history_len_covers_the_minutes_at_the_tick_rate() {
+        assert_eq!(history_len(5, tick(1000)), 300);
+        assert_eq!(history_len(5, tick(50)), 6000);
+    }
+
+    #[test]
+    fn history_len_keeps_at_least_one_sample() {
+        assert_eq!(history_len(1, tick(120_000)), 1);
     }
 }

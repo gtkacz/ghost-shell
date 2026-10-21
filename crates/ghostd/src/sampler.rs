@@ -11,6 +11,15 @@ const GPU_LOAD_KEY: &str = "gpu_load";
 // The shell's history keys stop at ccd1, so CCDs past the second are not recorded.
 const CCD_LOAD_KEYS: [&str; 2] = ["ccd0", "ccd1"];
 
+/// The history series each built-in topic records, keyed by topic.
+pub const HISTORY_KEYS: [(&str, &[&str]); 2] = [
+    (
+        topics::CPU,
+        &[CPU_LOAD_KEY, CCD_LOAD_KEYS[0], CCD_LOAD_KEYS[1]],
+    ),
+    (topics::GPU, &[GPU_LOAD_KEY]),
+];
+
 /// `Send` so a `Sampler` can be ticked from a blocking thread.
 type BoxedSource<T> = Box<dyn Source<T> + Send>;
 

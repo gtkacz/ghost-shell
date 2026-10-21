@@ -1,14 +1,19 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use ghost_proto::{ProviderSpec, ResolvedConfig, ResolvedLayout, ServerMsg};
+use ghost_proto::{LayoutConfig, ResolvedConfig, ResolvedLayout, ServerMsg};
 use tokio::sync::{mpsc, watch};
-use tracing::{info, warn};
+use tokio::task::spawn_blocking;
+use tracing::{error, info, warn};
 
-use super::state::ConfigLines;
-use super::{Shared, WarningHook, line, problem_line};
+use super::state::{LayoutLines, State};
+use super::widget_watch::WidgetWatch;
+use super::{Shared, WarningHook, WidgetDirs, line, problem_line};
 use crate::config::{ConfigError, WatchHandle, load_path, load_str, spawn_watcher};
-use crate::widgets::{default_dirs, discover, resolve};
+use crate::providers::Supervisor;
+use crate::widgets::{discover, resolve};
 
 const CONFIG_WARNING_SUMMARY: &str = "ghost-shell config";
 
@@ -87,43 +92,75 @@ impl ConfigFeed {
     }
 }
 
-/// Turns config loads and refusals into messages for UI clients and warnings for the user.
+/// Turns config loads, refusals and widget changes into messages for UI clients and warnings for
+/// the user, and keeps the providers in line with the config.
 pub(super) struct Reloader {
     shared: Shared,
-    widgets_dir: Option<PathBuf>,
-    providers: Vec<ProviderSpec>,
+    widget_dirs: WidgetDirs,
+    providers: Supervisor,
+    config: ResolvedConfig,
+    dirs: Vec<PathBuf>,
     config_error: Option<String>,
     layout_errors: Vec<String>,
     reporter: ProblemReporter,
 }
 
 impl Reloader {
-    pub(super) fn new(
-        shared: Shared,
-        widgets_dir: Option<PathBuf>,
-        initial: &ResolvedConfig,
-        layout_errors: Vec<String>,
+    /// Resolves the first layout and builds the state every UI client is greeted from.
+    pub(super) async fn start(
+        config: ResolvedConfig,
+        widget_dirs: WidgetDirs,
+        providers: Supervisor,
         reporter: ProblemReporter,
+        host: String,
+        step_ms: u32,
     ) -> Self {
+        let dirs = widget_dirs(&config);
+        let layout = resolve_layout(dirs.clone(), &config.layout).await;
+        let layout_errors = layout.errors.clone();
+        let shared = Shared::new(State::new(
+            host,
+            step_ms,
+            config_line(&config),
+            layout_lines(layout),
+        ));
         Self {
             shared,
-            widgets_dir,
-            providers: initial.providers.clone(),
+            widget_dirs,
+            providers,
+            config,
+            dirs,
             config_error: None,
             layout_errors,
             reporter,
         }
     }
 
-    fn apply(&mut self, config: &ResolvedConfig) {
-        if config.providers != self.providers {
-            warn!("provider changes take effect when ghostd restarts");
-            self.providers = config.providers.clone();
-        }
-        let layout = resolve_layout(config, self.widgets_dir.as_deref());
+    pub(super) fn shared(&self) -> Shared {
+        self.shared.clone()
+    }
+
+    /// The widget search dirs of the config in effect.
+    pub(super) fn widget_dirs(&self) -> Vec<PathBuf> {
+        self.dirs.clone()
+    }
+
+    async fn apply(&mut self, config: ResolvedConfig) {
+        self.dirs = (self.widget_dirs)(&config);
+        let layout = resolve_layout(self.dirs.clone(), &config.layout).await;
         self.config_error = None;
         self.layout_errors = layout.errors.clone();
-        self.shared.lock().set_config(config_lines(config, layout));
+        self.shared
+            .lock()
+            .set_config(config_line(&config), layout_lines(layout));
+        self.providers.reconcile(&config.providers).await;
+        self.config = config;
+    }
+
+    async fn rescan_widgets(&mut self) {
+        let layout = resolve_layout(self.dirs.clone(), &self.config.layout).await;
+        self.layout_errors = layout.errors.clone();
+        self.shared.lock().set_layout(layout_lines(layout));
     }
 
     pub(super) fn refuse(&mut self, error: ConfigError) {
@@ -175,12 +212,15 @@ impl ProblemReporter {
     }
 }
 
-pub(super) fn config_lines(config: &ResolvedConfig, layout: ResolvedLayout) -> ConfigLines {
-    ConfigLines {
-        config: line(&ServerMsg::Config {
-            data: config.clone(),
-        }),
-        layout_errors: layout
+fn config_line(config: &ResolvedConfig) -> Arc<str> {
+    line(&ServerMsg::Config {
+        data: config.clone(),
+    })
+}
+
+fn layout_lines(layout: ResolvedLayout) -> LayoutLines {
+    LayoutLines {
+        errors: layout
             .errors
             .iter()
             .map(|error| problem_line(error))
@@ -189,34 +229,52 @@ pub(super) fn config_lines(config: &ResolvedConfig, layout: ResolvedLayout) -> C
     }
 }
 
-/// Discovers the widgets anew, so a widget installed since the last load is picked up.
-pub(super) fn resolve_layout(
-    config: &ResolvedConfig,
-    widgets_dir: Option<&Path>,
-) -> ResolvedLayout {
-    let mut dirs = default_dirs(&config.widgets.paths);
-    if let (Some(builtin), Some(replacement)) = (dirs.first_mut(), widgets_dir) {
-        *builtin = replacement.to_owned();
-    }
-    let (manifests, problems) = discover(&dirs);
-    let mut layout = resolve(&config.layout, &manifests);
-    layout.errors.extend(problems);
-    layout
+/// Discovers the widgets in `dirs` anew and checks `layout` against them, on a blocking thread
+/// because the dirs are user-configured and may sit on a slow mount.
+async fn resolve_layout(dirs: Vec<PathBuf>, layout: &LayoutConfig) -> ResolvedLayout {
+    let wanted = layout.clone();
+    let resolved = spawn_blocking(move || {
+        let (manifests, problems) = discover(&dirs);
+        let mut resolved = resolve(&wanted, &manifests);
+        resolved.errors.extend(problems);
+        resolved
+    })
+    .await;
+    resolved.unwrap_or_else(|error| {
+        error!(%error, "widget discovery failed");
+        ResolvedLayout {
+            gutter: layout.gutter,
+            margin: layout.margin,
+            views: BTreeMap::new(),
+            errors: vec![format!("widget discovery failed: {error}")],
+        }
+    })
 }
 
-pub(super) async fn follow_config(mut reloader: Reloader, mut feed: ConfigFeed) {
+pub(super) async fn follow_config(
+    mut reloader: Reloader,
+    mut feed: ConfigFeed,
+    mut widgets: WidgetWatch,
+) {
     loop {
         tokio::select! {
             Ok(()) = feed.updates.changed() => {
                 let config = feed.updates.borrow_and_update().clone();
                 info!("config reloaded");
-                reloader.apply(&config);
+                reloader.apply(config).await;
+                // Rebuilt on every reload: the dir list may have changed, or a missing dir may
+                // have been created since.
+                widgets.watch(reloader.widget_dirs()).await;
             }
             Some(error) = feed.errors.recv() => {
                 warn!(%error, "config not applied; keeping the last good one");
                 reloader.refuse(error);
             }
-            else => return,
+            () = widgets.changed() => {
+                widgets.settle().await;
+                info!("widgets changed");
+                reloader.rescan_widgets().await;
+            }
         }
         reloader.report();
     }

@@ -1,28 +1,24 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::iter;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ghost_proto::{PROTO_VERSION, ServerMsg, data_msg, is_valid_topic, topics};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::sampling::Tick;
 use super::{invalid_topic, line};
+use crate::sampler::HISTORY_KEYS;
 
 /// The output a UI client may leave unread before it is disconnected.
 const MAX_UNSENT_BYTES: usize = 256 * 1024;
-// The keys `Sampler` records into its history for each built-in topic that has one.
-const HISTORY_KEYS: [(&str, &[&str]); 2] = [
-    (topics::CPU, &["load", "ccd0", "ccd1"]),
-    (topics::GPU, &["gpu_load"]),
-];
 
-/// The encoded config messages every UI client is greeted with.
-pub(super) struct ConfigLines {
-    pub(super) config: Arc<str>,
+/// The encoded `Layout` message and one `ConfigError` per layout problem.
+pub(super) struct LayoutLines {
     pub(super) layout: Arc<str>,
-    pub(super) layout_errors: Vec<Arc<str>>,
+    pub(super) errors: Vec<Arc<str>>,
 }
 
 #[derive(Default)]
@@ -49,7 +45,8 @@ struct UiClient {
 pub(super) struct State {
     hello: Arc<str>,
     step_ms: u32,
-    config: ConfigLines,
+    config: Arc<str>,
+    layout: LayoutLines,
     config_error: Option<Arc<str>>,
     series: BTreeMap<String, Vec<f32>>,
     topics: HashMap<String, Topic>,
@@ -58,7 +55,7 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn new(host: String, step_ms: u32, config: ConfigLines) -> Self {
+    pub(super) fn new(host: String, step_ms: u32, config: Arc<str>, layout: LayoutLines) -> Self {
         Self {
             hello: line(&ServerMsg::Hello {
                 proto: PROTO_VERSION,
@@ -66,6 +63,7 @@ impl State {
             }),
             step_ms,
             config,
+            layout,
             config_error: None,
             series: BTreeMap::new(),
             topics: HashMap::new(),
@@ -96,10 +94,10 @@ impl State {
                 _registration: registration,
             },
         );
-        let greeting: Vec<Arc<str>> = [&self.hello, &self.config.config, &self.config.layout]
+        let greeting: Vec<Arc<str>> = [&self.hello, &self.config, &self.layout.layout]
             .into_iter()
             .chain(&self.config_error)
-            .chain(&self.config.layout_errors)
+            .chain(&self.layout.errors)
             .cloned()
             .collect();
         for line in &greeting {
@@ -229,14 +227,21 @@ impl State {
         self.relay(&data_msg(topics::PERF, seq, &tick.perf));
     }
 
-    pub(super) fn set_config(&mut self, lines: ConfigLines) {
+    /// Sends a newly loaded config and its layout to every UI client.
+    pub(super) fn set_config(&mut self, config: Arc<str>, layout: LayoutLines) {
         self.config_error = None;
-        let outgoing: Vec<Arc<str>> = [&lines.config, &lines.layout]
-            .into_iter()
-            .chain(&lines.layout_errors)
+        self.deliver(&config, |_| true);
+        self.config = config;
+        self.set_layout(layout);
+    }
+
+    /// Sends a layout resolved anew, after a config load or a change in the widget dirs.
+    pub(super) fn set_layout(&mut self, layout: LayoutLines) {
+        let outgoing: Vec<Arc<str>> = iter::once(&layout.layout)
+            .chain(&layout.errors)
             .cloned()
             .collect();
-        self.config = lines;
+        self.layout = layout;
         for line in &outgoing {
             self.deliver(line, |_| true);
         }
@@ -248,34 +253,47 @@ impl State {
     }
 
     fn send(&mut self, id: u64, line: &Arc<str>) {
-        if let Some(client) = self.clients.get(&id)
-            && !client.outbox.push(line)
-        {
-            self.drop_lagging(id);
+        let undelivered = self
+            .clients
+            .get(&id)
+            .and_then(|client| client.outbox.push(line).err());
+        if let Some(reason) = undelivered {
+            self.drop_client(id, reason);
         }
     }
 
-    /// Queues `line` for every client `wants` picks, dropping any client that stopped reading.
+    /// Queues `line` for every client `wants` picks, dropping any client it cannot reach.
     fn deliver(&mut self, line: &Arc<str>, wants: impl Fn(&UiClient) -> bool) {
-        let lagging: Vec<u64> = self
+        let undelivered: Vec<(u64, Undelivered)> = self
             .clients
             .iter()
             .filter(|(_, client)| wants(client))
-            .filter(|(_, client)| !client.outbox.push(line))
-            .map(|(id, _)| *id)
+            .filter_map(|(id, client)| Some((*id, client.outbox.push(line).err()?)))
             .collect();
-        for id in lagging {
-            self.drop_lagging(id);
+        for (id, reason) in undelivered {
+            self.drop_client(id, reason);
         }
     }
 
-    fn drop_lagging(&mut self, id: u64) {
-        warn!(
-            client = id,
-            "UI client stopped reading with over {MAX_UNSENT_BYTES} bytes unsent; disconnecting"
-        );
+    fn drop_client(&mut self, id: u64, reason: Undelivered) {
+        match reason {
+            Undelivered::Behind => warn!(
+                client = id,
+                "UI client stopped reading with over {MAX_UNSENT_BYTES} bytes unsent; disconnecting"
+            ),
+            Undelivered::Gone => debug!(client = id, "UI client connection already closed"),
+        }
         self.clients.remove(&id);
     }
+}
+
+/// Why a line could not be queued for a UI client.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Undelivered {
+    /// More than [`MAX_UNSENT_BYTES`] would be waiting to be written.
+    Behind,
+    /// The writer has stopped, because the socket failed or the session ended.
+    Gone,
 }
 
 /// A UI client's outgoing queue, which counts the bytes not yet written to its socket.
@@ -295,10 +313,14 @@ impl Outbox {
         (outbox, queued)
     }
 
-    /// Queues `line`, or returns `false` once the client is too far behind or gone.
-    #[must_use]
-    pub(super) fn push(&self, line: &Arc<str>) -> bool {
+    /// Queues `line` unless the client is too far behind or its writer has stopped.
+    pub(super) fn push(&self, line: &Arc<str>) -> Result<(), Undelivered> {
         let unsent = self.unsent.fetch_add(line.len(), Ordering::Relaxed) + line.len();
-        unsent <= MAX_UNSENT_BYTES && self.lines.send(Arc::clone(line)).is_ok()
+        if unsent > MAX_UNSENT_BYTES {
+            return Err(Undelivered::Behind);
+        }
+        self.lines
+            .send(Arc::clone(line))
+            .map_err(|_closed| Undelivered::Gone)
     }
 }
