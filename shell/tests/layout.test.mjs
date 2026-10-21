@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { computeRects } from '../kit/GhostKit/lib/layout.mjs';
 
 const slot = (widget, size = null, settings = {}) => ({ widget, source: 'builtin', size, settings, requires: [], animates: false, error: null });
+const tab = (widget, title, settings = {}) => ({ widget, title, source: 'builtin', settings, error: null });
 
 const DEFAULT_V1_FOR_TEST = {
   direction: 'row',
@@ -13,11 +14,53 @@ const DEFAULT_V1_FOR_TEST = {
       direction: 'column',
       size: null,
       children: [
-        slot('placeholder', 262, { label: 'Clock' }),
-        { direction: 'row', size: null, children: [slot('placeholder', 290, { label: 'Media' }), slot('placeholder', null, { label: 'Notifications' })] },
+        slot('clock', 262, { style: 'hero' }),
+        { direction: 'row', size: null, children: [slot('media', 290, { style: 'stack' }), slot('placeholder', null, { label: 'Notifications' })] },
       ],
     },
     { direction: 'column', size: 300, children: [slot('placeholder', 300, { label: 'Uplink' }), slot('storage'), slot('sensors', 184)] },
+  ],
+};
+
+const DEFAULT_V2_FOR_TEST = {
+  direction: 'row',
+  size: null,
+  children: [
+    { direction: 'column', size: 300, children: [slot('processor', 250), slot('graphics', 204), slot('memory')] },
+    {
+      direction: 'column',
+      size: null,
+      children: [
+        slot('clock', 150, { style: 'band' }),
+        {
+          size: null,
+          default: 0,
+          tabs: [
+            tab('placeholder', 'UPLINK', { label: 'Uplink' }),
+            tab('placeholder', 'SILICON', { label: 'Silicon' }),
+            tab('placeholder', 'PROCESS TREE', { label: 'Process tree' }),
+          ],
+        },
+        slot('media', 120, { style: 'strip' }),
+      ],
+    },
+    { direction: 'column', size: 300, children: [slot('placeholder', 290, { label: 'Notifications' }), slot('placeholder', 164, { label: 'Network' }), slot('storage')] },
+  ],
+};
+
+const DEFAULT_MONITOR_FOR_TEST = {
+  direction: 'column',
+  size: null,
+  children: [
+    { direction: 'row', size: 104, children: [slot('clock', 250, { style: 'compact' }), slot('weather'), slot('media', 340, { style: 'compact' })] },
+    {
+      direction: 'row',
+      size: null,
+      children: [
+        slot('placeholder', null, { label: 'Telemetry' }),
+        { direction: 'column', size: 340, children: [slot('placeholder', null, { label: 'Process tree' }), slot('sensors', 184)] },
+      ],
+    },
   ],
 };
 
@@ -34,21 +77,35 @@ test('default v1 geometry', () => {
 
 test('default v1 flex columns fill the space between the fixed ones', () => {
   const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
-  const clock = r.find((rect) => rect.settings.label === 'Clock');
   const notifications = r.find((rect) => rect.settings.label === 'Notifications');
-  assert.deepEqual({ x: clock.x, y: clock.y, w: clock.w, h: clock.h }, { x: 324, y: 42, w: 632, h: 262 });
+  assert.deepEqual(pick(r, 'clock'), { x: 324, y: 42, w: 632, h: 262 });
   assert.equal(notifications.x, 324 + 290 + 12);
   assert.equal(notifications.w, 632 - 290 - 12);
   assert.equal(pick(r, 'sensors').x, 12 + 1256 - 300);
   assert.equal(r.overflow, undefined);
 });
 
+test('default v2 geometry', () => {
+  const r = computeRects(DEFAULT_V2_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
+  assert.deepEqual(pick(r, 'clock'), { x: 324, y: 42, w: 632, h: 150 });
+  assert.equal(r.find((x) => x.tabs).h, 372);
+  assert.equal(r.overflow, undefined);
+});
+
+test('default monitor geometry', () => {
+  const r = computeRects(DEFAULT_MONITOR_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
+  assert.deepEqual(pick(r, 'weather'), { x: 274, y: 42, w: 642, h: 104 });
+  assert.deepEqual(pick(r, 'media'), { x: 928, y: 42, w: 340, h: 104 });
+  assert.deepEqual(pick(r, 'sensors'), { x: 928, y: 524, w: 340, h: 184 });
+  assert.equal(r.overflow, undefined);
+});
+
 test('rects carry their path and the slot fields', () => {
   const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
-  const media = r.find((rect) => rect.settings.label === 'Media');
+  const media = r.find((rect) => rect.widget === 'media');
   assert.equal(r[0].path, '[0][0]');
   assert.equal(media.path, '[1][1][0]');
-  assert.equal(media.widget, 'placeholder');
+  assert.equal(media.widget, 'media');
   assert.equal(media.source, 'builtin');
   assert.equal(media.error, null);
 });

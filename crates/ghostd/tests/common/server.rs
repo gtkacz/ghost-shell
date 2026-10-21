@@ -20,10 +20,15 @@ pub const CONFIG_DIR: &str = "config";
 pub const CONFIG_FILE: &str = "config.toml";
 pub const WIDGETS_DIR: &str = "widgets";
 
-/// A config whose only view holds one widget, so the test widget dir can satisfy the whole layout
-/// and no layout errors arrive between the messages under test.
+/// A config whose every view holds one widget, so the test widget dir can satisfy the whole layout
+/// and no layout errors arrive between the messages under test. The default views are replaced too,
+/// since their own widgets are not installed in the test dir.
 pub fn single_widget_config(widget: &str, panel_fill: u32) -> String {
-    format!("[appearance]\npanel_fill = {panel_fill}\n\n[layout.views.v1]\nwidget = {widget:?}\n")
+    let views: String = ["v1", "v2", "monitor"]
+        .iter()
+        .map(|view| format!("\n[layout.views.{view}]\nwidget = {widget:?}\n"))
+        .collect();
+    format!("[appearance]\npanel_fill = {panel_fill}\n{views}")
 }
 
 /// Only the providers the config lists, without the one `location.alerts` would add, so that no

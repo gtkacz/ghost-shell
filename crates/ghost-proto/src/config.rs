@@ -200,8 +200,8 @@ pub struct Dashboard {
 impl Default for Dashboard {
     fn default() -> Self {
         Self {
-            main_views: vec!["v1".into()],
-            monitor_view: String::new(),
+            main_views: vec!["v1".into(), "v2".into()],
+            monitor_view: "monitor".into(),
             default_view: "v1".into(),
             history_minutes: 5,
         }
@@ -338,7 +338,11 @@ impl Default for LayoutConfig {
         Self {
             gutter: 12.0,
             margin: 12.0,
-            views: BTreeMap::from([("v1".to_owned(), default_v1())]),
+            views: BTreeMap::from([
+                ("v1".to_owned(), default_v1()),
+                ("v2".to_owned(), default_v2()),
+                ("monitor".to_owned(), default_monitor()),
+            ]),
         }
     }
 }
@@ -416,6 +420,22 @@ fn placeholder(label: &str, size: Option<f32>) -> LayoutNode {
     }
 }
 
+fn styled(widget: &str, size: Option<f32>, style: &str) -> LayoutNode {
+    LayoutNode::Slot {
+        widget: widget.into(),
+        size,
+        settings: Map::from_iter([("style".to_owned(), Value::String(style.into()))]),
+    }
+}
+
+fn placeholder_tab(label: &str, title: &str) -> TabSpec {
+    TabSpec {
+        widget: "placeholder".into(),
+        title: Some(title.into()),
+        settings: Map::from_iter([("label".to_owned(), Value::String(label.into()))]),
+    }
+}
+
 fn split(direction: Direction, size: Option<f32>, children: Vec<LayoutNode>) -> LayoutNode {
     LayoutNode::Split {
         direction,
@@ -443,12 +463,12 @@ fn default_v1() -> LayoutNode {
                 Column,
                 None,
                 vec![
-                    placeholder("Clock", Some(262.0)),
+                    styled("clock", Some(262.0), "hero"),
                     split(
                         Row,
                         None,
                         vec![
-                            placeholder("Media", Some(290.0)),
+                            styled("media", Some(290.0), "stack"),
                             placeholder("Notifications", None),
                         ],
                     ),
@@ -461,6 +481,85 @@ fn default_v1() -> LayoutNode {
                     placeholder("Uplink", Some(300.0)),
                     slot("storage", None),
                     slot("sensors", Some(184.0)),
+                ],
+            ),
+        ],
+    )
+}
+
+fn default_v2() -> LayoutNode {
+    use Direction::{Column, Row};
+    split(
+        Row,
+        None,
+        vec![
+            split(
+                Column,
+                Some(300.0),
+                vec![
+                    slot("processor", Some(250.0)),
+                    slot("graphics", Some(204.0)),
+                    slot("memory", None),
+                ],
+            ),
+            split(
+                Column,
+                None,
+                vec![
+                    styled("clock", Some(150.0), "band"),
+                    LayoutNode::Tabs {
+                        tabs: vec![
+                            placeholder_tab("Uplink", "UPLINK"),
+                            placeholder_tab("Silicon", "SILICON"),
+                            placeholder_tab("Process tree", "PROCESS TREE"),
+                        ],
+                        size: None,
+                        default: 0,
+                    },
+                    styled("media", Some(120.0), "strip"),
+                ],
+            ),
+            split(
+                Column,
+                Some(300.0),
+                vec![
+                    placeholder("Notifications", Some(290.0)),
+                    placeholder("Network", Some(164.0)),
+                    slot("storage", None),
+                ],
+            ),
+        ],
+    )
+}
+
+fn default_monitor() -> LayoutNode {
+    use Direction::{Column, Row};
+    split(
+        Column,
+        None,
+        vec![
+            split(
+                Row,
+                Some(104.0),
+                vec![
+                    styled("clock", Some(250.0), "compact"),
+                    slot("weather", None),
+                    styled("media", Some(340.0), "compact"),
+                ],
+            ),
+            split(
+                Row,
+                None,
+                vec![
+                    placeholder("Telemetry", None),
+                    split(
+                        Column,
+                        Some(340.0),
+                        vec![
+                            placeholder("Process tree", None),
+                            slot("sensors", Some(184.0)),
+                        ],
+                    ),
                 ],
             ),
         ],

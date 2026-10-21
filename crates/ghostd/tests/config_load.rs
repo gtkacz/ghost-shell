@@ -244,6 +244,15 @@ fn unknown_key_rejected() {
 }
 
 #[test]
+fn default_views_and_dashboard() {
+    let c = load_str_with_user("", "u").unwrap();
+    assert_eq!(c.dashboard.main_views, ["v1", "v2"]);
+    assert_eq!(c.dashboard.monitor_view, "monitor");
+    assert_eq!(c.dashboard.default_view, "v1");
+    assert!(c.layout.views.contains_key("v2") && c.layout.views.contains_key("monitor"));
+}
+
+#[test]
 fn default_v1_layout_shape() {
     let c = load_str_with_user("", "u").unwrap();
     let LayoutNode::Split { children, .. } = &c.layout.views["v1"] else {
@@ -320,10 +329,10 @@ fn default_shortcuts_parse() {
 #[test]
 fn views_must_exist() {
     assert_eq!(
-        load_str_with_user("[dashboard]\nmain_views = [\"v1\", \"v2\"]\n", "u")
+        load_str_with_user("[dashboard]\nmain_views = [\"v1\", \"v9\"]\n", "u")
             .unwrap_err()
             .message,
-        "dashboard.main_views: view \"v2\" is not defined in layout.views"
+        "dashboard.main_views: view \"v9\" is not defined in layout.views"
     );
 }
 

@@ -87,10 +87,10 @@ model = ""
 [dashboard]
 # The views the swap shortcut cycles through, in order, and the one shown at start. Every name
 # must be defined under [layout.views], and default_view must be one of main_views.
-main_views = ["v1"]
+main_views = ["v1", "v2"]
 default_view = "v1"
 # The view the monitor shortcut opens; empty means none.
-monitor_view = ""
+monitor_view = "monitor"
 # How many minutes of history the graphs keep, from 1 to 60.
 history_minutes = 5
 
@@ -156,6 +156,8 @@ popup_timeout_s = 6
 gutter = 12
 margin = 12
 
+# The view the dashboard starts on: a large clock over the media player and the notifications,
+# between a column of processor, graphics and memory and one of uplink, storage and sensors.
 [layout.views.v1]
 direction = "row"
 
@@ -178,17 +180,17 @@ widget = "memory"
 direction = "column"
 
 [[layout.views.v1.children.children]]
-widget = "placeholder"
+widget = "clock"
 size = 262
-settings = { label = "Clock" }
+settings = { style = "hero" }
 
 [[layout.views.v1.children.children]]
 direction = "row"
 
 [[layout.views.v1.children.children.children]]
-widget = "placeholder"
+widget = "media"
 size = 290
-settings = { label = "Media" }
+settings = { style = "stack" }
 
 [[layout.views.v1.children.children.children]]
 widget = "placeholder"
@@ -207,6 +209,104 @@ settings = { label = "Uplink" }
 widget = "storage"
 
 [[layout.views.v1.children.children]]
+widget = "sensors"
+size = 184
+
+# The second main view: a clock band over a tab strip, with the media player as a strip below.
+[layout.views.v2]
+direction = "row"
+
+[[layout.views.v2.children]]
+direction = "column"
+size = 300
+
+[[layout.views.v2.children.children]]
+widget = "processor"
+size = 250
+
+[[layout.views.v2.children.children]]
+widget = "graphics"
+size = 204
+
+[[layout.views.v2.children.children]]
+widget = "memory"
+
+[[layout.views.v2.children]]
+direction = "column"
+
+[[layout.views.v2.children.children]]
+widget = "clock"
+size = 150
+settings = { style = "band" }
+
+[[layout.views.v2.children.children]]
+default = 0
+tabs = [
+  { widget = "placeholder", title = "UPLINK", settings = { label = "Uplink" } },
+  { widget = "placeholder", title = "SILICON", settings = { label = "Silicon" } },
+  { widget = "placeholder", title = "PROCESS TREE", settings = { label = "Process tree" } },
+]
+
+[[layout.views.v2.children.children]]
+widget = "media"
+size = 120
+settings = { style = "strip" }
+
+[[layout.views.v2.children]]
+direction = "column"
+size = 300
+
+[[layout.views.v2.children.children]]
+widget = "placeholder"
+size = 290
+settings = { label = "Notifications" }
+
+[[layout.views.v2.children.children]]
+widget = "placeholder"
+size = 164
+settings = { label = "Network" }
+
+[[layout.views.v2.children.children]]
+widget = "storage"
+
+# The view the monitor shortcut opens: a slim band of clock, weather and media over telemetry, the
+# process tree and the sensors.
+[layout.views.monitor]
+direction = "column"
+
+[[layout.views.monitor.children]]
+direction = "row"
+size = 104
+
+[[layout.views.monitor.children.children]]
+widget = "clock"
+size = 250
+settings = { style = "compact" }
+
+[[layout.views.monitor.children.children]]
+widget = "weather"
+
+[[layout.views.monitor.children.children]]
+widget = "media"
+size = 340
+settings = { style = "compact" }
+
+[[layout.views.monitor.children]]
+direction = "row"
+
+[[layout.views.monitor.children.children]]
+widget = "placeholder"
+settings = { label = "Telemetry" }
+
+[[layout.views.monitor.children.children]]
+direction = "column"
+size = 340
+
+[[layout.views.monitor.children.children.children]]
+widget = "placeholder"
+settings = { label = "Process tree" }
+
+[[layout.views.monitor.children.children.children]]
 widget = "sensors"
 size = 184
 
