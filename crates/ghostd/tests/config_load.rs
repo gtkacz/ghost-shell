@@ -465,6 +465,15 @@ fn from_and_to_must_be_set_together() {
 }
 
 #[test]
+fn from_and_to_must_differ() {
+    assert_eq!(
+        rejected("[i18n]\nfrom = \"pt-BR\"\nto = \"pt-BR\"\n"),
+        "i18n: from and to must differ"
+    );
+    assert!(load_str_with_user("[i18n]\nfrom = \"pt-BR\"\nto = \"pt\"\n", "u").is_ok());
+}
+
+#[test]
 fn a_tag_that_is_not_a_language_tag_names_the_key() {
     for tag in [
         "EN", "en-us", "en_US", "english", "e", "en-USA", "en-", "-US",

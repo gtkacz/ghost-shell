@@ -382,6 +382,10 @@ fn validate_i18n(i18n: &I18n) -> Result<(), ConfigError> {
             ));
         }
     }
+    // Translating a language into itself would only ask the online translator again every hour.
+    if !i18n.from.is_empty() && i18n.from == i18n.to {
+        return Err(invalid("i18n", "from and to must differ"));
+    }
     Ok(())
 }
 
