@@ -335,12 +335,17 @@ fn probe(topic: &str) -> ExitCode {
 fn probe_source<T: Serialize>(mut source: impl Source<T>) -> ExitCode {
     source.sample();
     thread::sleep(PROBE_INTERVAL);
-    match serde_json::to_string(&source.sample()) {
-        Ok(json) => print_stdout(&format!("{json}\n")),
-        Err(error) => {
-            eprintln!("ghostd: cannot encode the sample: {error}");
-            ExitCode::FAILURE
-        }
+    let sample = source.sample();
+    // Piping into `head` closes stdout early, which must not panic like `println!` does. Writing is
+    // the only step that can fail: a snapshot is plain numbers, booleans and strings, which always
+    // serialise.
+    let mut stdout = io::stdout().lock();
+    let written = serde_json::to_writer(&mut stdout, &sample)
+        .map_err(io::Error::from)
+        .and_then(|()| writeln!(stdout));
+    match written {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(_) => ExitCode::FAILURE,
     }
 }
 
