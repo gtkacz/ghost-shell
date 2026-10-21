@@ -8,6 +8,9 @@ const FIRST_DEVICE_INDEX: u32 = 0;
 const FIRST_FAN_INDEX: u32 = 0;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 const MILLIWATTS_PER_WATT: f32 = 1000.0;
+// The fan query is most of a read's cost, and fans ramp over seconds with no alert threshold or
+// graph, so a fan percentage a few seconds old is as good as a fresh one.
+const FAN_READ_EVERY: u32 = 5;
 
 /// One successful read of a GPU: every `GpuSnapshot` field except `present`.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,13 +36,17 @@ pub trait GpuSource: Send {
 /// Reads the first NVIDIA GPU through NVML.
 pub struct NvmlSource {
     nvml: Nvml,
+    fan: FanCache,
 }
 
 impl NvmlSource {
     /// `None` when `libnvidia-ml` cannot be loaded or NVML will not initialise, as on a machine
     /// without an NVIDIA driver.
     pub fn open() -> Option<Self> {
-        Nvml::init().ok().map(|nvml| Self { nvml })
+        Nvml::init().ok().map(|nvml| Self {
+            nvml,
+            fan: FanCache::new(FAN_READ_EVERY),
+        })
     }
 }
 
@@ -56,8 +63,42 @@ impl GpuSource for NvmlSource {
             temp_c: device.temperature(TemperatureSensor::Gpu).ok()? as f32,
             power_w: milliwatts_to_watts(device.power_usage().ok()?),
             power_limit_w: milliwatts_to_watts(device.enforced_power_limit().ok()?),
-            fan_pct: device.fan_speed(FIRST_FAN_INDEX).ok()? as f32,
+            fan_pct: self
+                .fan
+                .next(|| device.fan_speed(FIRST_FAN_INDEX).ok().map(|pct| pct as f32))?,
         })
+    }
+}
+
+/// Repeats a slow-moving reading between real reads of it.
+///
+/// A failed read is cached like any other, so the reading stays `None` until the next real read
+/// succeeds instead of flickering between present and absent.
+struct FanCache {
+    every: u32,
+    countdown: u32,
+    last: Option<f32>,
+}
+
+impl FanCache {
+    fn new(every: u32) -> Self {
+        Self {
+            every,
+            countdown: 0,
+            last: None,
+        }
+    }
+
+    /// Runs `read` on the first call and on every `every`th call after it, and repeats its result
+    /// on the calls in between.
+    fn next(&mut self, read: impl FnOnce() -> Option<f32>) -> Option<f32> {
+        if self.countdown == 0 {
+            self.last = read();
+            self.countdown = self.every.saturating_sub(1);
+        } else {
+            self.countdown -= 1;
+        }
+        self.last
     }
 }
 
@@ -102,6 +143,7 @@ impl Source<GpuSnapshot> for GpuCollector {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::collections::VecDeque;
 
     use ghost_proto::GpuSnapshot;
@@ -171,5 +213,51 @@ mod tests {
         assert_eq!(during, GpuSnapshot::default());
         assert!(after.present);
         assert_eq!(after.name, reading().name);
+    }
+
+    #[test]
+    fn fan_cache_reads_on_the_first_call_and_every_nth_after() {
+        let reads = Cell::new(0);
+        let mut fan = FanCache::new(5);
+
+        for _ in 0..11 {
+            fan.next(|| {
+                reads.set(reads.get() + 1);
+                Some(40.0)
+            });
+        }
+
+        // Calls 1, 6 and 11.
+        assert_eq!(reads.get(), 3);
+    }
+
+    #[test]
+    fn fan_cache_repeats_the_last_read_in_between() {
+        let mut fan = FanCache::new(3);
+
+        let seen: Vec<_> = (1..=7).map(|call| fan.next(|| Some(call as f32))).collect();
+
+        assert_eq!(seen, [1.0, 1.0, 1.0, 4.0, 4.0, 4.0, 7.0].map(Some).to_vec());
+    }
+
+    #[test]
+    fn fan_cache_stays_empty_after_a_failed_read_until_a_later_read_succeeds() {
+        let mut fan = FanCache::new(3);
+
+        assert_eq!(fan.next(|| Some(30.0)), Some(30.0));
+        assert_eq!(fan.next(|| unreachable!()), Some(30.0));
+        assert_eq!(fan.next(|| unreachable!()), Some(30.0));
+        assert_eq!(fan.next(|| None), None);
+        assert_eq!(fan.next(|| unreachable!()), None);
+        assert_eq!(fan.next(|| unreachable!()), None);
+        assert_eq!(fan.next(|| Some(35.0)), Some(35.0));
+    }
+
+    #[test]
+    fn fan_cache_reads_every_call_when_the_period_is_one() {
+        let mut fan = FanCache::new(1);
+
+        assert_eq!(fan.next(|| Some(1.0)), Some(1.0));
+        assert_eq!(fan.next(|| Some(2.0)), Some(2.0));
     }
 }
