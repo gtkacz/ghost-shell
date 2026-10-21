@@ -1,6 +1,9 @@
 // Every test binary compiles this module but uses only part of it.
 #![allow(dead_code)]
 
+pub mod disk;
+pub mod server;
+
 use std::fs;
 use std::os::unix::fs::symlink;
 
