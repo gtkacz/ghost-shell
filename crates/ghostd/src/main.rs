@@ -319,7 +319,10 @@ fn probe(topic: &str) -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        topics::MEM => probe_source(MemCollector::new(&root, TOP_PROCESSES)),
+        topics::MEM => probe_with(
+            MemCollector::new(&root, TOP_PROCESSES),
+            Baseline::TakenByNew,
+        ),
         topics::SENSORS => probe_source(SensorCollector::new(&root, &no_labels)),
         // A machine without a readable GPU is not a failure: it prints `present:false`, exactly
         // what the daemon would publish.
@@ -330,12 +333,25 @@ fn probe(topic: &str) -> ExitCode {
     }
 }
 
+/// How a probe gets the baseline that its one printed sample is measured against.
+enum Baseline {
+    /// A throwaway sample, taken right away.
+    SampleFirst,
+    /// The collector's constructor already took it. For the memory collector a throwaway sample
+    /// would also be its first process scan, microseconds after the constructor, and the sample
+    /// printed a second later would only repeat that scan's shares.
+    TakenByNew,
+}
+
 /// Prints one sample as a line of JSON, taken a second after a baseline sample so that loads and
 /// rates cover a real interval.
-fn probe_source<T: Serialize>(mut source: impl Source<T>) -> ExitCode {
-    source.sample();
-    thread::sleep(PROBE_INTERVAL);
-    let sample = source.sample();
+fn probe_source<T: Serialize>(source: impl Source<T>) -> ExitCode {
+    probe_with(source, Baseline::SampleFirst)
+}
+
+/// As [`probe_source`], with the baseline taken as `baseline` says.
+fn probe_with<T: Serialize>(source: impl Source<T>, baseline: Baseline) -> ExitCode {
+    let sample = sample_after(source, baseline, || thread::sleep(PROBE_INTERVAL));
     // Piping into `head` closes stdout early, which must not panic like `println!` does. Writing is
     // the only step that can fail: a snapshot is plain numbers, booleans and strings, which always
     // serialise.
@@ -349,9 +365,19 @@ fn probe_source<T: Serialize>(mut source: impl Source<T>) -> ExitCode {
     }
 }
 
+/// `wait` stands in for the sleep, so that a test can change what the source reads during it.
+fn sample_after<T>(mut source: impl Source<T>, baseline: Baseline, wait: impl FnOnce()) -> T {
+    if let Baseline::SampleFirst = baseline {
+        source.sample();
+    }
+    wait();
+    source.sample()
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::path::Path;
 
     use super::*;
 
@@ -391,5 +417,75 @@ mod tests {
         });
         assert_eq!(source.sample()["k10temp/Tctl"], "CPU");
         assert_eq!(builds.get(), 2);
+    }
+
+    struct CallCount(u32);
+
+    impl Source<u32> for CallCount {
+        fn sample(&mut self) -> u32 {
+            self.0 += 1;
+            self.0
+        }
+    }
+
+    #[test]
+    fn a_probe_takes_a_throwaway_sample_only_when_asked_to() {
+        assert_eq!(sample_after(CallCount(0), Baseline::SampleFirst, || {}), 2);
+        assert_eq!(sample_after(CallCount(0), Baseline::TakenByNew, || {}), 1);
+    }
+
+    const IDLE_TICKS: u64 = 10_000;
+    const WINDOW_TICKS: u64 = 3_200;
+    const BUSY_TICKS: u64 = 100;
+    // 100 of the 3200 ticks that passed, as a percentage.
+    const BUSY_SHARE: f32 = 3.125;
+
+    fn write_proc(root: &Path, rel: &str, content: &str) {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    /// A machine with one process that has used `process_ticks` of the `idle_ticks` that passed.
+    fn write_machine(root: &Path, idle_ticks: u64, process_ticks: u64) {
+        write_proc(
+            root,
+            "proc/stat",
+            &format!("cpu 0 0 0 {idle_ticks} 0 0 0 0\n"),
+        );
+        write_proc(
+            root,
+            "proc/meminfo",
+            "MemTotal: 1000 kB\nMemAvailable: 500 kB\n",
+        );
+        // Fields 14 (utime), 22 (starttime) and 24 (rss) are the ones the collector reads.
+        write_proc(
+            root,
+            "proc/1/stat",
+            &format!("1 (worker) S 0 0 0 0 0 0 0 0 0 0 {process_ticks} 0 0 0 0 0 0 0 1000 0 8 0\n"),
+        );
+    }
+
+    fn probe_memory(baseline: Baseline) -> f32 {
+        let dir = tempfile::tempdir().unwrap();
+        write_machine(dir.path(), IDLE_TICKS, 0);
+        let memory = MemCollector::new(&SysRoot::new(dir.path()), TOP_PROCESSES);
+
+        let sample = sample_after(memory, baseline, || {
+            write_machine(dir.path(), IDLE_TICKS + WINDOW_TICKS, BUSY_TICKS);
+        });
+
+        sample.top[0].cpu
+    }
+
+    #[test]
+    fn a_memory_probe_reports_shares_over_the_whole_wait() {
+        assert_eq!(probe_memory(Baseline::TakenByNew), BUSY_SHARE);
+    }
+
+    #[test]
+    fn a_throwaway_sample_would_hide_the_wait_from_the_memory_collector() {
+        // Its first sample is already the process scan, so a second one only repeats that scan.
+        assert_eq!(probe_memory(Baseline::SampleFirst), 0.0);
     }
 }
