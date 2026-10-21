@@ -3,8 +3,9 @@ import { withAlpha } from './theme.mjs';
 const DEFAULT_CELL_PX = 4;
 const DEFAULT_GAP_PX = 2;
 const UNLIT_ALPHA_PCT = 6;
-const LIT_ALPHA_FLOOR_PCT = 35;
-const LIT_ALPHA_SPAN_PCT = 50;
+// Exported for SegBars, whose shader colours its lit cells the way cellColor() does.
+export const LIT_ALPHA_FLOOR_PCT = 35;
+export const LIT_ALPHA_SPAN_PCT = 50;
 
 export function cellCount(width, cell = DEFAULT_CELL_PX, gap = DEFAULT_GAP_PX) {
   return Math.max(0, Math.floor((width + gap) / (cell + gap)));

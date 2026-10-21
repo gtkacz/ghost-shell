@@ -18,5 +18,7 @@ Kv 1.0 Kv.qml
 ScrambleText 1.0 ScrambleText.qml
 Chip 1.0 Chip.qml
 Glyph 1.0 Glyph.qml
+SegBars 1.0 SegBars.qml
+Duotone 1.0 Duotone.qml
 ClickArea 1.0 ClickArea.qml
 internal TopicValue TopicValue.qml
