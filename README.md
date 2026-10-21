@@ -65,7 +65,7 @@ Where the cost came from (one pass over every pid, ~790–850 entries):
 
 #### Temperatures and fans (`collect/hwmon.rs`)
 
-22 temperatures and 2 fans, first version (every chip read every sample):
+First version: 22 temperatures and 2 fans, every chip read every sample.
 
 | Cadence | Wall per sample (median / mean / max) | CPU per sample (median / mean) |
 |---|---|---|
@@ -83,8 +83,15 @@ By chip, 1 s spacing, n = 20:
 | `r8169` | 1 | 53 µs | ≈ 0 |
 
 - **Nearly all of the CPU cost is the `nct6799` chip.** Its driver caches readings for 1.5 s, and any read after that refreshes the whole chip, costing ≈ 5.7 ms of CPU and 10–13 ms of wall time. At 1 Hz that happens on every second sample, about 3.3 ms of CPU per second, or ≈ 0.33 % of a core. Reading fewer of its files does not help.
-- **Fix in progress: read Super-I/O chips every 5 samples.** The projected cost of the chip drops to ≈ 1.1 ms of CPU per second (≈ 0.11 %). *Not yet measured.*
-- The NVMe and i2c reads block for milliseconds but use little CPU. The daemon therefore runs its collectors off its event loop.
+- **Fix: Super-I/O chips (`nct*`, `it8*`) are read every 5 samples, and their last values are repeated in between.** Measured on-CPU time per sample (`CLOCK_THREAD_CPUTIME_ID`), 40 samples at 1 s spacing, old and new code run alternately for two rounds each:
+
+  | Version | Mean CPU per sample | Median CPU per sample |
+  |---|---|---|
+  | Every chip read every sample | 3.31 / 3.28 ms | 3.30 / 3.24 ms |
+  | Super-I/O chips every 5 samples (current) | **1.01 / 0.89 ms** | 0.45 / 0.45 ms |
+
+  The current version costs **≈ 0.1 % of a core**. The baseline is ≈ 0.45 ms, with a ≈ 6 ms chip refresh on 4 of 40 samples. A lone reader would refresh on every 5th sample, for an expected mean of ≈ 1.65 ms (≈ 0.17 %). Here gridlock was also reading the chip and keeping its cache warm, so the measured mean is lower.
+- The NVMe and i2c reads block for milliseconds but use little CPU: a sample still takes ≈ 4.5–5 ms of wall time. The daemon therefore runs its collectors off its event loop.
 
 #### Not yet measured
 
