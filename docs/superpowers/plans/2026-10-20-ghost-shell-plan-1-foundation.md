@@ -57,6 +57,7 @@
 - **Pluggable by contract:**
   - Built-in widgets use only the public widget contract: the manifest, `Widget.qml`, the `GhostKit` imports and an injected `settings` object.
   - No panel's placement is hard-coded; placement comes from `layout.*` in the config file.
+  - **Views are named layouts:** any number under `layout.views.<name>`. A layout tree has three node types: row/column splits, widget slots, and `tabs` containers. A `tabs` container loads only its active tab's widget.
   - Topic names match `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$` and are at most 64 characters.
 - **Widget API version is `1`.**
 - **Design units:** every size is mockup px at 1280×720. On screen, multiply by `u = surfaceLogicalWidth / 1280` (≈ 1.74 on the 2560×1440 M27Q at scale 1.15). Never hard-code the scale.
@@ -275,7 +276,7 @@ git commit -m "feat(proto): add open-topic wire protocol and built-in snapshot t
   - `thresholds { load_warn 75, load_crit 90, temp_warn 80, temp_crit 90, battery_warn 20, battery_crit 10, aqi_warn 100, aqi_crit 150, sensors: BTreeMap<String, SensorThreshold { warn: f32, crit: f32 }> }`
   - `display { model = "" }`
   - `sensors { labels: BTreeMap<String,String> }`, `disks { labels: BTreeMap<String,String> }` (keyed by serial)
-  - `dashboard { default_view = V1 (V1 | V2), history_minutes = 5 (1..=60) }`
+  - `dashboard { main_views: Vec<String> = ["v1"], monitor_view: String = "", default_view: String = "v1", history_minutes = 5 (1..=60) }`. Plan 2 adds `v2` and `monitor` to the defaults once those layouts exist.
   - `bar { layout = A (A|B|C), position = Top (Top|Bottom), icons = Mono (Mono|Colour), pinned: Vec<String> = [], brand { enabled = true, text = "GS//01", subtitle = "攻殻" } }`
   - `greeting { name = "" }`
   - `location { city = "", lat: Option<f64> = None, lon: Option<f64> = None, alerts { provider = "", area = "" } }`
@@ -287,6 +288,7 @@ git commit -m "feat(proto): add open-topic wire protocol and built-in snapshot t
   - `LayoutNode`, `#[serde(untagged)]`:
     - `Slot { widget: String, size: Option<f32>, settings: serde_json::Map }`
     - `Split { direction: Direction (Row | Column), size: Option<f32>, children: Vec<LayoutNode> }`
+    - `Tabs { tabs: Vec<TabSpec { widget: String, title: Option<String>, settings: serde_json::Map }>, size: Option<f32>, default: usize = 0 }`
 - **The default `layout.views.v1`**, sizes in design px, no `size` meaning flex:
   - `Row`:
     - `Column` size 300:
@@ -325,6 +327,8 @@ git commit -m "feat(proto): add open-topic wire protocol and built-in snapshot t
 #[test] fn unknown_key_rejected() { assert!(load_str_with_user("[appearance]\nglow = true\n", "u").unwrap_err().message.contains("unknown field `glow`")); }
 #[test] fn default_v1_layout_shape() { let c = load_str_with_user("", "u").unwrap(); let LayoutNode::Split { children, .. } = &c.layout.views["v1"] else { panic!() }; assert_eq!(children.len(), 3); }
 #[test] fn user_layout_replaces_default_view() { /* [layout.views.v1] with a single Slot{widget="memory"} → views["v1"] is that slot */ }
+#[test] fn views_must_exist() { assert_eq!(load_str_with_user("[dashboard]\nmain_views = [\"v1\", \"v2\"]\n", "u").unwrap_err().message, "dashboard.main_views: view \"v2\" is not defined in layout.views"); }
+#[test] fn extra_view_and_tabs_parse() { /* [layout.views.v3] = { tabs = [{widget="processor"},{widget="memory", title="RAM"}], default = 1 } + main_views ["v1","v3"] → Ok, views["v3"] is Tabs with 2 tabs */ }
 #[test] fn provider_spec_parses() { let c = load_str_with_user("[[providers]]\nname = \"inmet\"\nexec = [\"inmet-provider\", \"--area\", \"3550308\"]\n", "u").unwrap(); assert_eq!(c.providers[0].exec[2], "3550308"); assert!(c.providers[0].restart); }
 ```
 
@@ -335,12 +339,17 @@ Expected: FAIL to compile.
 
 - [ ] **Step 3: Implement the types, the defaults, `validate` and `load_*`**
 
-`validate` checks hex colours, ranges, warn/crit ordering (reversed for batteries), that provider names are unique and non-empty, and that `exec` is non-empty.
+`validate` checks:
+- hex colours, ranges, and warn/crit ordering (reversed for batteries);
+- provider names are unique and non-empty, and `exec` is non-empty;
+- every name in `main_views` and `default_view`, and a non-empty `monitor_view`, exists in `layout.views`. The exact message is `dashboard.main_views: view "v2" is not defined in layout.views`;
+- `default_view` is in `main_views`;
+- a `tabs` node has at least one tab, and `default` < its tab count.
 
 - [ ] **Step 4: Run them and watch them pass**
 
 Run: `cargo test -p ghostd --test config_load`
-Expected: PASS (12 tests).
+Expected: PASS (14 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -420,6 +429,7 @@ git commit -m "feat(config): watch config directory and keep last good config on
   - `ResolvedNode`:
     - `Split { direction, size, children }`
     - `Slot { widget: String, source: Option<String>, size: Option<f32>, settings: serde_json::Map, requires: Vec<String>, animates: bool, error: Option<String> }`, where `source` is the `file://` URL of `Widget.qml`.
+    - `Tabs { size: Option<f32>, default: usize, tabs: Vec<ResolvedTab { title: String, slot: ResolvedNode::Slot }> }`. `title` is the override, else the manifest `name`, uppercased.
   - **Exact error strings:**
     - `no widget named "x" is installed`
     - `widget "x" targets API 2; this ghost-shell supports API 1`
@@ -439,6 +449,7 @@ git commit -m "feat(config): watch config directory and keep last good config on
 #[test] fn bad_setting_key_and_type() { /* {foo=1} → "has no setting \"foo\""; {history="yes"} → "setting \"history\": expected bool, got \"yes\"" */ }
 #[test] fn errors_carry_layout_path() { /* second child of first column → errors[0] starts with "layout.v1[0][1]: " */ }
 #[test] fn user_dir_overrides_builtin() { /* same id in two dirs → source from the later dir */ }
+#[test] fn tabs_resolve_each_tab() { /* tabs [processor, nope] → tab 0 resolved with title "PROCESSOR", tab 1 error "no widget named \"nope\" is installed", path "layout.v3[1]" */ }
 #[test] fn bar_only_widget_rejected_in_panel_slot() { /* kinds=["bar"] → "widget \"x\" can't be placed in a panel slot" */ }
 ```
 
@@ -452,7 +463,7 @@ Expected: FAIL to compile.
 - [ ] **Step 4: Run them and watch them pass**
 
 Run: `cargo test -p ghostd --test widgets`
-Expected: PASS (7 tests).
+Expected: PASS (8 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -873,6 +884,7 @@ git commit -m "feat(ghostd): serve telemetry, layout and external providers over
     - Within a split, fixed `size` values are taken along the split's direction, and flex children share what's left equally.
     - When the fixed sizes plus gutters exceed the available space, the fixed sizes scale down proportionally and the result includes `overflow: true`.
     - `path` is like `"[0][1]"`.
+    - A `tabs` node produces one rect carrying `tabs: [{ title, widget, source, settings, error }]` and `default`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -890,6 +902,7 @@ test('default v1 geometry', () => {
   assert.equal(pick(r, 'storage').h, 666 - 300 - 184 - 24);
 });
 test('overflow shrinks instead of overlapping', () => { const r = computeRects({ direction: 'column', children: [{ widget: 'a', size: 400 }, { widget: 'b', size: 400 }] }, { x: 0, y: 0, w: 100, h: 500 }, 12); assert.ok(r.overflow); assert.ok(r[1].y >= r[0].y + r[0].h); });
+test('tabs node is one rect', () => { const r = computeRects({ tabs: [{ title: 'A', widget: 'a' }, { title: 'B', widget: 'b' }], default: 1 }, { x: 0, y: 0, w: 300, h: 200 }, 12); assert.equal(r.length, 1); assert.equal(r[0].tabs.length, 2); assert.equal(r[0].default, 1); });
 test('short names', () => { assert.equal(cpuModelShort('AMD Ryzen 9 9950X3D 16-Core Processor'), 'RYZEN 9 9950X3D'); assert.equal(gpuNameShort('NVIDIA GeForce RTX 4080 SUPER'), 'RTX 4080 SUPER'); assert.equal(ccdTitle({ id: 0, vcache: true }), 'CCD0 · V-CACHE'); });
 ```
 
@@ -905,7 +918,7 @@ They're plain functions with no dependencies.
 - [ ] **Step 4: Run them and watch them pass**
 
 Run: `node --test shell/tests/`
-Expected: PASS (10 tests).
+Expected: PASS (11 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -947,6 +960,7 @@ git commit -m "feat(shell): add tested formatting, segment, theme, scale and lay
   - **`FrameClock` singleton:** `frame` at the Task 1 rate (default 15 fps), `blinkOpacity` from `[1, .5, 0, .5]` on a 250 ms timer, and `acquire()`/`release()` with a refcount so the timers stop when unused.
   - **`Fmt` singleton:** a thin wrapper re-exporting `format.mjs` and `labels.mjs`, so widgets don't import files by path.
   - **`Desktop`:**
+    - it tracks `Data.config.dashboard.default_view` as `currentView`; the view shortcuts arrive in Plan 2;
     - a `PanelWindow` on `pickScreen(Quickshell.screens, Data.config.display.model)`, on the Task 1 layer, with namespace `"ghost-shell-desktop"`, `ExclusionMode.Ignore`, all four anchors and colour `Theme.ground`;
     - it sets `Theme.u = width / 1280` (`GHOST_FORCE_U` overrides this);
     - it stacks `DotGrid`, a `Loader` slot for the view (Task 16), `Scanlines`, and a perf overlay when `GHOST_DEBUG=1`;
@@ -1057,7 +1071,7 @@ git commit -m "feat(shell): add GhostKit panel, meter, graph, alert and digit co
 
 **Files:**
 - Create:
-  - `shell/host/{LayoutView.qml,WidgetHost.qml,ErrorCard.qml}`
+  - `shell/host/{LayoutView.qml,WidgetHost.qml,TabsHost.qml,ErrorCard.qml}`
   - `widgets/placeholder/{manifest.toml,Widget.qml}`
   - `widgets/processor/{manifest.toml,Widget.qml}`
   - `widgets/graphics/{manifest.toml,Widget.qml}`
@@ -1079,6 +1093,11 @@ git commit -m "feat(shell): add GhostKit panel, meter, graph, alert and digit co
     - Otherwise it calls `Qt.createComponent(slot.source)`.
       - On `Component.Error`, it logs `widget "<id>" failed to load: <first line of errorString()>` and shows an `ErrorCard` with that text.
       - On success, it calls `createObject(host, { settings: slot.settings })`.
+  - **`TabsHost { node }`**:
+    - a 26-high tab strip in the Panel header style; the selected tab has signal fill and dark text, as in the mockup;
+    - the body hosts **only the active tab's** `WidgetHost`, so inactive widgets cost nothing;
+    - clicking a tab switches it, and the selection is kept per view for the session;
+    - `LayoutView` uses `TabsHost` for rects that carry `tabs`.
   - **The widget contract**, which `docs/widgets.md` (Plan 4) will document:
     - the root item fills its parent;
     - it declares `property var settings`;
@@ -1117,7 +1136,9 @@ git commit -m "feat(shell): add GhostKit panel, meter, graph, alert and digit co
 
 `widgets/broken-example/Widget.qml` holds deliberately invalid QML.
 
-A test config at `/tmp/ghost-layout-test.toml` sets `layout.views.v1` to a row of five slots: `processor`, `graphics`, `memory`, `broken-example` and `not-installed`.
+A test config at `/tmp/ghost-layout-test.toml` sets `layout.views.v1` to a row of:
+- the slots `processor`, `memory`, `broken-example` and `not-installed`;
+- a `tabs` node holding `graphics` and `processor` (`default = 0`).
 
 Running `GHOST_CONFIG=/tmp/ghost-layout-test.toml scripts/qml-smoke.sh` (the script passes `--config "$GHOST_CONFIG"`) must:
 - log `widget "broken-example" failed to load` and `no widget named "not-installed" is installed`;
@@ -1138,14 +1159,15 @@ Expected: `smoke: ok` twice.
 - [ ] **Step 4: Check it visually**
 
 Take a screenshot with the test layout. Expected:
-- three live panels and two red error cards with their messages;
+- the live panels, two red error cards with their messages, and a tab strip showing GRAPHICS selected;
+- clicking PROCESSOR swaps the tab body;
 - nothing else is affected.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add shell/host widgets
-git commit -m "feat(shell): add widget host with error cards and processor, graphics, memory widgets"
+git commit -m "feat(shell): add widget host, tabs host and error cards with processor, graphics, memory widgets"
 ```
 
 ---
