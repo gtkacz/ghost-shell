@@ -3,7 +3,7 @@
 
 use std::io::{self, Cursor};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pipewire as pw;
 use pw::spa;
@@ -18,6 +18,7 @@ use tokio::task::spawn_blocking;
 use tokio::time::timeout;
 use tracing::warn;
 
+use super::STALL;
 use super::analyzer::{Analyzer, Bands};
 
 const THREAD_NAME: &str = "ghostd-spectrum";
@@ -52,7 +53,7 @@ impl Capture {
             .name(THREAD_NAME.to_owned())
             .spawn(move || {
                 if let Err(error) = capture(frames_tx, quit_rx) {
-                    warn!(%error, "audio output capture failed; audio.spectrum publishes nothing");
+                    warn!(%error, "audio output capture failed; audio.spectrum stays dark");
                 }
             })?;
         Ok(Self {
@@ -91,6 +92,8 @@ fn capture(
         *pw::keys::MEDIA_CATEGORY => "Capture",
         *pw::keys::NODE_NAME => NODE_NAME,
         *pw::keys::APP_NAME => APP_NAME,
+        // A visualiser must never keep the sink, and with it the DAC and the graph, awake.
+        *pw::keys::NODE_PASSIVE => "true",
     };
     let stream = StreamBox::new(&core, NODE_NAME, properties)?;
     let _quit = quit.attach(main_loop.loop_(), {
@@ -156,6 +159,7 @@ struct Analysis {
     samples: Vec<f32>,
     bands: Vec<Bands>,
     frames: broadcast::Sender<Bands>,
+    last_buffer: Option<Instant>,
 }
 
 impl Analysis {
@@ -165,6 +169,7 @@ impl Analysis {
             samples: Vec::new(),
             bands: Vec::new(),
             frames,
+            last_buffer: None,
         }
     }
 
@@ -172,6 +177,16 @@ impl Analysis {
         let Some(mut buffer) = stream.dequeue_buffer() else {
             return;
         };
+        let now = Instant::now();
+        // The feed has shown the bands dark after such a gap, so the audio that resumes must not
+        // rise from the bands, or mix with the samples, of what played before it.
+        if self
+            .last_buffer
+            .is_some_and(|last| now.duration_since(last) >= STALL)
+        {
+            self.analyzer = Analyzer::new(RATE);
+        }
+        self.last_buffer = Some(now);
         let Some(data) = buffer.datas_mut().first_mut() else {
             return;
         };
