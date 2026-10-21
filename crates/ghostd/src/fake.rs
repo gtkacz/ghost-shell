@@ -611,8 +611,8 @@ const SPECTRUM_LEVEL: Wave = Wave::new(0.0, 255.0, 45.0);
 // moving together.
 const SPECTRUM_PHASE_STEP: f64 = 1.0 / BANDS as f64;
 
-/// Sine-shaped bands 30 times a second, but only while some client wants them, as the real feed
-/// does.
+/// Sine-shaped bands 30 times a second, but only while some client wants them, and one dark frame
+/// on release, as the real feed does.
 fn spectrum() -> Feed {
     Feed::new(topics::SPECTRUM, |mut context| async move {
         let mut frame = 0;
@@ -630,6 +630,10 @@ fn spectrum() -> Feed {
                     }
                 }
             }
+            let dark = SpectrumSnapshot {
+                bands: vec![0; BANDS],
+            };
+            context.publisher.publish(topics::SPECTRUM, &dark);
         }
     })
 }

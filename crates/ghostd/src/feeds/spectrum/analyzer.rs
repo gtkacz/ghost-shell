@@ -157,6 +157,10 @@ mod tests {
     const TONE_HZ: f32 = 1000.0;
     const FULL_SCALE: f32 = 1.0;
     const BRIGHT: u8 = 200;
+    /// 1031.25 Hz at 48 kHz, so the tone falls on the bin's centre and loses nothing to the window.
+    const CENTRED_BIN: usize = 44;
+    const HALF_WAY_DB: f32 = FLOOR_DB / 2.0;
+    const HALF_WAY: u8 = 128;
 
     /// `frames` samples of a sine at `hz` that peaks at `amplitude`.
     fn sine(hz: f32, amplitude: f32, frames: usize) -> Vec<f32> {
@@ -218,6 +222,22 @@ mod tests {
         let last = out.last().unwrap();
         assert_eq!(loudest_band(last), band_of(TONE_HZ), "{last:?}");
         assert!(last[band_of(TONE_HZ)] >= BRIGHT, "{last:?}");
+    }
+
+    #[test]
+    fn a_bin_centred_tone_at_minus_30_dbfs_reads_half_way() {
+        let bin_hz = RATE as f32 / FFT_SIZE as f32;
+        let tone_hz = CENTRED_BIN as f32 * bin_hz;
+        let amplitude = 10f32.powf(HALF_WAY_DB / 20.0);
+
+        let out = analyze(
+            &mut Analyzer::new(RATE),
+            &sine(tone_hz, amplitude, ONE_SECOND),
+            MONO,
+        );
+
+        let level = out.last().unwrap()[band_of(tone_hz)];
+        assert!(level.abs_diff(HALF_WAY) <= 1, "read {level}");
     }
 
     #[test]

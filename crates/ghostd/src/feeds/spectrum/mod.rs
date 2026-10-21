@@ -5,9 +5,11 @@
 //! wants the topic. Without PipeWire the feed logs once each time the topic becomes wanted.
 //!
 //! The capture is passive, so it never keeps the sink awake: when nothing else plays, the sink
-//! suspends and the frames simply stop. Once no frame has come for three frame periods, one dark
-//! frame is published, so the bars go dark instead of freezing. Every capture also ends with a dark
-//! frame, because the hub replays the last value to the next subscriber.
+//! suspends and the frames simply stop. Each frame holds the bands for at least three frame
+//! periods, and for two buffers when PipeWire's buffers are longer than that. When the hold runs
+//! out with no frame after it, one dark frame is published, so the bars go dark instead of
+//! freezing. Every capture also ends with a dark frame, because the hub replays the last value to
+//! the next subscriber.
 
 mod analyzer;
 mod capture;
@@ -27,10 +29,17 @@ use super::{until_unwanted, until_wanted};
 use crate::server::{Feed, FeedContext, Publisher};
 
 const FRAME_PERIOD: Duration = Duration::from_secs(1).checked_div(FRAMES_PER_S).unwrap();
-const STALL_FRAMES: u32 = 3;
-/// How long without audio before the bands are shown dark.
-const STALL: Duration = FRAME_PERIOD.checked_mul(STALL_FRAMES).unwrap();
+const MIN_HOLD_FRAMES: u32 = 3;
+/// The least time a frame holds the bands before they are shown dark.
+const MIN_HOLD: Duration = FRAME_PERIOD.checked_mul(MIN_HOLD_FRAMES).unwrap();
 const DARK: Bands = [0; BANDS];
+
+/// One frame of the spectrum, and how long it holds the bands if no frame follows it.
+#[derive(Debug, Clone, Copy)]
+struct Frame {
+    bands: Bands,
+    hold: Duration,
+}
 
 /// Why [`publish_frames`] returned.
 enum Stop {
@@ -67,22 +76,22 @@ async fn capture_while_wanted(context: &mut FeedContext) {
 }
 
 /// Publishes every frame from `frames` until the topic is released or the frames end, and one dark
-/// frame after each [`STALL`] without a frame, counted from the start or the latest frame. Stopping
-/// also publishes a dark frame.
+/// frame each time the latest frame's hold runs out, or [`MIN_HOLD`] passes from the start with no
+/// frame. Stopping also publishes a dark frame.
 async fn publish_frames(
-    frames: &mut broadcast::Receiver<Bands>,
+    frames: &mut broadcast::Receiver<Frame>,
     context: &mut FeedContext,
 ) -> Stop {
-    let mut stall = pin!(sleep(STALL));
+    let mut stall = pin!(sleep(MIN_HOLD));
     let mut is_dark = false;
     let stop = loop {
         tokio::select! {
             biased;
             () = until_unwanted(&mut context.demand, topics::SPECTRUM) => break Stop::Released,
             frame = frames.recv() => match frame {
-                Ok(bands) => {
-                    publish(&context.publisher, &bands);
-                    stall.as_mut().reset(Instant::now() + STALL);
+                Ok(frame) => {
+                    publish(&context.publisher, &frame.bands);
+                    stall.as_mut().reset(Instant::now() + frame.hold);
                     is_dark = false;
                 }
                 Err(RecvError::Lagged(_)) => {}
@@ -121,11 +130,18 @@ mod tests {
     use crate::server::Publisher;
 
     const LIT: Bands = [200; BANDS];
+    const LIT_FRAME: Frame = Frame {
+        bands: LIT,
+        hold: MIN_HOLD,
+    };
     const LONG_SILENCE: u32 = 10;
+    // An 8192-frame quantum at 48 kHz: buffers 170 ms apart, each holding its frames for two.
+    const LONG_BUFFER_GAP: Duration = Duration::from_millis(170);
+    const LONG_BUFFER_HOLD: Duration = Duration::from_millis(341);
 
     /// `publish_frames` running on frames the test sends, with the topic wanted.
     struct Forwarding {
-        frames: broadcast::Sender<Bands>,
+        frames: broadcast::Sender<Frame>,
         demand: watch::Sender<BTreeSet<String>>,
         published: mpsc::UnboundedReceiver<Value>,
         running: JoinHandle<Stop>,
@@ -168,7 +184,7 @@ mod tests {
     async fn a_stall_goes_dark_once_until_frames_resume() {
         let mut forwarding = forwarding();
 
-        sleep(STALL * LONG_SILENCE).await;
+        sleep(MIN_HOLD * LONG_SILENCE).await;
         assert_eq!(
             published(&mut forwarding.published),
             [DARK],
@@ -176,7 +192,7 @@ mod tests {
         );
 
         for _ in 0..LONG_SILENCE {
-            forwarding.frames.send(LIT).unwrap();
+            forwarding.frames.send(LIT_FRAME).unwrap();
             sleep(FRAME_PERIOD).await;
         }
         assert_eq!(
@@ -184,14 +200,37 @@ mod tests {
             [LIT; LONG_SILENCE as usize]
         );
 
-        sleep(STALL * LONG_SILENCE).await;
+        sleep(MIN_HOLD * LONG_SILENCE).await;
+        assert_eq!(published(&mut forwarding.published), [DARK]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn frames_from_long_buffers_stay_lit_between_buffers() {
+        let mut forwarding = forwarding();
+
+        for _ in 0..LONG_SILENCE {
+            forwarding
+                .frames
+                .send(Frame {
+                    bands: LIT,
+                    hold: LONG_BUFFER_HOLD,
+                })
+                .unwrap();
+            sleep(LONG_BUFFER_GAP).await;
+        }
+        assert_eq!(
+            published(&mut forwarding.published),
+            [LIT; LONG_SILENCE as usize]
+        );
+
+        sleep(LONG_BUFFER_HOLD * LONG_SILENCE).await;
         assert_eq!(published(&mut forwarding.published), [DARK]);
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_release_publishes_a_dark_frame() {
         let mut forwarding = forwarding();
-        forwarding.frames.send(LIT).unwrap();
+        forwarding.frames.send(LIT_FRAME).unwrap();
         sleep(FRAME_PERIOD).await;
 
         forwarding.demand.send_replace(BTreeSet::new());
@@ -204,7 +243,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_capture_that_ends_publishes_a_dark_frame() {
         let mut forwarding = forwarding();
-        forwarding.frames.send(LIT).unwrap();
+        forwarding.frames.send(LIT_FRAME).unwrap();
         sleep(FRAME_PERIOD).await;
 
         drop(forwarding.frames);

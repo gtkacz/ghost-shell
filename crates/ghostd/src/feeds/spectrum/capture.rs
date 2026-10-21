@@ -18,8 +18,8 @@ use tokio::task::spawn_blocking;
 use tokio::time::timeout;
 use tracing::warn;
 
-use super::STALL;
 use super::analyzer::{Analyzer, Bands};
+use super::{Frame, MIN_HOLD};
 
 const THREAD_NAME: &str = "ghostd-spectrum";
 const NODE_NAME: &str = "ghostd-spectrum";
@@ -33,13 +33,14 @@ const POSITIONS: [u32; CHANNELS as usize] = [
 const SAMPLE_BYTES: usize = size_of::<f32>();
 /// A reader that falls behind skips to the newest frames instead of holding the capture up.
 const QUEUED_FRAMES: usize = 2;
+const BUFFERS_HELD: u32 = 2;
 /// How long stopping waits for the thread. A PipeWire call stuck past it must not hang the
 /// daemon, so such a thread is left to end on its own.
 const STOP_GRACE: Duration = Duration::from_secs(1);
 
 /// A running capture and the frames it analyses, which end when the capture does.
 pub(super) struct Capture {
-    pub(super) frames: broadcast::Receiver<Bands>,
+    pub(super) frames: broadcast::Receiver<Frame>,
     quit: pw::channel::Sender<()>,
     thread: JoinHandle<()>,
 }
@@ -79,7 +80,7 @@ impl Capture {
 
 /// Captures until `quit` receives or PipeWire ends the stream, sending every frame on `frames`.
 fn capture(
-    frames: broadcast::Sender<Bands>,
+    frames: broadcast::Sender<Frame>,
     quit: pw::channel::Receiver<()>,
 ) -> Result<(), pw::Error> {
     pw::init();
@@ -156,20 +157,20 @@ fn format() -> Vec<u8> {
 /// What turns the stream's buffers into frames for the feed.
 struct Analysis {
     analyzer: Analyzer,
+    pacing: Pacing,
     samples: Vec<f32>,
     bands: Vec<Bands>,
-    frames: broadcast::Sender<Bands>,
-    last_buffer: Option<Instant>,
+    frames: broadcast::Sender<Frame>,
 }
 
 impl Analysis {
-    fn new(frames: broadcast::Sender<Bands>) -> Self {
+    fn new(frames: broadcast::Sender<Frame>) -> Self {
         Self {
             analyzer: Analyzer::new(RATE),
+            pacing: Pacing::default(),
             samples: Vec::new(),
             bands: Vec::new(),
             frames,
-            last_buffer: None,
         }
     }
 
@@ -177,33 +178,110 @@ impl Analysis {
         let Some(mut buffer) = stream.dequeue_buffer() else {
             return;
         };
-        let now = Instant::now();
-        // The feed has shown the bands dark after such a gap, so the audio that resumes must not
-        // rise from the bands, or mix with the samples, of what played before it.
-        if self
-            .last_buffer
-            .is_some_and(|last| now.duration_since(last) >= STALL)
-        {
-            self.analyzer = Analyzer::new(RATE);
-        }
-        self.last_buffer = Some(now);
         let Some(data) = buffer.datas_mut().first_mut() else {
             return;
         };
         let start = data.chunk().offset() as usize;
         let end = start + data.chunk().size() as usize;
-        let Some(bytes) = data.data().and_then(|bytes| bytes.get(start..end)) else {
+        // A buffer without audio is no sign that audio is flowing again.
+        let Some(bytes) = data
+            .data()
+            .and_then(|bytes| bytes.get(start..end))
+            .filter(|bytes| !bytes.is_empty())
+        else {
             return;
         };
         let (samples, _) = bytes.as_chunks::<SAMPLE_BYTES>();
         self.samples.clear();
         self.samples
             .extend(samples.iter().map(|&sample| f32::from_le_bytes(sample)));
-        self.analyzer
-            .push(&self.samples, CHANNELS as usize, &mut self.bands);
+        let channels = CHANNELS as usize;
+        // The feed has shown the bands dark after such a gap, so the audio that resumes must not
+        // rise from the bands, or mix with the samples, of what played before it.
+        if self
+            .pacing
+            .arrived(Instant::now(), self.samples.len() / channels)
+        {
+            self.analyzer = Analyzer::new(RATE);
+        }
+        self.analyzer.push(&self.samples, channels, &mut self.bands);
+        let hold = self.pacing.hold;
         for bands in self.bands.drain(..) {
             // There is no receiver only once the feed has stopped reading this capture.
-            let _ = self.frames.send(bands);
+            let _ = self.frames.send(Frame { bands, hold });
         }
+    }
+}
+
+/// When the latest buffer arrived, and how long the frames analysed from it hold the bands.
+#[derive(Default)]
+struct Pacing {
+    last_buffer: Option<Instant>,
+    // Only read once a buffer has arrived, which sets it.
+    hold: Duration,
+}
+
+impl Pacing {
+    /// Records a buffer of `frames` audio frames arriving at `now`. Returns whether it ends a gap
+    /// that outlasted the previous buffer's hold, which the feed has shown as dark.
+    fn arrived(&mut self, now: Instant, frames: usize) -> bool {
+        let ends_a_gap = self
+            .last_buffer
+            .is_some_and(|last| now.duration_since(last) >= self.hold);
+        self.last_buffer = Some(now);
+        self.hold = hold_for(frames);
+        ends_a_gap
+    }
+}
+
+/// How long the frames of a buffer of `frames` audio frames hold the bands: at least [`MIN_HOLD`],
+/// and two buffers' time, since the next buffer of a steady stream arrives one buffer's time later.
+fn hold_for(frames: usize) -> Duration {
+    let buffers_time = Duration::from_secs(1) * BUFFERS_HELD * frames as u32 / RATE;
+    buffers_time.max(MIN_HOLD)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The default quantum: 21 ms at 48 kHz.
+    const SMALL_BUFFER: usize = 1024;
+    /// The largest quantum PipeWire allows by default: 171 ms at 48 kHz.
+    const LARGE_BUFFER: usize = 8192;
+    const LARGE_BUFFER_GAP: Duration = Duration::from_millis(170);
+    const ARRIVALS: u32 = 10;
+
+    #[test]
+    fn a_buffer_holds_its_frames_for_three_frame_periods_or_two_buffers() {
+        let two_large_buffers = Duration::from_millis(341)..Duration::from_millis(342);
+
+        assert_eq!(hold_for(SMALL_BUFFER), MIN_HOLD);
+        assert!(two_large_buffers.contains(&hold_for(LARGE_BUFFER)));
+    }
+
+    #[test]
+    fn large_buffers_a_buffer_apart_keep_the_analyzer() {
+        let start = Instant::now();
+        let mut pacing = Pacing::default();
+
+        let restarts = (0..ARRIVALS)
+            .filter(|&arrival| pacing.arrived(start + LARGE_BUFFER_GAP * arrival, LARGE_BUFFER))
+            .count();
+
+        assert_eq!(restarts, 0);
+    }
+
+    #[test]
+    fn a_gap_as_long_as_the_last_hold_restarts_the_analyzer() {
+        let start = Instant::now();
+        let mut pacing = Pacing::default();
+        assert!(!pacing.arrived(start, SMALL_BUFFER), "the first buffer");
+
+        assert!(!pacing.arrived(start + MIN_HOLD / 2, SMALL_BUFFER));
+        assert!(pacing.arrived(start + MIN_HOLD / 2 + MIN_HOLD, LARGE_BUFFER));
+        let large_hold = hold_for(LARGE_BUFFER);
+        let resumed = start + MIN_HOLD / 2 + MIN_HOLD + large_hold;
+        assert!(pacing.arrived(resumed, SMALL_BUFFER));
     }
 }

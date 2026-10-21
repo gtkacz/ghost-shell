@@ -301,9 +301,13 @@ async fn the_fake_spectrum_publishes_only_while_wanted() {
     assert_ne!(first, second);
 
     demand_tx.send_replace(BTreeSet::new());
-    // A frame may already be on its way when the release lands.
     sleep(ticks(1)).await;
-    while frames.try_recv().is_ok() {}
+    // A frame may already be on its way when the release lands, so only the last one counts.
+    let mut last = None;
+    while let Ok(frame) = frames.try_recv() {
+        last = Some(frame);
+    }
+    assert_eq!(last.unwrap(), json!({"bands": vec![0; 32]}), "the release");
     sleep(ticks(WATCHED_TICKS)).await;
     assert!(frames.is_empty(), "kept publishing after it was released");
 }
