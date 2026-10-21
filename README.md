@@ -4,7 +4,7 @@ A Tron: Legacy / Cyberpunk 2077 / Ghost in the Shell desktop shell for KDE Plasm
 
 ## Build
 
-Requires a recent stable Rust toolchain, Quickshell (`qs`, Qt 6) and `qsb-qt6` for the shaders.
+Requires a recent stable Rust toolchain, Quickshell (`qs`, Qt 6) and `qsb-qt6` for the shaders. The daemon's audio spectrum binds to PipeWire, so building also needs `pipewire-devel` and `clang`, and `ghostd` (including `ghostd run --fake`) needs `libpipewire-0.3` at run time.
 
 ```sh
 make release
@@ -450,6 +450,21 @@ A separate process that ghostd starts from `location.alerts`. It makes one HTTPS
 | Parse of the response | 0.18 ms warm (entries read one at a time, so one malformed entry is skipped alone) |
 | Provider RSS | 6.8–7.0 MiB |
 | Daemon's added cost | not measurable (≈ 0.071 ms/s of CPU with the provider, 0.072 without; RSS +0.2 MB) |
+
+### Plan 2a: audio spectrum feed (`audio.spectrum`)
+
+PipeWire capture of the default output's monitor (never a microphone), FFT 2048 into 32 bands, 30 frames/s while some client wants the topic. The capture is passive, so it never keeps the audio device awake by itself. Release build:
+
+| State | Daemon CPU | Notes |
+|---|---|---|
+| Not wanted | 0.03 % (the daemon's idle) | no capture stream |
+| Subscribed, silence | 0.10 % | before the capture became passive |
+| Subscribed, music playing | 0.13 % | 300 of 300 frames non-zero |
+
+- **Per frame:** ≈ 19 µs on the capture thread and ≈ 19 µs on the publishing thread. The analyzer alone takes 3.3 µs.
+- **RSS:** ≈ +4.8 MB while capturing, ≈ +2 MB kept after the first stop.
+- **Start and stop:** the `ghostd-spectrum` node is gone ≈ 4 ms after the last subscriber leaves. 10 start/stop cycles left nothing behind, and a SIGTERM mid-capture exits in 11 ms.
+- **Not yet measured:** with nothing playing, whether the output sleeps while subscribed, and the CPU then. The user's browser kept the output running throughout.
 
 ### Plan 2a: per-topic data in the shell
 
