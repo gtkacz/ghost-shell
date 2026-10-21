@@ -5,14 +5,16 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use ghost_proto::{
-    Appearance, Dashboard, LayoutConfig, LayoutNode, ProviderSpec, ResolvedConfig, Shortcuts,
-    Thresholds,
+    Appearance, Dashboard, LayoutConfig, LayoutNode, Location, ProviderSpec, ResolvedConfig,
+    Shortcuts, Thresholds,
 };
 
 use crate::keyseq;
 
 const PERCENT: RangeInclusive<u32> = 0..=100;
 const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
+const LATITUDE: RangeInclusive<f64> = -90.0..=90.0;
+const LONGITUDE: RangeInclusive<f64> = -180.0..=180.0;
 const MIN_DOT_SPACING: u32 = 1;
 const COLOUR_HEX_DIGITS: usize = 6;
 const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
@@ -113,6 +115,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_thresholds(&config.thresholds)?;
     validate_layout(&config.layout)?;
     validate_dashboard(&config.dashboard, &config.layout)?;
+    validate_location(&config.location)?;
     validate_shortcuts(&config.shortcuts)?;
     validate_providers(&config.providers)
 }
@@ -165,7 +168,11 @@ pub(crate) fn is_hex_colour(value: &str) -> bool {
     })
 }
 
-fn check_range(path: &str, value: u32, range: &RangeInclusive<u32>) -> Result<(), ConfigError> {
+fn check_range<T: PartialOrd + std::fmt::Display>(
+    path: &str,
+    value: T,
+    range: &RangeInclusive<T>,
+) -> Result<(), ConfigError> {
     if range.contains(&value) {
         return Ok(());
     }
@@ -318,6 +325,17 @@ fn check_view_defined(path: &str, view: &str, layout: &LayoutConfig) -> Result<(
         path,
         format!("view {view:?} is not defined in layout.views"),
     ))
+}
+
+fn validate_location(location: &Location) -> Result<(), ConfigError> {
+    match (location.lat, location.lon) {
+        (Some(lat), Some(lon)) => {
+            check_range("location.lat", lat, &LATITUDE)?;
+            check_range("location.lon", lon, &LONGITUDE)
+        }
+        (None, None) => Ok(()),
+        _ => Err(invalid("location", "lat and lon must be set together")),
+    }
 }
 
 fn validate_shortcuts(shortcuts: &Shortcuts) -> Result<(), ConfigError> {

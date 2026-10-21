@@ -2,10 +2,13 @@
 
 pub mod desktop;
 pub mod host;
+pub mod http;
 pub mod shortcuts;
+pub mod weather;
 
 use std::future::{pending, poll_fn};
 use std::pin::Pin;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_core::Stream;
 
@@ -27,6 +30,13 @@ pub async fn until_wanted(demand: &mut Demand, topic: &str) {
     {
         pending::<()>().await;
     }
+}
+
+/// The wall clock in whole seconds since the Unix epoch, or 0 if it is set before 1970.
+pub(crate) fn unix_now_s() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since_epoch| since_epoch.as_secs())
 }
 
 /// The next item of `stream`, or `None` once it has ended.

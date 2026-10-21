@@ -3,6 +3,7 @@ use std::io::{IsTerminal, Write};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{env, fs, io, thread};
 
@@ -12,6 +13,7 @@ use ghostd::collect::{
     SensorCollector, Source, StatvfsFs,
 };
 use ghostd::config::{DEFAULT_TOML, default_path};
+use ghostd::feeds::http::Ureq;
 use ghostd::feeds::shortcuts::Registration;
 use ghostd::sampler::Sampler;
 use ghostd::selfmon::SelfMon;
@@ -265,7 +267,10 @@ fn host_sampler(config: watch::Receiver<ResolvedConfig>) -> Sampler {
 }
 
 fn host_feeds() -> Vec<Feed> {
-    vec![feeds::host::feed(SysRoot::host())]
+    vec![
+        feeds::host::feed(SysRoot::host()),
+        feeds::weather::feed(Arc::new(Ureq::default())),
+    ]
 }
 
 fn open_gpu() -> Option<Box<dyn GpuSource>> {

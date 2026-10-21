@@ -26,8 +26,10 @@ tokio = { workspace = true, features = [
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+ureq.workspace = true
 zbus = { workspace = true, features = ["proxy", "service"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 zbus = { workspace = true, features = ["p2p"] }

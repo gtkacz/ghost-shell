@@ -360,3 +360,26 @@ fn a_validation_error_has_no_separate_report() {
     assert_eq!(error.detail, None);
     assert_eq!(error.to_string(), error.message);
 }
+
+#[test]
+fn lat_without_lon_is_rejected() {
+    let message = "location: lat and lon must be set together";
+    assert_eq!(rejected("[location]\nlat = -23.55\n"), message);
+    assert_eq!(rejected("[location]\nlon = -46.63\n"), message);
+}
+
+#[test]
+fn lat_out_of_range_names_the_key() {
+    assert_eq!(
+        rejected("[location]\nlat = 95.0\nlon = 0.0\n"),
+        "location.lat: must be -90..=90, got 95"
+    );
+}
+
+#[test]
+fn lon_out_of_range_names_the_key() {
+    assert_eq!(
+        rejected("[location]\nlat = 0.0\nlon = 200.0\n"),
+        "location.lon: must be -180..=180, got 200"
+    );
+}
