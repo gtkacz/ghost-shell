@@ -334,21 +334,23 @@ Singleton {
         // only their bindings re-run. Liveness goes first, so a handler on a value already sees whether
         // its source is live.
         function publish() {
-            if (stagedLiveness.size > 0) {
-                const pendingLiveness = stagedLiveness;
-                stagedLiveness = new Map();
-                pendingLiveness.forEach((live, name) => {
-                    topicValue(name).dataControl.sourceLive = live;
-                });
+            if (stagedLiveness.size === 0 && staged.size === 0 && !historyStaged) {
+                return;
             }
-            if (staged.size > 0) {
-                const pending = staged;
-                staged = new Map();
-                pending.forEach((message, name) => deliver(topicValue(name).dataControl, message));
-            }
-            if (historyStaged) {
-                historyStaged = false;
-                history = track.series;
+            // A write below can start or stop the FrameClock, whose running change publishes again at
+            // once; taking every buffer first leaves that nested call nothing, so this order holds.
+            const pendingLiveness = stagedLiveness;
+            const pending = staged;
+            const series = historyStaged ? track.series : null;
+            stagedLiveness = new Map();
+            staged = new Map();
+            historyStaged = false;
+            pendingLiveness.forEach((live, name) => {
+                topicValue(name).dataControl.sourceLive = live;
+            });
+            pending.forEach((message, name) => deliver(topicValue(name).dataControl, message));
+            if (series !== null) {
+                history = series;
             }
         }
 
