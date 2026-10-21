@@ -168,6 +168,39 @@ pub struct RainPeak {
     pub at_s: u64,
 }
 
+/// What an alerts provider publishes on `weather.alerts`: the alerts in force or ahead for the
+/// configured area.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WeatherAlerts {
+    /// Who issued the alerts, such as `INMET`.
+    pub source: String,
+    /// When the alerts were fetched, in seconds since the Unix epoch.
+    pub updated_s: u64,
+    /// Sorted by start.
+    pub alerts: Vec<WeatherAlert>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WeatherAlert {
+    pub id: String,
+    /// This, `severity` and `risks` are the issuer's own words, untranslated; the first two are
+    /// uppercased.
+    pub title: String,
+    pub severity: String,
+    pub level: AlertLevel,
+    /// Seconds since the Unix epoch.
+    pub start_s: u64,
+    pub end_s: u64,
+    pub risks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertLevel {
+    Warn,
+    Crit,
+}
+
 /// The sun and moon at `location`, computed locally. Without a location `available` is false and
 /// every other field keeps its default.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

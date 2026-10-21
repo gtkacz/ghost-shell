@@ -4,10 +4,11 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::time::Duration;
 
-use common::server::{CONFIG_FILE, Client, Daemon, SOCKET_FILE, TICK_MS, WAIT};
+use common::server::{
+    CONFIG_FILE, Client, Daemon, SOCKET_FILE, TICK_MS, WAIT, configured_providers,
+};
 use ghost_proto::{CpuSnapshot, topics};
 use ghostd::collect::Source;
-use ghostd::providers;
 use ghostd::sampler::Sampler;
 use ghostd::server::{self, ConfigFeed, Hub, ServeError};
 use serde_json::json;
@@ -48,8 +49,9 @@ fn hub(dir: &Path, sampler: Sampler) -> Hub {
     let socket = dir.join(SOCKET_FILE);
     let config = ConfigFeed::open(&dir.join(CONFIG_FILE));
     Hub {
-        providers: providers::supervise(&config.current().providers, &socket),
         config,
+        providers: configured_providers(),
+        socket,
         sampler,
         tick_ms: NonZeroU32::new(TICK_MS).unwrap(),
         widget_dirs: Box::new(|_| Vec::new()),

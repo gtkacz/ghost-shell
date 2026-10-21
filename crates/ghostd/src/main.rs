@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{IsTerminal, Write};
 use std::num::NonZeroU32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +17,7 @@ use ghostd::feeds::http::Ureq;
 use ghostd::feeds::shortcuts::Registration;
 use ghostd::sampler::Sampler;
 use ghostd::selfmon::SelfMon;
-use ghostd::server::{self, ConfigFeed, Feed, Hub, WarningHook, WidgetDirs};
+use ghostd::server::{self, ConfigFeed, Feed, Hub, ProviderSpecs, WarningHook, WidgetDirs};
 use ghostd::sysroot::SysRoot;
 use ghostd::widgets::default_dirs;
 use ghostd::{fake, feeds, notify, providers};
@@ -176,7 +176,6 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
     info!(socket = %socket.display(), config = %config_path.display(), "listening");
 
     let config = ConfigFeed::open(&config_path);
-    let providers = providers::supervise(&config.current().providers, &socket);
     let (sampler, mut feeds) = if options.fake {
         (fake::sampler(), fake::feeds())
     } else {
@@ -190,7 +189,8 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
         sampler,
         tick_ms: options.tick_ms,
         widget_dirs: widget_search_dirs(options.widgets_dir),
-        providers,
+        providers: provider_specs(options.fake),
+        socket: socket.clone(),
         on_warning: desktop_warning(),
         feeds,
     };
@@ -227,6 +227,20 @@ fn widget_search_dirs(builtin: Option<PathBuf>) -> WidgetDirs {
         }
         dirs
     })
+}
+
+/// The configured providers and the alerts provider `location.alerts` names, which runs from the
+/// daemon's own dir when it is installed there. In fake mode the alerts provider is left out: the
+/// fake `weather.alerts` feed stands in for it, and a fake run must never fetch from INMET.
+fn provider_specs(fake: bool) -> ProviderSpecs {
+    if fake {
+        return Box::new(|config| config.providers.clone());
+    }
+    // The user manager's PATH has no ~/.local/bin, where the provider is installed beside ghostd.
+    let own_dir = env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_owned));
+    Box::new(move |config| providers::effective_providers(config, own_dir.as_deref()))
 }
 
 fn desktop_warning() -> WarningHook {
@@ -470,6 +484,16 @@ mod tests {
         source.resume();
 
         assert_eq!(resumes.get(), 1);
+    }
+
+    #[test]
+    fn fake_mode_never_starts_the_alerts_provider() {
+        let mut config = ResolvedConfig::default();
+        config.location.alerts.provider = "inmet".to_owned();
+        config.location.alerts.area = "3550308".to_owned();
+
+        assert!(provider_specs(true)(&config).is_empty());
+        assert_eq!(provider_specs(false)(&config)[0].name, "alerts-inmet");
     }
 
     struct CallCount(u32);

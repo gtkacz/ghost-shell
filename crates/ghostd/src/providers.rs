@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use ghost_proto::ProviderSpec;
+use ghost_proto::{ProviderSpec, ResolvedConfig, topics};
 use nix::errno::Errno;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
@@ -15,6 +15,11 @@ use tracing::{info, warn};
 
 /// The environment variable that tells a provider where the daemon's socket is.
 pub const SOCKET_ENV: &str = "GHOST_SOCKET";
+/// Names the provider `location.alerts` adds, so configured providers may not use it.
+pub const ALERTS_NAME_PREFIX: &str = "alerts-";
+/// Names the alerts provider's program, so another country's plugs in as `ghost-alerts-<name>`.
+const ALERTS_PROGRAM_PREFIX: &str = "ghost-alerts-";
+const ALERTS_AREA_FLAG: &str = "--area";
 
 const FIRST_RESTART_DELAY: Duration = Duration::from_secs(1);
 const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
@@ -45,6 +50,46 @@ impl Drop for Supervisor {
             running.task.abort();
         }
     }
+}
+
+/// The configured providers, followed by `alerts-<provider>` when `location.alerts` names one.
+///
+/// That one runs `ghost-alerts-<provider> --area <area>`, from `own_dir` when the program is there
+/// and from PATH otherwise.
+pub fn effective_providers(config: &ResolvedConfig, own_dir: Option<&Path>) -> Vec<ProviderSpec> {
+    let alerts = &config.location.alerts;
+    let derived = (!alerts.provider.is_empty()).then(|| {
+        let program = format!("{ALERTS_PROGRAM_PREFIX}{}", alerts.provider);
+        ProviderSpec {
+            name: format!("{ALERTS_NAME_PREFIX}{}", alerts.provider),
+            exec: vec![
+                installed_beside(own_dir, &program).unwrap_or(program),
+                ALERTS_AREA_FLAG.to_owned(),
+                alerts.area.clone(),
+            ],
+            restart: true,
+        }
+    });
+    config.providers.iter().cloned().chain(derived).collect()
+}
+
+/// `program`'s path in `dir`, if it is there and the path is valid UTF-8.
+fn installed_beside(dir: Option<&Path>, program: &str) -> Option<String> {
+    let path = dir?.join(program);
+    if !path.is_file() {
+        return None;
+    }
+    path.into_os_string().into_string().ok()
+}
+
+/// The topics of `specs` that are known before their provider claims them: only the alerts
+/// provider's, since a configured provider names its topics only once it connects.
+pub fn expected_topics(specs: &[ProviderSpec]) -> Vec<String> {
+    specs
+        .iter()
+        .filter(|spec| spec.name.starts_with(ALERTS_NAME_PREFIX))
+        .map(|_| topics::WEATHER_ALERTS.to_owned())
+        .collect()
 }
 
 /// Starts each provider once with `GHOST_SOCKET=<socket>`. A provider with `restart` set is
@@ -267,6 +312,8 @@ impl Drop for ProcessGroup {
 
 #[cfg(test)]
 mod tests {
+    use ghost_proto::Alerts;
+
     use super::*;
 
     fn spec(name: &str, program: &str) -> ProviderSpec {
@@ -294,6 +341,54 @@ mod tests {
                 start: vec![&added],
             }
         );
+    }
+
+    fn config_with_alerts(provider: &str, area: &str) -> ResolvedConfig {
+        let mut config = ResolvedConfig::default();
+        config.location.alerts = Alerts {
+            provider: provider.to_owned(),
+            area: area.to_owned(),
+        };
+        config.providers = vec![spec("other", "other-bin")];
+        config
+    }
+
+    #[test]
+    fn alerts_provider_is_derived_from_location() {
+        let specs = effective_providers(&config_with_alerts("inmet", "3550308"), None);
+
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0], spec("other", "other-bin"));
+        assert_eq!(
+            specs[1],
+            ProviderSpec {
+                name: "alerts-inmet".to_owned(),
+                exec: vec![
+                    "ghost-alerts-inmet".to_owned(),
+                    "--area".to_owned(),
+                    "3550308".to_owned()
+                ],
+                restart: true,
+            }
+        );
+        assert_eq!(
+            effective_providers(&config_with_alerts("", ""), None),
+            [spec("other", "other-bin")]
+        );
+    }
+
+    #[test]
+    fn the_alerts_provider_runs_from_the_daemons_dir_when_it_is_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = config_with_alerts("inmet", "3550308");
+        let program =
+            |own_dir: Option<&Path>| effective_providers(&config, own_dir)[1].exec[0].clone();
+        assert_eq!(program(Some(dir.path())), "ghost-alerts-inmet");
+
+        let installed = dir.path().join("ghost-alerts-inmet");
+        std::fs::write(&installed, "").unwrap();
+
+        assert_eq!(program(Some(dir.path())), installed.to_str().unwrap());
     }
 
     #[test]

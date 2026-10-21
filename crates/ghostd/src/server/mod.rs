@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::{fs, io};
 
-use ghost_proto::{ResolvedConfig, ServerMsg, encode_line};
+use ghost_proto::{ProviderSpec, ResolvedConfig, ServerMsg, encode_line};
 use nix::errno::Errno;
 use nix::fcntl::{Flock, FlockArg};
 use nix::unistd::gethostname;
@@ -34,7 +34,6 @@ use sampling::{Collectors, sample_forever};
 use session::accept_forever;
 use state::State;
 
-use crate::providers::Supervisor;
 use crate::sampler::Sampler;
 
 const OWNER_ONLY_MODE: u32 = 0o600;
@@ -119,14 +118,19 @@ pub type WarningHook = Box<dyn Fn(&str, &str) + Send>;
 /// The widget search dirs for a config, in discovery order.
 pub type WidgetDirs = Box<dyn Fn(&ResolvedConfig) -> Vec<PathBuf> + Send>;
 
+/// The providers to keep running for a config.
+pub type ProviderSpecs = Box<dyn Fn(&ResolvedConfig) -> Vec<ProviderSpec> + Send>;
+
 /// Everything [`serve`] runs.
 pub struct Hub {
     pub config: ConfigFeed,
     pub sampler: Sampler,
     pub tick_ms: NonZeroU32,
     pub widget_dirs: WidgetDirs,
-    /// Reconciled with `providers` on every config reload.
-    pub providers: Supervisor,
+    /// Started once the hub's state exists, and reconciled on every config reload.
+    pub providers: ProviderSpecs,
+    /// The path the listener is bound to, which every provider is told to connect to.
+    pub socket: PathBuf,
     pub on_warning: WarningHook,
     /// Each is started once and must run for as long as the daemon does.
     pub feeds: Vec<Feed>,
@@ -165,6 +169,7 @@ pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
         tick_ms,
         widget_dirs,
         providers,
+        socket,
         on_warning,
         feeds,
     } = hub;
@@ -174,6 +179,7 @@ pub async fn serve(listener: UnixListener, hub: Hub) -> ServeError {
         initial,
         widget_dirs,
         providers,
+        &socket,
         ProblemReporter::new(on_warning),
         host_name(),
         tick_ms.get(),

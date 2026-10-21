@@ -22,6 +22,7 @@ shaders_src=$shell_src/kit/GhostKit/shaders
 widgets_src=$repo/widgets
 units_src=$repo/packaging/systemd
 binary=${CARGO_TARGET_DIR:-$repo/target}/release/ghostd
+alerts_binary=${CARGO_TARGET_DIR:-$repo/target}/release/ghost-alerts-inmet
 
 nvidia_dropin_src=$units_src/ghost-shell-nvidia.conf
 nvidia_dropin_dir=$unit_dir/ghost-shell.service.d
@@ -211,14 +212,18 @@ install_units() {
 
 check_prerequisites
 
-step "building ghostd (release)"
+step "building ghostd and ghost-alerts-inmet (release)"
 cargo build --release --quiet --manifest-path "$repo/Cargo.toml"
-if [[ ! -x $binary ]]; then
-    die "$binary was not produced; is a custom cargo target directory configured?"
-fi
+for built in "$binary" "$alerts_binary"; do
+    if [[ ! -x $built ]]; then
+        die "$built was not produced; is a custom cargo target directory configured?"
+    fi
+done
 
-step "installing ghostd into $bin_dir"
+step "installing ghostd and ghost-alerts-inmet into $bin_dir"
 install -D -m 755 "$binary" "$bin_dir/ghostd"
+# Beside ghostd, which starts it from its own dir because the user manager's PATH lacks this one.
+install -D -m 755 "$alerts_binary" "$bin_dir/ghost-alerts-inmet"
 
 step "copying the shell into $shell_dir"
 sync_tree "$shell_src" "$shell_dir"
