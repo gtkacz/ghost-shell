@@ -33,6 +33,21 @@ pub async fn send_warning(summary: &str, body: &str) {
     }
 }
 
+/// The body is markup to a notification server, so a `&` or `<` in a path or a config snippet
+/// would otherwise be swallowed or garble the very message that names the problem.
+fn escape_markup(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            _ => escaped.push(c),
+        }
+    }
+    escaped
+}
+
 async fn notify(summary: &str, body: &str) -> zbus::Result<()> {
     // Warnings are rare, so a connection per warning is cheaper than holding one open for good.
     let connection = Connection::session().await?;
@@ -49,7 +64,7 @@ async fn notify(summary: &str, body: &str) -> zbus::Result<()> {
                 NEW_NOTIFICATION,
                 WARNING_ICON,
                 summary,
-                body,
+                escape_markup(body),
                 actions,
                 hints,
                 SERVER_DEFAULT_TIMEOUT,
@@ -57,4 +72,24 @@ async fn notify(summary: &str, body: &str) -> zbus::Result<()> {
         )
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markup_characters_are_escaped_ampersand_first() {
+        assert_eq!(
+            escape_markup("a & b < c > d &lt;"),
+            "a &amp; b &lt; c &gt; d &amp;lt;"
+        );
+    }
+
+    #[test]
+    fn text_without_markup_is_unchanged() {
+        let text = "layout.views.v1: unknown field \"sise\" / 攻殻";
+
+        assert_eq!(escape_markup(text), text);
+    }
 }
