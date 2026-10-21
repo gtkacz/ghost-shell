@@ -208,3 +208,103 @@ fn provider_exec_entries_must_not_be_empty() {
         "providers[0].exec[0]: must not be empty"
     );
 }
+
+const NODE_KEYS: &str = "widget, size, settings, direction, children, tabs, default";
+
+fn row_view_with_children(children: &str) -> String {
+    format!("[layout.views.v1]\ndirection = \"row\"\nchildren = {children}\n")
+}
+
+#[test]
+fn an_unknown_key_in_a_nested_node_names_the_key_and_the_node() {
+    let nested = row_view_with_children(
+        "[{ widget = \"memory\" }, \
+         { direction = \"column\", children = [{ widget = \"cpu\", sise = 300 }] }]",
+    );
+
+    assert_eq!(
+        rejected(&nested),
+        format!(
+            "line 3, column 72: layout.views.v1.children[1].children[0]: \
+             unknown field \"sise\", expected one of {NODE_KEYS}"
+        )
+    );
+}
+
+#[test]
+fn a_misspelled_node_kind_is_an_unknown_key_not_a_missing_one() {
+    assert_eq!(
+        rejected("[layout.views.v1]\nwidgte = \"memory\"\n"),
+        format!(
+            "line 1, column 1: layout.views.v1: unknown field \"widgte\", \
+             expected one of {NODE_KEYS}"
+        )
+    );
+}
+
+#[test]
+fn a_node_with_none_of_widget_children_or_tabs_is_rejected() {
+    assert_eq!(
+        rejected(&row_view_with_children(
+            "[{ widget = \"memory\" }, { size = 300 }]"
+        )),
+        "line 3, column 36: layout.views.v1.children[1]: \
+         a layout node needs one of widget, children or tabs"
+    );
+}
+
+#[test]
+fn a_node_with_two_of_widget_children_or_tabs_is_rejected() {
+    assert_eq!(
+        rejected("[layout.views.v1]\nwidget = \"memory\"\ntabs = [{ widget = \"cpu\" }]\n"),
+        "line 1, column 1: layout.views.v1: \
+         a layout node takes only one of widget, children or tabs, found widget and tabs"
+    );
+}
+
+#[test]
+fn a_key_that_belongs_to_another_kind_of_node_is_rejected() {
+    assert_eq!(
+        rejected("[layout.views.v1]\nwidget = \"memory\"\ndirection = \"row\"\n"),
+        "line 1, column 1: layout.views.v1: \
+         unknown field \"direction\" for a widget slot, expected one of widget, size, settings"
+    );
+}
+
+#[test]
+fn a_split_without_a_direction_is_rejected() {
+    assert_eq!(
+        rejected("[layout.views.v1]\nchildren = []\n"),
+        "line 1, column 1: layout.views.v1: a split needs a direction"
+    );
+}
+
+#[test]
+fn a_bad_value_in_a_node_points_at_its_line() {
+    assert_eq!(
+        rejected("[layout.views.v1]\ndirection = \"rows\"\nchildren = []\n"),
+        "line 2, column 13: unknown variant `rows`, expected `row` or `column`"
+    );
+}
+
+#[test]
+fn a_parse_error_is_one_line_with_the_parsers_full_report_kept_apart() {
+    let error = load_str_with_user("[appearance\npanel_fill = 1\n", "u").unwrap_err();
+
+    assert_eq!(
+        error.message,
+        "line 1, column 12: unclosed table, expected `]`"
+    );
+    let detail = error.detail.as_deref().expect("a TOML error has a report");
+    assert!(detail.starts_with("TOML parse error at line 1, column 12"));
+    assert!(detail.contains("1 | [appearance"));
+    assert_eq!(error.to_string(), detail);
+}
+
+#[test]
+fn a_validation_error_has_no_separate_report() {
+    let error = load_str_with_user("[appearance]\npanel_fill = 120\n", "u").unwrap_err();
+
+    assert_eq!(error.detail, None);
+    assert_eq!(error.to_string(), error.message);
+}

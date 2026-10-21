@@ -480,7 +480,11 @@ async fn config_change_resends_config_and_layout() {
 
     let problem = ui.recv_any().await;
     assert_eq!(problem["t"], "config_error", "got {problem}");
-    assert!(!problem["message"].as_str().unwrap().is_empty());
+    let message = problem["message"].as_str().unwrap();
+    assert!(
+        !message.is_empty() && !message.contains('\n'),
+        "a config error must fit one notification line: {message:?}"
+    );
 }
 
 /// The `GHOST_SOCKET` value the next provider run wrote into the FIFO.

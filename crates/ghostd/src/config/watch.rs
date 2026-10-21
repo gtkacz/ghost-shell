@@ -64,6 +64,7 @@ pub fn spawn_watcher(
             Err(error) => {
                 let _ = watcher_error_tx.send(ConfigError {
                     message: format!("config watcher: {error}"),
+                    detail: None,
                 });
             }
         }
@@ -135,6 +136,7 @@ fn settle_pass(
             // publish.
             let _ = error_tx.send(ConfigError {
                 message: REMOVED_MESSAGE.to_owned(),
+                detail: None,
             });
         }
         *removal_reported = true;

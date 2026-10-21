@@ -1,6 +1,7 @@
 mod config;
 mod layout;
 mod msg;
+mod node_de;
 mod snapshot;
 
 pub use config::*;

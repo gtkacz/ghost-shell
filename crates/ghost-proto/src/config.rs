@@ -306,6 +306,7 @@ impl Default for Notifications {
 pub struct LayoutConfig {
     pub gutter: f32,
     pub margin: f32,
+    #[serde(deserialize_with = "crate::node_de::views")]
     pub views: BTreeMap<String, LayoutNode>,
 }
 
@@ -335,14 +336,14 @@ pub struct TabSpec {
     pub settings: Map<String, Value>,
 }
 
-/// Untagged, so the variant is chosen by which keys a TOML table carries.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged, deny_unknown_fields)]
+/// Untagged, so the variant is chosen by which keys a TOML table carries; reading it back is in
+/// `node_de`, which reports a bad key with the node's path.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
 pub enum LayoutNode {
     Slot {
         widget: String,
         size: Option<f32>,
-        #[serde(default)]
         settings: Map<String, Value>,
     },
     Split {
@@ -353,7 +354,6 @@ pub enum LayoutNode {
     Tabs {
         tabs: Vec<TabSpec>,
         size: Option<f32>,
-        #[serde(default)]
         default: usize,
     },
 }

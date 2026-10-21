@@ -14,16 +14,47 @@ const COLOUR_HEX_DIGITS: usize = 6;
 const APP_CONFIG_DIR: &str = "ghost-shell";
 const CONFIG_FILE: &str = "config.toml";
 
+/// A config problem that fits on one line, which is how the shell and the desktop notification
+/// show it. `Display` gives the fuller `detail` when there is one, for the log.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
-#[error("{message}")]
+#[error("{}", .detail.as_deref().unwrap_or(.message))]
 pub struct ConfigError {
     pub message: String,
+    /// The parser's own report, which quotes the source and spans several lines.
+    pub detail: Option<String>,
 }
 
 fn invalid(path: impl std::fmt::Display, problem: impl std::fmt::Display) -> ConfigError {
     ConfigError {
         message: format!("{path}: {problem}"),
+        detail: None,
     }
+}
+
+fn parse_error(source: &str, error: &toml::de::Error) -> ConfigError {
+    let problem = error
+        .message()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let message = match error.span() {
+        Some(span) => {
+            let (line, column) = line_and_column(source, span.start);
+            format!("line {line}, column {column}: {problem}")
+        }
+        None => problem,
+    };
+    ConfigError {
+        message,
+        detail: Some(error.to_string().trim_end().to_owned()),
+    }
+}
+
+fn line_and_column(source: &str, offset: usize) -> (usize, usize) {
+    let before = source.get(..offset).unwrap_or(source);
+    let line = before.matches('\n').count() + 1;
+    let column = before.chars().rev().take_while(|&c| c != '\n').count() + 1;
+    (line, column)
 }
 
 pub fn load_str(s: &str) -> Result<ResolvedConfig, ConfigError> {
@@ -31,9 +62,7 @@ pub fn load_str(s: &str) -> Result<ResolvedConfig, ConfigError> {
 }
 
 pub fn load_str_with_user(s: &str, user: &str) -> Result<ResolvedConfig, ConfigError> {
-    let mut config: ResolvedConfig = toml::from_str(s).map_err(|e| ConfigError {
-        message: e.to_string(),
-    })?;
+    let mut config: ResolvedConfig = toml::from_str(s).map_err(|error| parse_error(s, &error))?;
     // Deserialization replaces the whole map when the user names any view, which would drop the
     // default views they did not mention.
     let mut views = LayoutConfig::default().views;
