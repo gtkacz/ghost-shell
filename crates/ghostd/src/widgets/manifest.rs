@@ -97,6 +97,8 @@ enum ManifestError {
     NotAFile,
     #[error("is a symlink to a file that does not exist")]
     DanglingLink,
+    #[error("sits in a folder that is a symlink to a path that does not exist")]
+    DanglingFolder,
 }
 
 /// Searches `dirs` in order, so a widget in a later directory replaces one with the same id from an
@@ -187,10 +189,13 @@ fn has_manifest(manifest_path: &Path) -> Result<bool, ManifestError> {
     match fs::metadata(manifest_path) {
         Ok(metadata) if metadata.is_file() => Ok(true),
         Ok(_) => Err(ManifestError::NotAFile),
-        // `metadata` follows links, so a link to nothing reads as not found as well.
+        // `metadata` follows links, so a link to nothing, here or in the folder's own name, reads
+        // as not found as well.
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             if fs::symlink_metadata(manifest_path).is_ok() {
                 Err(ManifestError::DanglingLink)
+            } else if manifest_path.parent().is_some_and(is_dangling_link) {
+                Err(ManifestError::DanglingFolder)
             } else {
                 Ok(false)
             }
@@ -199,6 +204,10 @@ fn has_manifest(manifest_path: &Path) -> Result<bool, ManifestError> {
         Err(e) if e.kind() == io::ErrorKind::NotADirectory => Ok(false),
         Err(e) => Err(e.into()),
     }
+}
+
+fn is_dangling_link(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok() && fs::metadata(path).is_err()
 }
 
 fn sorted_entries(dir: &Path) -> io::Result<Vec<PathBuf>> {

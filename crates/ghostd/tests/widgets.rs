@@ -634,6 +634,21 @@ fn a_manifest_that_cannot_be_read_is_reported_not_skipped() {
 }
 
 #[test]
+fn a_widget_folder_that_is_a_dangling_symlink_is_reported_not_skipped() {
+    let root = tempfile::tempdir().unwrap();
+    symlink("absent-folder", root.path().join("ghost")).unwrap();
+    // A folder that is a working link to a folder without a manifest is no widget, and no problem.
+    fs::create_dir(root.path().join("notes")).unwrap();
+    symlink("notes", root.path().join("linked-notes")).unwrap();
+
+    let (manifests, problems) = discover(&[root.path().to_path_buf()]);
+
+    assert!(manifests.is_empty());
+    assert_eq!(problems.len(), 1, "{problems:#?}");
+    assert_problem_names(&problems, &root.path().join("ghost").join(MANIFEST_FILE));
+}
+
+#[test]
 fn a_widget_folder_without_permission_is_reported_not_skipped() {
     let root = tempfile::tempdir().unwrap();
     install(root.path(), "locked", &Spec::default().toml());
