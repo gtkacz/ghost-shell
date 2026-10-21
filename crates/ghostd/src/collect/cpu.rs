@@ -216,14 +216,11 @@ fn enumerate_cpus(root: &SysRoot) -> io::Result<Vec<u16>> {
 /// Groups CPUs by the set that shares their L3; on Zen each such set is one CCD.
 fn read_topology(root: &SysRoot, cpus: &[u16]) -> io::Result<Vec<CcdLoad>> {
     // Keyed by CPU list so iteration yields CCDs ordered by their lowest CPU.
-    let mut l3_by_group: BTreeMap<Vec<u16>, u32> = BTreeMap::new();
+    let mut l3_by_group: BTreeMap<Vec<u16>, Option<u32>> = BTreeMap::new();
     for cpu in cpus {
         let cache_dir = format!("{CPU_SYSFS_DIR}/cpu{cpu}");
         // Offline CPUs have no cache directory, so they belong to no CCD.
-        let (Some(shared), Some(size)) = (
-            read_if_present(root, &format!("{cache_dir}/{SHARED_CPU_LIST}"))?,
-            read_if_present(root, &format!("{cache_dir}/{L3_SIZE}"))?,
-        ) else {
+        let Some(shared) = read_if_present(root, &format!("{cache_dir}/{SHARED_CPU_LIST}"))? else {
             continue;
         };
         let mut shared = parse_cpu_list(&shared);
@@ -232,19 +229,32 @@ fn read_topology(root: &SysRoot, cpus: &[u16]) -> io::Result<Vec<CcdLoad>> {
         if shared.is_empty() {
             continue;
         }
-        l3_by_group.insert(shared, parse_l3_kib(&size)?);
+        let size = read_if_present(root, &format!("{cache_dir}/{L3_SIZE}"))?
+            .map(|size| parse_l3_kib(&size))
+            .transpose()?;
+        // A member without a size file must not erase the size another member of its group gave.
+        let known = l3_by_group.entry(shared).or_default();
+        *known = known.or(size);
     }
 
-    let smallest = l3_by_group.values().min().copied().unwrap_or_default();
+    // The smallest cache marks the plain CCDs, so it is only known once every CCD has reported.
+    let every_size_known = l3_by_group.values().all(Option::is_some);
+    let smallest = l3_by_group
+        .values()
+        .flatten()
+        .min()
+        .copied()
+        .unwrap_or_default();
     l3_by_group
         .into_iter()
+        .filter_map(|(members, l3_kib)| Some((members, l3_kib?)))
         .enumerate()
         .map(|(index, (members, l3_kib))| {
             Ok(CcdLoad {
                 id: u8::try_from(index).map_err(|_| invalid_data("more CCDs than fit in a u8"))?,
                 cpus: members,
                 l3_kib,
-                vcache: l3_kib > smallest,
+                vcache: every_size_known && l3_kib > smallest,
                 load: 0.0,
             })
         })

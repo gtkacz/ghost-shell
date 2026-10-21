@@ -157,6 +157,46 @@ fn missing_l3_size_skips_that_cache_entry() {
     assert_eq!(snapshot.ccds[0].l3_kib, VCACHE_L3_KIB);
 }
 
+fn set_l3(fake: &common::FakeRoot, cpus: std::ops::RangeInclusive<usize>, group: &str, l3: &str) {
+    for cpu in cpus {
+        let cache = format!("sys/devices/system/cpu/cpu{cpu}/cache/index3");
+        fake.write(&format!("{cache}/shared_cpu_list"), &format!("{group}\n"));
+        fake.write(&format!("{cache}/size"), &format!("{l3}\n"));
+    }
+}
+
+#[test]
+fn vcache_is_not_decided_while_a_ccd_has_no_known_l3_size() {
+    let fake = fake_9950x3d();
+    set_l3(&fake, 0..=7, "0-7", "32768K");
+    set_l3(&fake, 8..=15, "8-15", "98304K");
+    set_l3(&fake, 16..=31, "16-31", "32768K");
+    // The unknown CCD could be the smallest one, so the others cannot be ranked against it.
+    for cpu in 16..=31 {
+        fake.remove(&format!(
+            "sys/devices/system/cpu/cpu{cpu}/cache/index3/size"
+        ));
+    }
+
+    let snapshot = CpuCollector::new(&fake.root()).unwrap().sample();
+
+    assert_eq!(snapshot.ccds.len(), 2);
+    assert!(snapshot.ccds.iter().all(|ccd| !ccd.vcache));
+}
+
+#[test]
+fn vcache_is_decided_once_every_ccd_size_is_known() {
+    let fake = fake_9950x3d();
+    set_l3(&fake, 0..=7, "0-7", "32768K");
+    set_l3(&fake, 8..=15, "8-15", "98304K");
+    set_l3(&fake, 16..=31, "16-31", "32768K");
+
+    let snapshot = CpuCollector::new(&fake.root()).unwrap().sample();
+
+    let flags: Vec<bool> = snapshot.ccds.iter().map(|ccd| ccd.vcache).collect();
+    assert_eq!(flags, [false, true, false]);
+}
+
 #[test]
 fn unreadable_cpuinfo_gives_an_empty_model() {
     let fake = fake_9950x3d();
