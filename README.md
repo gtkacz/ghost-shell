@@ -34,7 +34,7 @@ The script is idempotent and installs for the current user only:
 - the Kode Mono font into `~/.local/share/fonts/ghost-shell/`, if it is not installed yet;
 - the user units `ghostd.service` and `ghost-shell.service` into `~/.config/systemd/user/`.
 
-It stops with an error if `cargo`, `qsb-qt6`, `shell/` or the compiled shaders are missing. It does not enable or start anything, and it does not touch Plasma.
+It stops with an error if `cargo`, `fc-list`, `fc-cache`, `shell/` or the compiled shaders are missing. It does not enable or start anything, and it does not touch Plasma.
 
 ## Run
 
