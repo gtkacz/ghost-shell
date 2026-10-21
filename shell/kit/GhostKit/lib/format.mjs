@@ -108,6 +108,22 @@ export function uptime(seconds) {
   return isMissing(seconds) ? MISSING : clockText(seconds);
 }
 
+// The host feed publishes 0 when it cannot read the boot time, which would otherwise read as decades of uptime.
+export function uptimeSince(bootTimeS, nowS) {
+  if (!Number.isFinite(bootTimeS) || bootTimeS <= 0) {
+    return NaN;
+  }
+  return nowS - bootTimeS;
+}
+
+export function clockParts(date) {
+  return {
+    hours: padded(date.getHours()),
+    minutes: padded(date.getMinutes()),
+    seconds: padded(date.getSeconds()),
+  };
+}
+
 export function ago(seconds) {
   if (isMissing(seconds)) {
     return MISSING;

@@ -11,6 +11,9 @@ Item {
     property string text
     required property real pixelSize
     property int weight: Font.Bold
+    // Letter spacing in em. The cells below measure "0" with it, so a font without equal digit widths keeps the
+    // same spacing between its cells.
+    property real tracking: 0
     // Whether the value's own source is live, such as Data.topic(name).live.
     property bool sourceLive: true
     readonly property bool live: Data.connected && !Data.stale && sourceLive
@@ -53,6 +56,7 @@ Item {
             family: Theme.font
             pixelSize: root.pixelSize
             weight: root.weight
+            letterSpacing: root.pixelSize * root.tracking
         }
     }
 

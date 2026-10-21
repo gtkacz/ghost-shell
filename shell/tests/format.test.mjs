@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow,
+  pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow, clockParts, uptimeSince,
 } from '../kit/GhostKit/lib/format.mjs';
 
 test('pct rounds', () => assert.equal(pct(22.6), '23%'));
@@ -126,3 +126,24 @@ test('dow is the three-letter weekday of local time', () => {
 });
 
 test('dow renders an invalid date as dashes', () => assert.equal(dow(new Date('not a date')), '--'));
+
+test('clock parts are zero-padded local time on a 24-hour clock', () => {
+  assert.deepEqual(clockParts(new Date(2026, 9, 21, 7, 5, 9)), { hours: '07', minutes: '05', seconds: '09' });
+  assert.deepEqual(clockParts(new Date(2026, 9, 21, 0, 0, 0)), { hours: '00', minutes: '00', seconds: '00' });
+  assert.deepEqual(clockParts(new Date(2026, 9, 21, 23, 59, 59)), { hours: '23', minutes: '59', seconds: '59' });
+});
+
+test('uptime is the seconds since boot', () => {
+  assert.equal(uptimeSince(1000, 9047), 8047);
+  assert.equal(uptimeSince(1000, 1000), 0);
+});
+
+test('uptime is missing before the host arrives and when the boot time could not be read', () => {
+  assert.ok(Number.isNaN(uptimeSince(null, 9047)));
+  assert.ok(Number.isNaN(uptimeSince(undefined, 9047)));
+  assert.ok(Number.isNaN(uptimeSince(0, 9047)));
+});
+
+test('an uptime behind the boot time reads as zero', () => assert.equal(uptime(uptimeSince(9047, 1000)), '00:00:00'));
+
+test('a missing uptime reads as dashes', () => assert.equal(uptime(uptimeSince(null, 9047)), '--'));

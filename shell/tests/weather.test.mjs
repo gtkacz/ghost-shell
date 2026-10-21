@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ALERTS_STALE_AFTER_S, activeAlerts, alertLine, alertsEnabled, alertsStale, detailLine, forecastFrom, hiLo, hourLabel,
+  ALERTS_STALE_AFTER_S, activeAlerts, alertLine, alertsEnabled, alertsStale, detailLine, forecastFrom, hiLo, hiLoHum, hourLabel,
   skyLine,
 } from '../kit/GhostKit/lib/weather.mjs';
 
@@ -172,3 +172,9 @@ test('a forecast without hours trims to none, and no forecast stays none', () =>
   assert.deepEqual(forecastFrom({ temp_c: 18 }, NOON_UTC_S).hours, []);
   assert.equal(forecastFrom(null, NOON_UTC_S), null);
 });
+
+test('hi, lo and humidity read as one line, as the clock hero shows them', () => {
+  assert.equal(hiLoHum({ high_c: 22.4, low_c: 13.6, humidity_pct: 88 }), 'H 22° · L 14° · HUM 88%');
+});
+
+test('hi, lo and humidity read as dashes for what the forecast lacks', () => assert.equal(hiLoHum({}), 'H -- · L -- · HUM --'));

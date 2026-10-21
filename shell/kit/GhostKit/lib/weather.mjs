@@ -91,6 +91,10 @@ export function hiLo(w) {
   return 'H ' + tempShort(w.high_c) + SEPARATOR + 'L ' + tempShort(w.low_c);
 }
 
+export function hiLoHum(w) {
+  return hiLo(w) + SEPARATOR + 'HUM ' + pct(w.humidity_pct);
+}
+
 function windText(kmh) {
   return Number.isFinite(kmh) ? Math.round(kmh) + ' KM/H' : MISSING;
 }

@@ -52,6 +52,14 @@ Singleton {
         return Format.uptime(seconds);
     }
 
+    function uptimeSince(bootTimeS, nowS) {
+        return Format.uptimeSince(bootTimeS, nowS);
+    }
+
+    function clockParts(date) {
+        return Format.clockParts(date);
+    }
+
     function ago(seconds) {
         return Format.ago(seconds);
     }
@@ -106,6 +114,10 @@ Singleton {
 
     function hiLo(weather) {
         return Weather.hiLo(weather);
+    }
+
+    function hiLoHum(weather) {
+        return Weather.hiLoHum(weather);
     }
 
     function detailLine(weather, offsetMin) {
