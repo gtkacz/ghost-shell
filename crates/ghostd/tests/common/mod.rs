@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use std::fs;
+use std::os::unix::fs::symlink;
 
 use ghostd::sysroot::SysRoot;
 use tempfile::TempDir;
@@ -46,6 +47,15 @@ impl FakeRoot {
 
     pub fn root(&self) -> SysRoot {
         SysRoot::new(self.dir.path())
+    }
+
+    /// Points `rel` at the directory `target_rel`, as sysfs does with `device` links.
+    pub fn link_dir(&self, rel: &str, target_rel: &str) {
+        let path = self.dir.path().join(rel);
+        let target = self.dir.path().join(target_rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        symlink(target, path).unwrap();
     }
 
     /// A `None` `rss_kib` omits the `VmRSS` line, as the kernel does for kernel threads.
