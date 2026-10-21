@@ -19,6 +19,12 @@ panel_fill = 55
 # Frames a second for the media spectrum while music plays: 15, or 30 for smoother bars, which
 # costs more CPU.
 spectrum_fps = 15
+# Seconds for the stripes of a boxed alert to travel one 16 px tile, both while it blinks and once
+# it is held. Larger is slower.
+alert_stripe_period_s = 1.6
+# Seconds between the steps of a held alert's stripes (during its first 10 s on screen they scroll
+# instead). Every step is one frame, so a shorter step costs more CPU.
+alert_stripe_step_s = 1.0
 
 # Colours are written as #rrggbb.
 [appearance.colors]

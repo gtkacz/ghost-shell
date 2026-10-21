@@ -6,6 +6,8 @@ const NO_TAG = '';
 const HEX_BYTE_WIDTH = 2;
 const RGB_HEX_LENGTH = 6;
 const ZERO_PAD = '0';
+const MS_PER_SECOND = 1000;
+const MIN_TIMING_MS = 1;
 
 const FIELD_BY_MODE = Object.freeze({ mixed: 'kanji', kanji: 'kanji', katakana: 'katakana' });
 // Chips read as status words rather than panel titles, so `mixed` takes the katakana for them (spec §5.3).
@@ -71,4 +73,10 @@ export function withAlpha(hex, pct) {
 // Digits of unequal advance width mean the configured font is proportional, so numbers would shift.
 export function isMonospace(width0, width1) {
   return Math.abs(width0 - width1) < MONOSPACE_TOLERANCE_PX;
+}
+
+// A timing the config gives in seconds, as the whole milliseconds the shell counts in. A value that rounds to nothing
+// still counts as one, so a timing the daemon accepts can never become a divisor of zero.
+export function secondsToMs(seconds) {
+  return Math.max(MIN_TIMING_MS, Math.round(seconds * MS_PER_SECOND));
 }

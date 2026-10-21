@@ -17,6 +17,8 @@ Singleton {
             alert_chips: true,
             panel_fill: 55,
             spectrum_fps: 15,
+            alert_stripe_period_s: 1.6,
+            alert_stripe_step_s: 1,
             colors: {
                 ground: "#0a0f11",
                 panel: "#0a0f11",
@@ -86,6 +88,10 @@ Singleton {
     readonly property bool alertChips: appearance.alert_chips !== false
     // Frames a second for the media spectrum, 15 or 30; a daemon older than this key gives none.
     readonly property int spectrumFps: appearance.spectrum_fps ?? defaultAppearance.spectrum_fps
+    // Milliseconds for a boxed alert's stripes to travel one tile, and between the steps of a held alert's stripes;
+    // a daemon older than these keys gives none.
+    readonly property int alertStripePeriodMs: ThemeLib.secondsToMs(appearance.alert_stripe_period_s ?? defaultAppearance.alert_stripe_period_s)
+    readonly property int alertStripeStepMs: ThemeLib.secondsToMs(appearance.alert_stripe_step_s ?? defaultAppearance.alert_stripe_step_s)
 
     readonly property real loadWarn: thresholds.load_warn / percent
     readonly property real loadCrit: thresholds.load_crit / percent

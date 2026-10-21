@@ -44,6 +44,10 @@ pub struct Appearance {
     pub panel_fill: u32,
     /// Frames a second for the media spectrum while music plays: 15 or 30.
     pub spectrum_fps: u32,
+    /// Seconds for a boxed alert's stripes to travel one tile, blinking or held.
+    pub alert_stripe_period_s: f64,
+    /// Seconds between the steps of a held alert's stripes.
+    pub alert_stripe_step_s: f64,
     pub colors: Colors,
     pub dots: Dots,
     pub scanlines: Scanlines,
@@ -58,6 +62,8 @@ impl Default for Appearance {
             alert_chips: true,
             panel_fill: 55,
             spectrum_fps: 15,
+            alert_stripe_period_s: 1.6,
+            alert_stripe_step_s: 1.0,
             colors: Colors::default(),
             dots: Dots::default(),
             scanlines: Scanlines::default(),

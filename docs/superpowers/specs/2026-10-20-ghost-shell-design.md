@@ -156,8 +156,8 @@ Everything stays teal-grey until it needs the user. Default thresholds: loads �
   - Unlit cells show at ~6 % so the matrix reads even when idle.
 - **Boxed alerts** (the INMET box, a dead-drive line):
   - a 3 px warn/crit left edge;
-  - diagonal stripes (16 px tile) scrolling horizontally at one tile per 1.6 s;
-  - the text inside does a **stepped arrival flicker** (≈1.6 s, held frames) when the alert first appears, then **blinks exactly like the boot cursor**: a 1 s loop in held steps (full → half → off → half). **Never smooth fades.** After 10 s it holds still, at full colour with static stripes; the same alert doesn't blink again in that session, and a new level or message is a new alert (user decision, 2026-10-21: a lasting condition such as a dead drive shouldn't cost frames forever).
+  - diagonal stripes (16 px tile) scrolling horizontally at one tile per 1.6 s, or per `appearance.alert_stripe_period_s` (user decision, 2026-10-21);
+  - the text inside does a **stepped arrival flicker** (≈1.6 s, held frames) when the alert first appears, then **blinks exactly like the boot cursor**: a 1 s loop in held steps (full → half → off → half). **Never smooth fades.** After 10 s the text holds still at full colour and the stripes step once a second, or every `appearance.alert_stripe_step_s` (user decision, 2026-10-21); the same alert doesn't blink again in that session, and a new level or message is a new alert (user decision, 2026-10-21: a lasting condition such as a dead drive shouldn't cost frames forever).
   - Coloured text that isn't boxed (e.g. `WX 18° · STORM` in the bar, warn/crit rows in the notification list) does **not** animate.
 - **Countdowns:** anything with a time (e.g. an INMET alert window) shows **only a live `HH:MM:SS` countdown**: no icon, no label, no clock time. It counts to the start, then to the end once active.
 - **Spacing rule:** each panel has exactly one element that stretches to absorb spare height. Text never overflows; it truncates with an ellipsis.

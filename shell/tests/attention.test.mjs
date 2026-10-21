@@ -7,6 +7,7 @@ import {
   hideAlert,
   showAlert,
   spendAttention,
+  stepsOnWholeSeconds,
 } from '../kit/GhostKit/lib/attention.mjs';
 
 const T0 = 1_000_000;
@@ -190,7 +191,26 @@ test('spending an alert while it shows holds it at once and after every box hide
 
 const TILE_PX = 16;
 const STRIPE_PERIOD_MS = 1600;
-const phaseAt = (epochSecond, tilePx = TILE_PX) => heldStripePhase(epochSecond, tilePx, STRIPE_PERIOD_MS);
+const STRIPE_STEP_MS = 1000;
+const heldPhase = (wallMs, { tilePx = TILE_PX, periodMs = STRIPE_PERIOD_MS, stepMs = STRIPE_STEP_MS } = {}) =>
+  heldStripePhase(wallMs, tilePx, periodMs, stepMs);
+const phaseAt = (epochSecond, tilePx = TILE_PX) => heldPhase(epochSecond * SECOND_MS, { tilePx });
+
+// What the held phase was before the step became a setting: whole epoch seconds in, a 1 s step implied.
+const phaseBeforeTheStepSetting = (epochSecond, tilePx, periodMs) =>
+  Math.floor((tilePx * ((epochSecond * 1000) % periodMs)) / periodMs);
+
+test('with the default period and step the held phase is what it was before they were settings', () => {
+  for (const tilePx of [1, 13, 16, 21, 24, 32]) {
+    for (const epochSecond of [0, 1, 2, 7, 8, 59, 1_800_000_003, 1_800_000_004]) {
+      assert.equal(
+        phaseAt(epochSecond, tilePx),
+        phaseBeforeTheStepSetting(epochSecond, tilePx, STRIPE_PERIOD_MS),
+        `tile ${tilePx}, second ${epochSecond}`,
+      );
+    }
+  }
+});
 
 test('a held alert steps its stripes 10 px a second on a 16 px tile', () => {
   const phases = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((second) => phaseAt(second));
@@ -200,6 +220,14 @@ test('a held alert steps its stripes 10 px a second on a 16 px tile', () => {
 test('the held phase follows the wall clock second, not when the box appeared', () => {
   assert.equal(phaseAt(1_800_000_003), 14);
   assert.equal(phaseAt(1_800_000_004), 8);
+});
+
+test('the held phase holds for the whole of a step and moves on its boundary', () => {
+  const wallMs = 1_800_000_003 * SECOND_MS;
+  assert.equal(heldPhase(wallMs), 14);
+  assert.equal(heldPhase(wallMs + 500), 14);
+  assert.equal(heldPhase(wallMs + 999), 14);
+  assert.equal(heldPhase(wallMs + 1000), 8);
 });
 
 test('the held phase wraps at the tile and repeats every eight seconds', () => {
@@ -226,4 +254,84 @@ test('the held phase is in whole pixels at any scale', () => {
 
 test('the held phase scales with the tile', () => {
   assert.equal(phaseAt(1, 32), 20);
+});
+
+test('a 2 second step moves every 2 seconds and holds in between', () => {
+  const phases = [0, 2000, 4000, 6000, 8000].map((wallMs) => heldPhase(wallMs, { stepMs: 2000 }));
+  assert.deepEqual(phases, [0, 4, 8, 12, 0]);
+  for (const wallMs of [1, 1000, 1999]) {
+    assert.equal(heldPhase(wallMs, { stepMs: 2000 }), 0);
+  }
+  for (const wallMs of [2001, 2999, 3999]) {
+    assert.equal(heldPhase(wallMs, { stepMs: 2000 }), 4);
+  }
+});
+
+test('a 0.5 second step moves twice a second and holds in between', () => {
+  const phases = [0, 500, 1000, 1500, 2000, 2500].map((wallMs) => heldPhase(wallMs, { stepMs: 500 }));
+  assert.deepEqual(phases, [0, 5, 10, 15, 4, 9]);
+  for (const wallMs of [1, 250, 499]) {
+    assert.equal(heldPhase(wallMs, { stepMs: 500 }), 0);
+  }
+  for (const wallMs of [501, 750, 999]) {
+    assert.equal(heldPhase(wallMs, { stepMs: 500 }), 5);
+  }
+});
+
+test('a step that does not divide the second still lands on whole steps of the wall clock', () => {
+  assert.equal(heldPhase(2 * SECOND_MS - 1, { stepMs: 700 }), heldPhase(1400, { stepMs: 700 }));
+  assert.equal(heldPhase(1400, { stepMs: 700 }), Math.floor((TILE_PX * 1400) / STRIPE_PERIOD_MS));
+  assert.equal(heldPhase(2100, { stepMs: 700 }), Math.floor((TILE_PX * 500) / STRIPE_PERIOD_MS));
+});
+
+test('a slower period moves the stripes less on each step and repeats later', () => {
+  const slow = { periodMs: 3200 };
+  const phases = [0, 1, 2, 3, 4, 5, 6, 7].map((second) => heldPhase(second * SECOND_MS, slow));
+  assert.deepEqual(phases, [0, 5, 10, 15, 4, 9, 14, 3]);
+  assert.equal(heldPhase(16 * SECOND_MS, slow), heldPhase(0, slow));
+  assert.equal(heldPhase(17 * SECOND_MS, slow), heldPhase(SECOND_MS, slow));
+});
+
+test('a faster period moves the stripes further on each step', () => {
+  assert.equal(heldPhase(SECOND_MS, { periodMs: 800 }), 4);
+});
+
+test('the held phase wraps at the tile for any period and step', () => {
+  for (const periodMs of [100, 800, 1600, 3200, 10_000]) {
+    for (const stepMs of [50, 500, 1000, 2000, 3000, 7000]) {
+      for (let wallMs = 0; wallMs < 40_000; wallMs += 130) {
+        const phase = heldPhase(wallMs + 1_800_000_000_000, { periodMs, stepMs });
+        assert.ok(phase >= 0 && phase < TILE_PX, `period ${periodMs}, step ${stepMs}, ${wallMs}: ${phase}`);
+      }
+    }
+  }
+});
+
+test('the phase is the last pixel just before the period and the first one on it', () => {
+  assert.equal(heldPhase(1500, { stepMs: 100 }), 15);
+  assert.equal(heldPhase(1599, { stepMs: 100 }), 15);
+  assert.equal(heldPhase(1600, { stepMs: 100 }), 0);
+});
+
+test('the held phase is in whole pixels for any period, step and scale', () => {
+  for (const tilePx of [1, 13, 16, 21, 32]) {
+    for (const periodMs of [800, 1600, 3200]) {
+      for (const stepMs of [500, 1000, 2000]) {
+        for (let wallMs = 0; wallMs < 20_000; wallMs += 250) {
+          const phase = heldPhase(wallMs, { tilePx, periodMs, stepMs });
+          assert.ok(Number.isInteger(phase), `tile ${tilePx}, period ${periodMs}, step ${stepMs}, ${wallMs}: ${phase}`);
+          assert.ok(phase >= 0 && phase < tilePx);
+        }
+      }
+    }
+  }
+});
+
+test('only a step of whole seconds can ride the seconds clock', () => {
+  for (const stepMs of [1000, 2000, 3000, 60_000]) {
+    assert.equal(stepsOnWholeSeconds(stepMs), true, `${stepMs} ms`);
+  }
+  for (const stepMs of [1, 250, 500, 1500, 1600, 2500]) {
+    assert.equal(stepsOnWholeSeconds(stepMs), false, `${stepMs} ms`);
+  }
 });

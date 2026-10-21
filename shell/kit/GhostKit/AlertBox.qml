@@ -5,8 +5,8 @@ import "lib/theme.mjs" as ThemeLib
 
 // A boxed alert: a coloured left edge, scrolling stripes, and text that flickers in on arrival and then
 // blinks like the boot cursor. That lasts ATTENTION_MS of the time the alert is on screen, and then the text
-// holds still at full colour while the stripes step once a second. Every step lands on a FrameClock tick or
-// second, so it adds no frames of its own.
+// holds still at full colour while the stripes step, once a second unless appearance.alert_stripe_step_s says
+// otherwise. Every step lands on a FrameClock tick or second, so it adds no frames of its own.
 Item {
     id: root
 
@@ -24,7 +24,9 @@ Item {
     // The mockup's stripe strength, as a percentage like withAlpha() takes.
     readonly property real stripeAlphaPct: 13
 
-    readonly property int stripePeriodMs: 1600
+    readonly property int stripePeriodMs: Theme.alertStripePeriodMs
+    readonly property int stripeStepMs: Theme.alertStripeStepMs
+    readonly property real millisPerSecond: 1000
     readonly property int arrivalMs: 1600
     // Held steps: each opacity starts at its percentage of arrivalMs and holds until the next one.
     readonly property var arrivalStartPercents: [0, 6, 10, 14, 40, 70]
@@ -62,6 +64,10 @@ Item {
     property real appearedAt: 0
     property bool holdsClock: false
     property bool holdsSeconds: false
+    property bool holdsTicks: false
+    // A step of whole seconds needs only the seconds clock; any other step needs the frame ticker, whose ticks
+    // are the only way to notice it.
+    readonly property bool stepsOnSeconds: Attention.stepsOnWholeSeconds(stripeStepMs)
     // The key this box is counted under while it shows, which is not alertKey once the key has changed under it;
     // null while the box is not counted.
     property var countedKey: null
@@ -99,7 +105,13 @@ Item {
         holdsClock = wanted;
     }
 
-    // Past its window a shown alert needs the clock only at second boundaries, for its stripes' steps.
+    // Past its window a shown alert needs a clock only to notice its stripes' steps, and holds whichever of the two
+    // suits the step, swapping them when the setting moves from one kind to the other.
+    function holdStepClock(wanted) {
+        holdSeconds(wanted && stepsOnSeconds);
+        holdTicks(wanted && !stepsOnSeconds);
+    }
+
     function holdSeconds(wanted) {
         if (wanted === holdsSeconds) {
             return;
@@ -110,6 +122,18 @@ Item {
             FrameClock.releaseSeconds();
         }
         holdsSeconds = wanted;
+    }
+
+    function holdTicks(wanted) {
+        if (wanted === holdsTicks) {
+            return;
+        }
+        if (wanted) {
+            FrameClock.acquire();
+        } else {
+            FrameClock.release();
+        }
+        holdsTicks = wanted;
     }
 
     // Rounded up: a box at exactly its implicit width gives the message its measured width less a floating-point
@@ -149,7 +173,7 @@ Item {
         } else {
             attentionTimer.stop();
         }
-        holdSeconds(showing && !attracting);
+        holdStepClock(showing && !attracting);
     }
 
     onShownChanged: claimAttention()
@@ -161,12 +185,13 @@ Item {
     }
     onAnimatingChanged: holdClock(animating)
     // The attention timer ends the window without a change of `shown`, so claimAttention() does not run.
-    onAttractingChanged: holdSeconds(shown && !attracting)
+    onAttractingChanged: holdStepClock(shown && !attracting)
+    onStepsOnSecondsChanged: holdStepClock(shown && !attracting)
     Component.onCompleted: claimAttention()
     Component.onDestruction: {
         stopCounting();
         holdClock(false);
-        holdSeconds(false);
+        holdStepClock(false);
     }
 
     Timer {
@@ -186,7 +211,8 @@ Item {
         // Whole physical pixels, so every stripe has the same staircase edge.
         property real tile: Math.max(1, Math.round(Theme.d(root.tilePx) * root.pixelRatio))
         property real phase: root.holdsClock ? tile * (FrameClock.elapsedMs % root.stripePeriodMs) / root.stripePeriodMs
-            : root.holdsSeconds ? Attention.heldStripePhase(FrameClock.epochSecond, tile, root.stripePeriodMs) : 0
+            : root.holdsSeconds ? Attention.heldStripePhase(FrameClock.epochSecond * root.millisPerSecond, tile, root.stripePeriodMs, root.stripeStepMs)
+            : root.holdsTicks ? Attention.heldStripePhase(FrameClock.epochMs, tile, root.stripePeriodMs, root.stripeStepMs) : 0
         property size resolution: Qt.size(width * root.pixelRatio, height * root.pixelRatio)
 
         anchors.fill: parent

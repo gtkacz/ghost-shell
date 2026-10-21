@@ -75,6 +75,67 @@ fn spectrum_fps_must_be_15_or_30() {
     }
 }
 
+const STRIPE_KEYS: [&str; 2] = ["alert_stripe_period_s", "alert_stripe_step_s"];
+
+#[test]
+fn alert_stripe_timings_default_to_1_6_and_1_second() {
+    let appearance = load_str_with_user("", "u").unwrap().appearance;
+    assert_eq!(appearance.alert_stripe_period_s, 1.6);
+    assert_eq!(appearance.alert_stripe_step_s, 1.0);
+}
+
+#[test]
+fn alert_stripe_timings_can_be_set_separately() {
+    let c = load_str_with_user("[appearance]\nalert_stripe_period_s = 3.2\n", "u").unwrap();
+    assert_eq!(c.appearance.alert_stripe_period_s, 3.2);
+    assert_eq!(c.appearance.alert_stripe_step_s, 1.0);
+
+    let c = load_str_with_user("[appearance]\nalert_stripe_step_s = 0.5\n", "u").unwrap();
+    assert_eq!(c.appearance.alert_stripe_period_s, 1.6);
+    assert_eq!(c.appearance.alert_stripe_step_s, 0.5);
+}
+
+#[test]
+fn alert_stripe_timings_accept_whole_numbers() {
+    let c = load_str_with_user("[appearance]\nalert_stripe_step_s = 2\n", "u").unwrap();
+    assert_eq!(c.appearance.alert_stripe_step_s, 2.0);
+}
+
+#[test]
+fn alert_stripe_timings_must_be_greater_than_zero() {
+    for key in STRIPE_KEYS {
+        for (written, shown) in [("0", "0"), ("0.0", "0"), ("-1.5", "-1.5"), ("-0.0", "-0")] {
+            assert_eq!(
+                rejected(&format!("[appearance]\n{key} = {written}\n")),
+                format!("appearance.{key}: must be greater than 0, got {shown}"),
+            );
+        }
+    }
+}
+
+#[test]
+fn alert_stripe_timings_must_be_finite() {
+    for key in STRIPE_KEYS {
+        for (written, shown) in [("nan", "NaN"), ("inf", "inf"), ("-inf", "-inf")] {
+            assert_eq!(
+                rejected(&format!("[appearance]\n{key} = {written}\n")),
+                format!("appearance.{key}: must be finite, got {shown}"),
+            );
+        }
+    }
+}
+
+#[test]
+fn a_non_number_alert_stripe_timing_points_at_its_line() {
+    let error =
+        load_str_with_user("[appearance]\nalert_stripe_step_s = \"fast\"\n", "u").unwrap_err();
+
+    assert_eq!(
+        error.message,
+        "line 2, column 23: invalid type: string \"fast\", expected f64"
+    );
+}
+
 #[test]
 fn brand_can_be_turned_off_and_renamed() {
     let c = load_str_with_user("[bar.brand]\nenabled = false\ntext = \"TKZ//07\"\n", "u").unwrap();

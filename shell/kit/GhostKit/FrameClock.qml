@@ -30,9 +30,13 @@ Singleton {
     readonly property real blinkOpacity: blinkSteps[Math.floor(elapsedMs / blinkStepMs) % blinkSteps.length]
     // Whole seconds since the epoch, kept current only while something holds acquireSeconds().
     readonly property double epochSecond: seconds.epoch
+    // Wall-clock milliseconds as of the latest tick, which is as current as the ticker runs: unlike elapsedMs it
+    // does not drift from the wall clock, so a holder of acquire() can step on wall-clock boundaries with it.
+    readonly property double epochMs: ticker.epochMs
 
     function acquire() {
         ticker.users += 1;
+        ticker.epochMs = Date.now();
     }
 
     function release() {
@@ -76,6 +80,7 @@ Singleton {
         property int fastUsers: 0
         property int frame: 0
         property real elapsedMs: 0
+        property double epochMs: Date.now()
 
         interval: fastUsers > 0 ? root.fastIntervalMs : root.intervalMs
         repeat: true
@@ -83,6 +88,7 @@ Singleton {
         onTriggered: {
             frame += 1;
             elapsedMs += interval;
+            epochMs = Date.now();
             // The tick that crosses a second boundary carries the new second, so a held clock needs no
             // timer of its own.
             if (seconds.users > 0) {

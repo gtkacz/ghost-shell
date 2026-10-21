@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TAGS, tag, chip, withAlpha, isMonospace } from '../kit/GhostKit/lib/theme.mjs';
+import { TAGS, tag, chip, withAlpha, isMonospace, secondsToMs } from '../kit/GhostKit/lib/theme.mjs';
 
 test('tags', () => {
   assert.equal(tag('cpu', 'mixed'), '演算');
@@ -123,4 +123,16 @@ test('isMonospace accepts widths within half a pixel', () => {
   assert.equal(isMonospace(8.4, 8.8), true);
   assert.equal(isMonospace(8.4, 9.2), false);
   assert.equal(isMonospace(9.2, 8.4), false);
+});
+
+test('secondsToMs gives whole milliseconds without floating-point residue', () => {
+  assert.equal(secondsToMs(1.6), 1600);
+  assert.equal(secondsToMs(1.1), 1100);
+  assert.equal(secondsToMs(0.5), 500);
+  assert.equal(secondsToMs(3), 3000);
+});
+
+test('secondsToMs never gives less than a millisecond, so a tiny setting cannot divide by zero', () => {
+  assert.equal(secondsToMs(0.0004), 1);
+  assert.equal(secondsToMs(Number.MIN_VALUE), 1);
 });

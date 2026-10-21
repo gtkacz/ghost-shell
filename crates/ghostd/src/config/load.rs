@@ -145,6 +145,14 @@ fn validate_appearance(appearance: &Appearance) -> Result<(), ConfigError> {
             ),
         ));
     }
+    check_positive_finite(
+        "appearance.alert_stripe_period_s",
+        appearance.alert_stripe_period_s,
+    )?;
+    check_positive_finite(
+        "appearance.alert_stripe_step_s",
+        appearance.alert_stripe_step_s,
+    )?;
     if appearance.dots.spacing < MIN_DOT_SPACING {
         return Err(invalid(
             "appearance.dots.spacing",
@@ -196,6 +204,20 @@ fn check_range<T: PartialOrd + std::fmt::Display>(
     Err(invalid(
         path,
         format!("must be {}..={}, got {value}", range.start(), range.end()),
+    ))
+}
+
+fn check_positive_finite(path: &str, value: f64) -> Result<(), ConfigError> {
+    // Infinity is greater than 0 and NaN compares false either way, so finiteness is checked first.
+    if !value.is_finite() {
+        return Err(invalid(path, format!("must be finite, got {value}")));
+    }
+    if value > 0.0 {
+        return Ok(());
+    }
+    Err(invalid(
+        path,
+        format!("must be greater than 0, got {value}"),
     ))
 }
 

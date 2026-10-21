@@ -58,10 +58,17 @@ export function spendAttention(seen, key, clockMs) {
 
 const MS_PER_SECOND = 1000;
 
-// A held alert's stripes advance once per wall-clock second instead of scrolling, which keeps the scroll's average
-// speed (one tile per period) without a frame clock of their own. Floored, so the phase is whole pixels and stays
-// below the tile.
-export function heldStripePhase(epochSecond, tilePx, periodMs) {
-  const intoPeriodMs = (epochSecond * MS_PER_SECOND) % periodMs;
-  return Math.floor(tilePx * intoPeriodMs / periodMs);
+// A held alert's stripes jump once per step instead of scrolling, which keeps the scroll's average speed (one tile
+// per period) without a frame source of its own. `wallMs` is wall-clock milliseconds; the phase depends only on the
+// step it falls in, so it changes on step boundaries and nowhere else. Floored, so the phase is whole pixels and
+// stays below the tile.
+export function heldStripePhase(wallMs, tilePx, periodMs, stepMs) {
+  const stepStartMs = Math.floor(wallMs / stepMs) * stepMs;
+  return Math.floor((tilePx * (stepStartMs % periodMs)) / periodMs);
+}
+
+// A step of whole seconds lands on the wall clock's second boundaries, which FrameClock's seconds clock already
+// delivers; any other step needs the frame clock's ticks to be noticed.
+export function stepsOnWholeSeconds(stepMs) {
+  return stepMs % MS_PER_SECOND === 0;
 }
