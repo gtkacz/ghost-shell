@@ -299,3 +299,32 @@ fn provide_line_is_exact() {
         "{\"t\":\"provide\",\"proto\":1,\"name\":\"inmet\",\"topics\":[\"weather.alerts\"]}\n"
     );
 }
+
+#[test]
+fn severities_are_classified_after_normalising_them() {
+    for (severidade, expected) in [
+        ("Peri\u{301}go", AlertLevel::Crit),
+        (" perigo\u{a0}", AlertLevel::Crit),
+        ("Grande\u{a0}Perigo", AlertLevel::Crit),
+        ("GRANDE  PERI\u{301}GO", AlertLevel::Crit),
+        ("Perigo\u{a0}Potencial", AlertLevel::Warn),
+        ("Perigo Pote\u{302}ncial", AlertLevel::Warn),
+    ] {
+        let json = document(
+            &[entry(60, "2026-10-22", "09:00").replace(
+                r#""severidade": "Perigo""#,
+                &format!(r#""severidade": "{severidade}""#),
+            )],
+            &[],
+        );
+
+        let (alerts, log) = logged_while(|| sample_alerts(&json));
+
+        assert_eq!(alerts[0].level, expected, "{severidade:?}");
+        // Warn is also what an unknown severity falls back to, so it must not have been unknown.
+        assert!(
+            !log.contains("unknown INMET severity"),
+            "{severidade:?}: {log}"
+        );
+    }
+}

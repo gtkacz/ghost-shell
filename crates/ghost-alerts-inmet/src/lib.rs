@@ -15,6 +15,8 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use tracing::warn;
 
+use crate::translate::normalise;
+
 pub use store::default_store_path;
 pub use translate::{Fetch, Translator, UnsupportedSource};
 
@@ -35,9 +37,10 @@ const TIME_SEPARATOR: char = ':';
 const HOUR_MINUTE_DIGITS: [usize; 2] = [2, 2];
 const HOUR_MINUTE_SECOND_DIGITS: [usize; 3] = [2, 2, 2];
 const GEOCODE_SEPARATOR: char = ',';
-const POTENTIAL_DANGER: &str = "PERIGO POTENCIAL";
-const DANGER: &str = "PERIGO";
-const GREAT_DANGER: &str = "GRANDE PERIGO";
+// INMET's severities as `normalise` writes them.
+const POTENTIAL_DANGER: &str = "perigo potencial";
+const DANGER: &str = "perigo";
+const GREAT_DANGER: &str = "grande perigo";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -205,8 +208,10 @@ fn alert(aviso: Aviso, zone: &TimeZone) -> Option<IssuedAlert> {
     })
 }
 
+/// Classified on the severity's normalised text, as the glossary matches it, so that a stray
+/// no-break space or a decomposed accent cannot turn a Grande Perigo amber.
 fn level(id: u64, severity: &str) -> AlertLevel {
-    match severity {
+    match normalise(severity).as_str() {
         POTENTIAL_DANGER => AlertLevel::Warn,
         DANGER | GREAT_DANGER => AlertLevel::Crit,
         unknown => {
