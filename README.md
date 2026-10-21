@@ -621,6 +621,24 @@ V1 with the media widget and the user's music playing. Release daemon, read-only
 - **The spectrum is drawn by one shader** (`SegBars`), not ≈ 300 rectangles.
 - **The daemon still analyses audio at 30 Hz** when the shell draws at 15. Feeding at 15 Hz would win back about 0.16 %.
 
+### Plan 2a: block graphs drawn by one shader
+
+`BlockGraph` now draws all of its cells with one shader instead of a Rectangle per cell. The values are passed as packed uniforms, so a new sample means one repack and one frame. Shell only, in a headless KWin (2560×1440) with `QT_SCALE_FACTOR=1.15` to match the M27Q. Fake daemon on a private bus, `measure-cpu.sh` for 60 s after a 15 s settle, before and after interleaved. 1-min load 0.3–2.4:
+
+| | Before (Rectangles) | After (shader) |
+|---|---|---|
+| Default V1, still (alert held) | 0.70 / 0.72 / 0.63 %, RSS 220–223 MiB | 0.37 / 0.38 / 0.32 / 0.37 %, RSS 197–200 MiB |
+| V1 frames | 2.00/s | 2.00/s |
+| Stress layout (`layout-test.toml`) | 2.67 / 2.85 %, RSS 296 MiB | 0.27 / 0.30 %, RSS 197 MiB |
+| v1 → v2 with half-width graphics and storage: first frame after the switch | +371 / +373 / +372 ms | +14 / +13 / +15 ms |
+| Same switch: shell CPU in the 1.5 s after it | 461 / 464 / 460 ms | 28 / 30 / 31 ms |
+| Same switch: RSS before → after | 222 → 515 MiB (three runs alike) | 197 → 202 MiB |
+| Same switch: the 380 ms print | about 11 of its frames render; ends at +568–578 ms | all 24 steps render; ends at +392–403 ms |
+
+- Six full-width lanes in a harness render 1.00 frames/s on a 1 Hz history at 0.17 %, against 1.85 % before. On a static series they render 0 frames/s.
+- Wide graphs no longer cost about 300 MiB and most of a second to create, so V2 and MONITOR can carry them.
+- A graph draws at most 384 columns and 264 rows. Past 384 columns it shows only the newest history. A slot taller than 264 rows draws the bottom 264 and leaves the top empty, with values scaled to the rows drawn. Each limit warns once.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
