@@ -123,8 +123,25 @@ fn a_bare_key_shortcut_is_rejected() {
         load_str_with_user("[shortcuts]\nswap = \"M\"\n", "u")
             .unwrap_err()
             .message,
-        "shortcuts.swap: \"M\" needs a modifier (Meta, Ctrl, Alt or Shift)"
+        "shortcuts.swap: \"M\" needs Meta, Ctrl or Alt"
     );
+}
+
+#[test]
+fn shift_alone_does_not_make_a_shortcut() {
+    assert_eq!(
+        load_str_with_user("[shortcuts]\nswap = \"Shift+M\"\n", "u")
+            .unwrap_err()
+            .message,
+        "shortcuts.swap: \"Shift+M\" needs Meta, Ctrl or Alt"
+    );
+}
+
+#[test]
+fn function_keys_need_no_meta_ctrl_or_alt() {
+    let config = load_str_with_user("[shortcuts]\nmonitor = \"Shift+F5\"\n", "u").unwrap();
+    assert_eq!(config.shortcuts.monitor, "Shift+F5");
+    assert_eq!(config.shortcuts.swap, "Meta+Shift+M");
 }
 
 #[test]

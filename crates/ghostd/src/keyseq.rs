@@ -4,8 +4,9 @@ use std::ops::Range;
 
 const SEPARATOR: char = '+';
 const NO_MODIFIERS: i32 = 0;
+const SHIFT: i32 = 0x0200_0000;
 const MODIFIERS: [(&str, i32); 4] = [
-    ("shift", 0x0200_0000),
+    ("shift", SHIFT),
     ("ctrl", 0x0400_0000),
     ("alt", 0x0800_0000),
     ("meta", 0x1000_0000),
@@ -26,12 +27,12 @@ const FUNCTION_KEY_CODES: Range<i32> = KEY_F1..KEY_F1 + FUNCTION_KEY_COUNT;
 pub enum KeySeqError {
     #[error("cannot parse {0:?} as a key sequence")]
     Unparsable(String),
-    #[error("{0:?} needs a modifier (Meta, Ctrl, Alt or Shift)")]
-    NoModifier(String),
+    #[error("{0:?} needs Meta, Ctrl or Alt")]
+    NoMetaCtrlOrAlt(String),
 }
 
 /// Parses one combination such as `Meta+Shift+M`: modifiers joined by `+`, then exactly one key.
-/// Names may be in any case, and only F1 to F24 may go without a modifier.
+/// Names may be in any case, and only F1 to F24 may go without Meta, Ctrl or Alt.
 pub fn parse(s: &str) -> Result<i32, KeySeqError> {
     let mut names = s.split(SEPARATOR).rev();
     let key = names.next().and_then(key_code);
@@ -39,9 +40,10 @@ pub fn parse(s: &str) -> Result<i32, KeySeqError> {
     let (Some(key), Some(modifiers)) = (key, modifiers) else {
         return Err(KeySeqError::Unparsable(s.to_owned()));
     };
-    // KGlobalAccel takes its keys from every app, so a bare letter could no longer be typed.
-    if modifiers == NO_MODIFIERS && !FUNCTION_KEY_CODES.contains(&key) {
-        return Err(KeySeqError::NoModifier(s.to_owned()));
+    // KGlobalAccel takes its keys from every app, so a bare letter, or one with only Shift, could
+    // no longer be typed.
+    if modifiers & !SHIFT == NO_MODIFIERS && !FUNCTION_KEY_CODES.contains(&key) {
+        return Err(KeySeqError::NoMetaCtrlOrAlt(s.to_owned()));
     }
     Ok(modifiers | key)
 }
@@ -102,12 +104,18 @@ mod tests {
     }
 
     #[test]
-    fn only_function_keys_may_go_without_a_modifier() {
+    fn only_function_keys_may_go_without_meta_ctrl_or_alt() {
         assert_eq!(
             parse("M").unwrap_err().to_string(),
-            "\"M\" needs a modifier (Meta, Ctrl, Alt or Shift)"
+            "\"M\" needs Meta, Ctrl or Alt"
+        );
+        assert_eq!(
+            parse("Shift+M").unwrap_err().to_string(),
+            "\"Shift+M\" needs Meta, Ctrl or Alt"
         );
         assert!(parse("Space").is_err());
-        assert!(parse("F24").is_ok());
+        assert_eq!(parse("Meta+Shift+M").unwrap(), 0x1200_004D);
+        assert_eq!(parse("F24").unwrap(), 0x0100_0047);
+        assert_eq!(parse("Shift+F5").unwrap(), 0x0300_0034);
     }
 }
