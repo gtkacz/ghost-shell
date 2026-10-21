@@ -14,13 +14,21 @@ Item {
     // Letter spacing in em.
     readonly property real tracking: 0.14
 
-    // A tabs node as computeRects places it: `tabs` (each a slot with a `title`) and `default`.
+    // A tabs node as computeRects places it: `tabs` (each a slot with a `title`), `default` and `path`.
     required property var node
+    // The view the node belongs to, under which Views keeps the chosen tab.
+    required property string view
     // Logical pixels; the view decides it, because the strip is also where the window takes input.
     required property real stripHeight
-    property int current: node.default
+    // A layout change may have removed the tab chosen before.
+    property int current: {
+        const chosen = Views.tabIndex(view, node.path, node.default);
+        return chosen < node.tabs.length ? chosen : node.default;
+    }
 
     readonly property real textSize: Theme.d(textPx)
+
+    onCurrentChanged: Views.setTabIndex(view, node.path, current)
 
     Item {
         id: strip

@@ -33,6 +33,9 @@ Item {
             h: designHeight - 2 * margin - barBandPx
         }, layout.gutter);
     }
+    // Logical pixels: the top and bottom of the area the slots share, as rects places them.
+    readonly property real areaTop: layout ? snap(Theme.d(layout.margin + barBandPx)) : 0
+    readonly property real areaBottom: layout ? snap(Theme.d(designHeight - layout.margin)) : 0
     readonly property real stripHeight: snap(Theme.d(tabStripPx))
     // Logical pixels, whole ones as the input region takes them, covering every tab strip; the rest of
     // the view passes clicks through to the desktop.
@@ -48,23 +51,11 @@ Item {
         };
     })
 
-    // Which tab each tabs node shows, by view and node path, for the rest of the session. Read only
-    // when a tabs host is created, so it is updated in place and notifies nothing.
-    property var tabChoices: ({})
     property var warnedLayout: null
 
     // Edges rather than sizes are snapped, so neighbours keep their gutter exactly.
     function snap(logical) {
         return Math.round(logical * pixelRatio) / pixelRatio;
-    }
-
-    function tabKey(place) {
-        return viewName + place.path;
-    }
-
-    function chosenTab(place) {
-        const chosen = tabChoices[tabKey(place)];
-        return chosen !== undefined && chosen < place.tabs.length ? chosen : place.default;
     }
 
     // Once per layout, not on every recomputation of it.
@@ -106,9 +97,8 @@ Item {
 
                 TabsHost {
                     node: cell.modelData
+                    view: root.viewName
                     stripHeight: root.stripHeight
-                    current: root.chosenTab(cell.modelData)
-                    onCurrentChanged: root.tabChoices[root.tabKey(cell.modelData)] = current
                 }
             }
         }

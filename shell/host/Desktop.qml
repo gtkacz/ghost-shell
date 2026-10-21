@@ -25,7 +25,6 @@ Scope {
     readonly property real forcedU: Number(forcedUText)
     readonly property bool hasForcedU: Number.isFinite(forcedU) && forcedU > 0
 
-    readonly property string currentView: Data.config ? Data.config.dashboard.default_view : ""
     readonly property var mainScreen: Scale.pickScreen(Quickshell.screens, Data.config ? Data.config.display.model : "")
 
     Component.onCompleted: {
@@ -129,9 +128,8 @@ Scope {
                 Component {
                     id: layoutComponent
 
-                    LayoutView {
+                    PrintSwap {
                         layout: Data.layout
-                        viewName: root.currentView
                         designWidth: Scale.DESIGN_WIDTH
                         // From the screen rather than the window, whose size passes through provisional
                         // values first and would rebuild every widget at each of them.
