@@ -64,6 +64,11 @@ export function alertsEnabled(config) {
   return Boolean(config.location.alerts.provider);
 }
 
+// An alert that escalates keeps its id but is a new alert to the eye, so the level is part of the key.
+export function alertKey(alert) {
+  return String(alert.id) + ':' + alert.level;
+}
+
 export function alertLine(alert, source) {
   return [source, alert.title, alert.severity].filter(Boolean).join(SEPARATOR);
 }

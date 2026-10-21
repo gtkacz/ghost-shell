@@ -96,6 +96,10 @@ Singleton {
         return Weather.activeAlerts(alerts, nowS);
     }
 
+    function alertKey(alert) {
+        return Weather.alertKey(alert);
+    }
+
     function alertLine(alert, source) {
         return Weather.alertLine(alert, source);
     }

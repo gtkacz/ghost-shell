@@ -21,7 +21,7 @@ QtObject {
     // Crit first, then the earliest start. An alert that has not started is kept, for its countdown to the start.
     readonly property var top: active.length > 0 ? active[0] : null
     readonly property bool hasAlert: top !== null
-    readonly property string key: hasAlert ? String(top.id) : ""
+    readonly property string key: hasAlert ? Fmt.alertKey(top) : ""
     readonly property string level: hasAlert ? top.level : "warn"
     readonly property string source: hasAlert && value.source ? value.source : ""
     readonly property string countdown: hasAlert ? Fmt.countdown(nowS * millisPerSecond, top.start_s * millisPerSecond, top.end_s * millisPerSecond) : ""

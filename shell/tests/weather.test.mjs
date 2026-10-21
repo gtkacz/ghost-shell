@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ALERTS_STALE_AFTER_S, activeAlerts, alertLine, alertsEnabled, alertsStale, detailLine, forecastFrom, hiLo, hiLoHum, hourLabel,
+  ALERTS_STALE_AFTER_S, activeAlerts, alertKey, alertLine, alertsEnabled, alertsStale, detailLine, forecastFrom, hiLo, hiLoHum, hourLabel,
   skyLine,
 } from '../kit/GhostKit/lib/weather.mjs';
 
@@ -178,3 +178,14 @@ test('hi, lo and humidity read as one line, as the clock hero shows them', () =>
 });
 
 test('hi, lo and humidity read as dashes for what the forecast lacks', () => assert.equal(hiLoHum({}), 'H -- · L -- · HUM --'));
+
+test('an alert that escalates under the same id is a new alert', () => {
+  assert.notEqual(alertKey({ id: '7', level: 'warn' }), alertKey({ id: '7', level: 'crit' }));
+});
+
+test('the same id and level is the same alert, and another id is another alert', () => {
+  assert.equal(alertKey({ id: '7', level: 'warn' }), alertKey({ id: '7', level: 'warn' }));
+  assert.notEqual(alertKey({ id: '7', level: 'warn' }), alertKey({ id: '8', level: 'warn' }));
+});
+
+test('an alert key reads the id as text', () => assert.equal(alertKey({ id: 7, level: 'crit' }), '7:crit'));
