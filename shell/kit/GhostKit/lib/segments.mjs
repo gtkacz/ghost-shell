@@ -3,6 +3,11 @@ import { withAlpha } from './theme.mjs';
 const DEFAULT_CELL_PX = 4;
 const DEFAULT_GAP_PX = 2;
 const UNLIT_ALPHA_PCT = 6;
+// withAlpha() writes #AARRGGBB; any colour will do when only the alpha byte is read back.
+const ANY_RGB = '#000000';
+const ALPHA_HEX_START = 1;
+const ALPHA_HEX_END = 3;
+const HEX_RADIX = 16;
 // Exported for SegBars, whose shader colours its lit cells the way cellColor() does.
 export const LIT_ALPHA_FLOOR_PCT = 35;
 export const LIT_ALPHA_SPAN_PCT = 50;
@@ -74,5 +79,15 @@ export function cellColor(cellLevel, row, lit, rows, theme) {
   if (row === lit - 1) {
     return theme.hi;
   }
-  return withAlpha(theme.signal, LIT_ALPHA_FLOOR_PCT + (LIT_ALPHA_SPAN_PCT * row) / rows);
+  return withAlpha(theme.signal, rampAlphaPct(row, rows));
+}
+
+function rampAlphaPct(row, rows) {
+  return LIT_ALPHA_FLOOR_PCT + (LIT_ALPHA_SPAN_PCT * row) / rows;
+}
+
+// The alpha byte of cellColor()'s ramp at a row of an ok column below its top cell, for BlockGraph's shader. Read
+// back from withAlpha() so it is rounded exactly as the colour is.
+export function rampAlphaByte(row, rows) {
+  return Number.parseInt(withAlpha(ANY_RGB, rampAlphaPct(row, rows)).slice(ALPHA_HEX_START, ALPHA_HEX_END), HEX_RADIX);
 }

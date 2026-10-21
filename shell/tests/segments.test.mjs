@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cellCount, litCells, level, levelLow, levelAbove, cellColor } from '../kit/GhostKit/lib/segments.mjs';
+import { cellCount, litCells, level, levelLow, levelAbove, cellColor, rampAlphaByte } from '../kit/GhostKit/lib/segments.mjs';
 
 test('cells and levels', () => {
   assert.equal(cellCount(266), 44);
@@ -69,6 +69,17 @@ test('the top lit cell of an ok bar is the highlight colour', () => {
 test('lower lit cells ramp from dim to bright signal', () => {
   assert.equal(cellColor('ok', 0, 5, 10, THEME), '#59A3D4CC');
   assert.equal(cellColor('ok', 2, 5, 10, THEME), '#73A3D4CC');
+});
+
+test('the ramp alpha byte is the one cellColor gives a lit ok cell below the top', () => {
+  assert.equal(rampAlphaByte(0, 10), 0x59);
+  assert.equal(rampAlphaByte(2, 10), 0x73);
+  const alphaOf = color => Number.parseInt(color.slice(1, 3), 16);
+  for (let rows = 1; rows <= 300; rows += 1) {
+    for (let row = 0; row < rows; row += 1) {
+      assert.equal(rampAlphaByte(row, rows), alphaOf(cellColor('ok', row, row + 2, rows, THEME)), `row ${row} of ${rows}`);
+    }
+  }
 });
 
 test('aqi levels are strictly above', () => {

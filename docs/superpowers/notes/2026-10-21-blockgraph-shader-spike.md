@@ -147,3 +147,22 @@ SPIKE_STAGES=compare spikes/blockgraph-shader/run.sh  # pixel comparison only (s
 `SPIKE_TICK_MS=100 SPIKE_WARMUP_S=35 SPIKE_MEASURE_S=5 SPIKE_REPEATS=1` checks the script in about 3 minutes. At
 that tick its numbers are not comparable. `run.sh` compiles `blockgraph.frag.qsb` (git-ignored) and uses
 `target/release/ghostd`, so build that first. The image version is in commit df9aa7e.
+
+## In the kit
+
+Plan 2a Task 15b made the kit's `BlockGraph` this shader (`shell/kit/GhostKit/shaders/blockgraph.frag`), with the
+same properties, so no caller changed. Two things changed from the spike, and one difference from the Rectangles
+remains:
+
+- **Limits (ruling R44a).** A full-height graphics slot has up to 181 rows, which a 63-row limit would cap at a wrong
+  value. A column is now a 12-bit field (lit count × 4 + level), two to a component: 48 column words and 22 row
+  words, 70 in all, hold 384 columns and 264 rows. The packing is in `lib/blockgraph.mjs`, tested in node at both
+  limits, and the ramp's alpha bytes come from `segments.mjs`'s `rampAlphaByte()`.
+- **Edges on a pixel centre.** The rasteriser snaps a Rectangle's edges to its 1/256 sub-pixel grid, and in
+  OpenGL's y-up framebuffer it keeps left and *bottom* edges, not top ones as the spike's comment assumed. Edges land
+  exactly on pixel centres at 1.5 and 2.3 design units per pixel. The shader evaluates 1/512 px right of and above
+  each centre, which gives the same answer.
+- **What still differs.** The shader reads positions relative to the snapped corners of its own quad, so on wide
+  graphs at some sub-pixel offsets a run of cells can sit one pixel to the side of where Rectangles put them. In
+  16-offset sweeps of the V1 and gallery geometries, 63 of 64 cases matched within 1/255 at scale 1.15 and at 1.5
+  units per pixel, and 62 of 64 at 2.3.
