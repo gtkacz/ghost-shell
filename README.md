@@ -128,7 +128,11 @@ Release build, real collectors, 1 s tick, measured over 60 s with `scripts/measu
 | No client connected | **0.53 %** | 31.4 MiB |
 | One UI client subscribed to all six built-in topics | **0.55 %** | 31.5 MiB |
 
-- **Budget.** The daemon alone uses about half of the 1 % "nothing animating" budget, so the shell has roughly 0.45 % left.
+- **Variance.** Idle CPU varies with what else the machine is doing. The same build, measured over four alternating 60 s rounds, ranged from **0.57 % to 1.17 %**. The live widget and config watchers used 0 CPU ticks in those runs, so the variance comes from the collectors: busier machines have more processes and colder caches to read.
+- **Budget.** On a quiet machine the daemon alone uses about half of the 1 % "nothing animating" budget. On a busy one it can use all of it. If the acceptance run confirms this, the next cuts are:
+  1. refresh the top-process list every 2 samples;
+  2. read the GPU fan every 5 samples;
+  3. cache the per-CPU frequency reads.
 - **Breakdown.** The collector figures above roughly account for the total: about 0.25 % for processes, about 0.1 % for sensors, about 0.08 % for the GPU, about 0.03 % for drives, plus CPU sampling, JSON encoding and the socket.
 - **`perf` granularity.** The daemon's own per-tick `perf` value moves in 1 % steps (clock-tick resolution), so the shell should average it.
 
