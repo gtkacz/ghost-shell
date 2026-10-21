@@ -1,4 +1,5 @@
 import QtQuick
+import GhostKit
 
 // Shows one layout slot: its widget, created from the slot's source with the slot's settings, or an
 // error card naming the widget and the reason it can't be shown.
@@ -15,6 +16,8 @@ Item {
     // A component still loading, which only a remote or very large source does.
     property var pending: null
     property bool completed: false
+    // The URL the current component was requested from.
+    property string requested: ""
 
     function load() {
         unload();
@@ -25,7 +28,20 @@ Item {
             failure = slot.error;
             return;
         }
-        const component = Qt.createComponent(slot.source);
+        request(slot.source);
+    }
+
+    // The engine keeps a failed compile for the URL it was loaded from, so a fixed Widget.qml would
+    // keep failing from its own URL until the shell restarts; the query gives the engine a URL it has
+    // not compiled yet. Only Widget.qml is reread that way: QML files it imports may stay cached.
+    // A time rather than a per-host count, so a host never reuses a URL another host already failed on.
+    function freshSource() {
+        return slot.source + "?r=" + Date.now();
+    }
+
+    function request(url) {
+        requested = url;
+        const component = Qt.createComponent(url);
         if (component.status === Component.Loading) {
             pending = component;
             // A method rather than a closure, so the connection dies with this host.
@@ -46,7 +62,12 @@ Item {
 
     function settle(component) {
         if (component.status === Component.Error) {
-            fail(component.errorString().split("\n")[0]);
+            // A failure from the slot's own URL may be the cached one from before a fix.
+            if (requested === slot.source) {
+                request(freshSource());
+                return;
+            }
+            fail(component.errorString().split("\n")[0].replace(requested, slot.source));
             return;
         }
         instance = component.createObject(root, {
@@ -89,6 +110,19 @@ Item {
         load();
     }
     Component.onDestruction: stopWaiting()
+
+    // The daemon re-sends the layout whenever a widget folder changes, which is when a broken widget
+    // may have been fixed. A layout equal to the last one keeps this host and its slot, so nothing
+    // else would load the widget again.
+    Connections {
+        target: Data
+
+        function onLayoutChanged() {
+            if (root.failure !== "" && root.slot && !root.slot.error) {
+                root.load();
+            }
+        }
+    }
 
     Loader {
         anchors.fill: parent
