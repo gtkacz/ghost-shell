@@ -5,6 +5,10 @@
 //! 30 min (spec §12). A failed fetch is retried after 60 s, then after twice as long each time, up
 //! to its cadence. The last good values stay published, marked stale once the forecast is two
 //! forecast cadences old.
+//!
+//! Ages and due times are wall-clock seconds, because tokio's clock stands still while the machine
+//! is suspended: a forecast from before a night's sleep must read stale, and be fetched again,
+//! within a minute of waking.
 
 use std::cmp::Reverse;
 use std::future::pending;
@@ -13,21 +17,28 @@ use std::time::Duration;
 
 use ghost_proto::{RainPeak, ResolvedConfig, WeatherHour, WeatherSnapshot, topics};
 use serde::Deserialize;
+use tokio::sync::watch;
 use tokio::task::spawn_blocking;
-use tokio::time::{Instant, sleep_until};
+use tokio::time::sleep;
 use tracing::warn;
 
 use super::http::{Fetch, FetchError};
 use super::{unix_now_s, wanted};
 use crate::server::{Feed, FeedContext};
 
-const FORECAST_EVERY: Duration = Duration::from_mins(15);
-const AIR_EVERY: Duration = Duration::from_mins(30);
-const FIRST_RETRY: Duration = Duration::from_secs(60);
-const STALE_AFTER: Duration = FORECAST_EVERY.saturating_mul(2);
+const FORECAST_EVERY_S: u64 = 15 * 60;
+const AIR_EVERY_S: u64 = 30 * 60;
+const FIRST_RETRY_S: u64 = 60;
+const STALE_AFTER_S: u64 = 2 * FORECAST_EVERY_S;
+// Tokio's timers stop during a suspend and nothing reports the resume, so while the topic is
+// wanted the feed looks at the wall clock at least this often.
+const WALL_CLOCK_CHECK: Duration = Duration::from_secs(60);
 const HOUR_S: u64 = 60 * 60;
 const HOURS_SHOWN: usize = 6;
 const RAIN_PEAK_WINDOW_S: u64 = 12 * HOUR_S;
+
+/// The wall clock in seconds since the Unix epoch, passed in so that tests can move it on its own.
+pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
 pub fn forecast_url(lat: f64, lon: f64) -> String {
     format!(
@@ -87,11 +98,12 @@ struct Current {
     is_day: u8,
 }
 
+/// Open-Meteo sends `null` for an hour that its models do not cover.
 #[derive(Deserialize)]
 struct Hourly {
     time: Vec<u64>,
-    temperature_2m: Vec<f32>,
-    precipitation_probability: Vec<u8>,
+    temperature_2m: Vec<Option<f32>>,
+    precipitation_probability: Vec<Option<u8>>,
 }
 
 #[derive(Deserialize)]
@@ -107,10 +119,12 @@ struct AirResponse {
 
 #[derive(Deserialize)]
 struct AirCurrent {
-    us_aqi: u32,
+    us_aqi: Option<u32>,
 }
 
-/// Reads a response to [`forecast_url`] as of `now_s`, in seconds since the Unix epoch.
+/// Reads a response to [`forecast_url`] as of `now_s`, in seconds since the Unix epoch. An hour
+/// with no temperature or no chance of rain is left out of `hours`, and one with no chance of rain
+/// out of `rain_peak`.
 pub fn parse_forecast(json: &str, now_s: u64) -> Result<Forecast, WeatherError> {
     let ForecastResponse {
         current,
@@ -128,21 +142,30 @@ pub fn parse_forecast(json: &str, now_s: u64) -> Result<Forecast, WeatherError> 
         .iter()
         .zip(&hourly.temperature_2m)
         .zip(&hourly.precipitation_probability)
-        .map(|((&at_s, &temp_c), &rain_pct)| WeatherHour {
-            at_s,
-            temp_c,
-            rain_pct,
-        });
+        .map(|((&at_s, &temp_c), &rain_pct)| (at_s, temp_c, rain_pct));
     let window = now_s..=now_s + RAIN_PEAK_WINDOW_S;
     let rain_peak = entries
         .clone()
-        .filter(|entry| window.contains(&entry.at_s))
-        .max_by_key(|entry| (entry.rain_pct, Reverse(entry.at_s)))
-        .filter(|entry| entry.rain_pct > 0)
-        .map(|entry| RainPeak {
-            pct: entry.rain_pct,
-            at_s: entry.at_s,
-        });
+        .filter_map(|(at_s, _, rain_pct)| {
+            Some(RainPeak {
+                pct: rain_pct?,
+                at_s,
+            })
+        })
+        .filter(|peak| window.contains(&peak.at_s))
+        .max_by_key(|peak| (peak.pct, Reverse(peak.at_s)))
+        .filter(|peak| peak.pct > 0);
+    let hours = entries
+        .filter(|&(at_s, ..)| at_s > now_s)
+        .filter_map(|(at_s, temp_c, rain_pct)| {
+            Some(WeatherHour {
+                at_s,
+                temp_c: temp_c?,
+                rain_pct: rain_pct?,
+            })
+        })
+        .take(HOURS_SHOWN)
+        .collect();
     Ok(Forecast {
         temp_c: current.temperature_2m,
         code: current.weather_code,
@@ -152,16 +175,13 @@ pub fn parse_forecast(json: &str, now_s: u64) -> Result<Forecast, WeatherError> 
         wind_kmh: current.wind_speed_10m,
         high_c,
         low_c,
-        hours: entries
-            .filter(|entry| entry.at_s > now_s)
-            .take(HOURS_SHOWN)
-            .collect(),
+        hours,
         rain_peak,
     })
 }
 
-/// Reads the US AQI from a response to [`air_url`].
-pub fn parse_air(json: &str) -> Result<u32, WeatherError> {
+/// Reads the US AQI from a response to [`air_url`]; `None` when Open-Meteo has none to give.
+pub fn parse_air(json: &str) -> Result<Option<u32>, WeatherError> {
     let response: AirResponse = serde_json::from_str(json)?;
     Ok(response.current.us_aqi)
 }
@@ -197,17 +217,22 @@ pub fn condition(code: u8) -> &'static str {
 /// Publishes `weather` for the configured place, fetching with `fetch` as the module docs
 /// describe. Without a place it publishes the unavailable default and fetches nothing.
 pub fn feed(fetch: Arc<dyn Fetch>) -> Feed {
-    Feed::new(topics::WEATHER, move |context| run(fetch, context))
+    feed_with_clock(fetch, Arc::new(unix_now_s))
 }
 
-async fn run(fetch: Arc<dyn Fetch>, mut context: FeedContext) {
+/// As [`feed`], reading the wall clock from `clock`.
+pub fn feed_with_clock(fetch: Arc<dyn Fetch>, clock: WallClock) -> Feed {
+    Feed::new(topics::WEATHER, move |context| run(fetch, clock, context))
+}
+
+async fn run(fetch: Arc<dyn Fetch>, clock: WallClock, mut context: FeedContext) {
     let mut weather = Weather::at(place_in(&context.config.borrow_and_update()));
     context
         .publisher
         .publish(topics::WEATHER, &weather.snapshot());
     loop {
         let wake = weather
-            .next_wake()
+            .next_wake(clock())
             .filter(|_| wanted(&context.demand, topics::WEATHER));
         tokio::select! {
             // A new place is taken before anything due runs, so nothing is fetched for the old one.
@@ -220,8 +245,12 @@ async fn run(fetch: Arc<dyn Fetch>, mut context: FeedContext) {
                 }
             }
             Ok(()) = context.demand.changed() => {}
-            () = sleep_until_or_forever(wake) => {
-                if weather.wake(&fetch).await {
+            () = sleep_or_forever(wake) => {
+                // Published before fetching, since the fetch can take up to its timeout.
+                if weather.mark_stale(clock()) {
+                    context.publisher.publish(topics::WEATHER, &weather.snapshot());
+                }
+                if weather.fetch_due(&fetch, &clock, &context.config).await {
                     context.publisher.publish(topics::WEATHER, &weather.snapshot());
                 }
             }
@@ -229,9 +258,9 @@ async fn run(fetch: Arc<dyn Fetch>, mut context: FeedContext) {
     }
 }
 
-async fn sleep_until_or_forever(deadline: Option<Instant>) {
-    match deadline {
-        Some(deadline) => sleep_until(deadline).await,
+async fn sleep_or_forever(duration: Option<Duration>) {
+    match duration {
+        Some(duration) => sleep(duration).await,
         None => pending().await,
     }
 }
@@ -261,7 +290,6 @@ struct Weather {
 
 struct Fetched {
     forecast: Forecast,
-    at: Instant,
     updated_s: u64,
 }
 
@@ -273,59 +301,87 @@ impl Weather {
             forecast: None,
             aqi: None,
             stale: false,
-            forecasts: Schedule::due_now(FORECAST_EVERY),
-            air: Schedule::due_now(AIR_EVERY),
+            forecasts: Schedule::new(FORECAST_EVERY_S),
+            air: Schedule::new(AIR_EVERY_S),
         }
     }
 
-    /// When a fetch or the forecast going stale is next due; never without a place.
-    fn next_wake(&self) -> Option<Instant> {
+    /// How long to sleep before a fetch or the forecast going stale may be due, at most
+    /// [`WALL_CLOCK_CHECK`]; never without a place.
+    fn next_wake(&self, now_s: u64) -> Option<Duration> {
         self.place?;
-        let fetch = self.forecasts.due.min(self.air.due);
-        let stale_at = self.stale_at().unwrap_or(fetch);
-        Some(fetch.min(stale_at))
+        let stale_in_s = self
+            .stale_at()
+            .map_or(u64::MAX, |stale_at| stale_at.saturating_sub(now_s));
+        let wait_s = self
+            .forecasts
+            .wait_s(now_s)
+            .min(self.air.wait_s(now_s))
+            .min(stale_in_s);
+        Some(Duration::from_secs(wait_s).min(WALL_CLOCK_CHECK))
     }
 
     /// When the forecast goes stale, unless there is none or it already has.
-    fn stale_at(&self) -> Option<Instant> {
+    fn stale_at(&self) -> Option<u64> {
         self.forecast
             .as_ref()
             .filter(|_| !self.stale)
-            .map(|fetched| fetched.at + STALE_AFTER)
+            .map(|fetched| fetched.updated_s + STALE_AFTER_S)
     }
 
-    /// Does whatever is due, and returns whether the snapshot changed.
-    async fn wake(&mut self, fetch: &Arc<dyn Fetch>) -> bool {
+    /// Marks the forecast stale once it is old enough, and returns whether it just became so.
+    fn mark_stale(&mut self, now_s: u64) -> bool {
+        let is_newly_stale = self.stale_at().is_some_and(|stale_at| stale_at <= now_s);
+        if is_newly_stale {
+            self.stale = true;
+        }
+        is_newly_stale
+    }
+
+    /// Runs the fetches that are due, and returns whether the snapshot changed. A response that
+    /// arrives after `config` has moved to another place is dropped, along with what is left to do.
+    async fn fetch_due(
+        &mut self,
+        fetch: &Arc<dyn Fetch>,
+        clock: &WallClock,
+        config: &watch::Receiver<ResolvedConfig>,
+    ) -> bool {
         let Some(place) = self.place else {
             return false;
         };
+        let has_moved = || place_in(&config.borrow()) != Some(place);
         let mut changed = false;
-        if self.forecasts.is_due() {
-            let url = forecast_url(place.lat, place.lon);
-            let result = fetch_and_parse(fetch, url, parse_forecast_now).await;
-            if let Some((forecast, updated_s)) = self.forecasts.record("forecast", result) {
+        if self.forecasts.is_due(clock()) {
+            let body = get(fetch, forecast_url(place.lat, place.lon)).await;
+            if has_moved() {
+                return false;
+            }
+            let now_s = clock();
+            let result = body
+                .map_err(WeatherError::from)
+                .and_then(|body| parse_forecast(&body, now_s));
+            if let Some(forecast) = self.forecasts.record("forecast", now_s, result) {
                 self.forecast = Some(Fetched {
                     forecast,
-                    at: Instant::now(),
-                    updated_s,
+                    updated_s: now_s,
                 });
                 self.stale = false;
                 changed = true;
             }
         }
-        if self.air.is_due() {
-            let result = fetch_and_parse(fetch, air_url(place.lat, place.lon), parse_air).await;
-            if let Some(aqi) = self.air.record("air quality", result) {
-                self.aqi = Some(aqi);
+        if self.air.is_due(clock()) {
+            let body = get(fetch, air_url(place.lat, place.lon)).await;
+            if has_moved() {
+                return false;
+            }
+            let now_s = clock();
+            let result = body
+                .map_err(WeatherError::from)
+                .and_then(|body| parse_air(&body));
+            if let Some(aqi) = self.air.record("air quality", now_s, result) {
+                self.aqi = aqi;
                 changed = true;
             }
-        }
-        if self
-            .stale_at()
-            .is_some_and(|stale_at| stale_at <= Instant::now())
-        {
-            self.stale = true;
-            changed = true;
         }
         changed
     }
@@ -334,7 +390,6 @@ impl Weather {
         let Some(Fetched {
             forecast,
             updated_s,
-            ..
         }) = &self.forecast
         else {
             return WeatherSnapshot::default();
@@ -358,62 +413,77 @@ impl Weather {
     }
 }
 
-/// When one kind of fetch is next due, and how long it waits after its next failure.
+/// When one kind of fetch last ended and how long it waits after that, in wall-clock seconds.
 struct Schedule {
-    every: Duration,
-    due: Instant,
-    retry: Duration,
+    every_s: u64,
+    retry_s: u64,
+    last: Option<Attempt>,
+}
+
+#[derive(Clone, Copy)]
+struct Attempt {
+    ended_s: u64,
+    wait_s: u64,
 }
 
 impl Schedule {
-    fn due_now(every: Duration) -> Self {
+    fn new(every_s: u64) -> Self {
         Self {
-            every,
-            due: Instant::now(),
-            retry: FIRST_RETRY,
+            every_s,
+            retry_s: FIRST_RETRY_S,
+            last: None,
         }
     }
 
-    fn is_due(&self) -> bool {
-        self.due <= Instant::now()
+    /// Seconds until the next fetch is due, 0 when it is due now.
+    fn wait_s(&self, now_s: u64) -> u64 {
+        match self.last {
+            // A clock set back before the last attempt would otherwise hold the next one back by
+            // as much as it moved.
+            Some(last) if now_s >= last.ended_s => {
+                (last.ended_s + last.wait_s).saturating_sub(now_s)
+            }
+            _ => 0,
+        }
     }
 
-    /// Schedules the next fetch after `result`, and returns its value if it has one.
-    fn record<T>(&mut self, what: &str, result: Result<T, WeatherError>) -> Option<T> {
+    fn is_due(&self, now_s: u64) -> bool {
+        self.wait_s(now_s) == 0
+    }
+
+    /// Schedules the next fetch after `result`, which ended at `now_s`, and returns its value if
+    /// it has one.
+    fn record<T>(&mut self, what: &str, now_s: u64, result: Result<T, WeatherError>) -> Option<T> {
         match result {
             Ok(value) => {
-                self.due = Instant::now() + self.every;
-                self.retry = FIRST_RETRY;
+                self.last = Some(Attempt {
+                    ended_s: now_s,
+                    wait_s: self.every_s,
+                });
+                self.retry_s = FIRST_RETRY_S;
                 Some(value)
             }
             Err(error) => {
                 warn!(
                     %error,
                     "no {what} from Open-Meteo; retrying in {} s",
-                    self.retry.as_secs()
+                    self.retry_s
                 );
-                self.due = Instant::now() + self.retry;
-                self.retry = (self.retry * 2).min(self.every);
+                self.last = Some(Attempt {
+                    ended_s: now_s,
+                    wait_s: self.retry_s,
+                });
+                self.retry_s = (self.retry_s * 2).min(self.every_s);
                 None
             }
         }
     }
 }
 
-/// Fetches `url` and reads the body with `parse`, both on a blocking thread.
-async fn fetch_and_parse<T: Send + 'static>(
-    fetch: &Arc<dyn Fetch>,
-    url: String,
-    parse: fn(&str) -> Result<T, WeatherError>,
-) -> Result<T, WeatherError> {
+/// GETs `url` on a blocking thread.
+async fn get(fetch: &Arc<dyn Fetch>, url: String) -> Result<String, FetchError> {
     let fetch = Arc::clone(fetch);
-    spawn_blocking(move || parse(&fetch.get(&url)?))
+    spawn_blocking(move || fetch.get(&url))
         .await
-        .expect("fetching and parsing never panic")
-}
-
-/// Reads a forecast as of now, and returns that time too.
-fn parse_forecast_now(json: &str) -> Result<(Forecast, u64), WeatherError> {
-    let now_s = unix_now_s();
-    Ok((parse_forecast(json, now_s)?, now_s))
+        .expect("a fetch never panics")
 }

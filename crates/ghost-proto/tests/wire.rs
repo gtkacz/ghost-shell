@@ -108,3 +108,47 @@ fn desktop_snapshot_wire_form() {
         serde_json::json!("swap")
     );
 }
+#[test]
+fn weather_snapshot_wire_form() {
+    let snapshot = WeatherSnapshot {
+        available: true,
+        stale: false,
+        updated_s: 1792610000,
+        temp_c: 18.0,
+        code: 95,
+        condition: "THUNDERSTORM".into(),
+        is_day: false,
+        humidity_pct: 88,
+        wind_kmh: 31.0,
+        high_c: 22.0,
+        low_c: 14.0,
+        hours: vec![WeatherHour {
+            at_s: 1792612800,
+            temp_c: 17.5,
+            rain_pct: 95,
+        }],
+        rain_peak: Some(RainPeak {
+            pct: 95,
+            at_s: 1792612800,
+        }),
+        aqi: Some(42),
+    };
+
+    assert_eq!(
+        serde_json::to_string(&snapshot).unwrap(),
+        concat!(
+            r#"{"available":true,"stale":false,"updated_s":1792610000,"temp_c":18.0,"code":95,"#,
+            r#""condition":"THUNDERSTORM","is_day":false,"humidity_pct":88,"wind_kmh":31.0,"#,
+            r#""high_c":22.0,"low_c":14.0,"hours":[{"at_s":1792612800,"temp_c":17.5,"#,
+            r#""rain_pct":95}],"rain_peak":{"pct":95,"at_s":1792612800},"aqi":42}"#
+        )
+    );
+    assert_eq!(
+        serde_json::to_string(&WeatherSnapshot::default()).unwrap(),
+        concat!(
+            r#"{"available":false,"stale":false,"updated_s":0,"temp_c":0.0,"code":0,"#,
+            r#""condition":"","is_day":false,"humidity_pct":0,"wind_kmh":0.0,"high_c":0.0,"#,
+            r#""low_c":0.0,"hours":[],"rain_peak":null,"aqi":null}"#
+        )
+    );
+}

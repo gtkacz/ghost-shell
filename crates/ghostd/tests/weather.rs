@@ -1,18 +1,23 @@
 use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ghost_proto::{Location, RainPeak, ResolvedConfig, WeatherSnapshot, topics};
 use ghostd::feeds::http::{Fetch, FetchError};
-use ghostd::feeds::weather::{air_url, condition, feed, forecast_url, parse_air, parse_forecast};
+use ghostd::feeds::weather::{
+    air_url, condition, feed_with_clock, forecast_url, parse_air, parse_forecast,
+};
 use ghostd::server::{FeedContext, Publisher};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
-use tokio::time::{Instant, sleep, sleep_until, timeout_at};
+use tokio::time::{Instant, sleep, sleep_until, timeout, timeout_at};
 
 const FORECAST: &str = include_str!("fixtures/open-meteo-forecast.json");
+/// The forecast fixture with nulls: hour 2's chance of rain, and hours 4 and 9's temperatures.
+const FORECAST_NULLS: &str = include_str!("fixtures/open-meteo-forecast-nulls.json");
 const AIR: &str = include_str!("fixtures/open-meteo-air.json");
+const AIR_NULL: &str = include_str!("fixtures/open-meteo-air-null.json");
 const AIR_HOST: &str = "https://air-quality-api.open-meteo.com/";
 /// The fixture's first hourly entry, 2026-10-21T19:00Z, which is also its current reading.
 const FIRST_HOUR_S: u64 = 1_792_609_200;
@@ -24,6 +29,7 @@ const RIO: (f64, f64) = (-22.91, -43.17);
 const SECOND: Duration = Duration::from_secs(1);
 const MINUTE: Duration = Duration::from_secs(60);
 const HOUR: Duration = Duration::from_secs(3600);
+const DAY: Duration = Duration::from_secs(24 * 3600);
 
 /// The start of the fixture's hourly entry `index`.
 fn hour(index: u64) -> u64 {
@@ -165,20 +171,55 @@ fn wmo_codes_map_to_labels() {
 }
 
 #[test]
-fn parses_us_aqi() {
-    assert_eq!(parse_air(AIR).unwrap(), 42);
+fn hours_and_the_rain_peak_leave_out_null_entries() {
+    let forecast = parse_forecast(FORECAST_NULLS, NOW_S).unwrap();
+
+    let hours: Vec<u64> = forecast.hours.iter().map(|entry| entry.at_s).collect();
+    assert_eq!(hours, [1, 3, 5, 6, 7, 8].map(hour));
+    // Hour 2, the earlier 95 in the plain fixture, has no chance of rain here; hour 9 still counts
+    // without its temperature.
+    assert_eq!(
+        forecast.rain_peak,
+        Some(RainPeak {
+            pct: 95,
+            at_s: hour(9)
+        })
+    );
 }
+
+#[test]
+fn parses_us_aqi() {
+    assert_eq!(parse_air(AIR).unwrap(), Some(42));
+}
+
+#[test]
+fn a_null_us_aqi_is_none() {
+    assert_eq!(parse_air(AIR_NULL).unwrap(), None);
+}
+
+type Hook = Box<dyn FnOnce() + Send>;
 
 /// Answers with the fixtures, or fails while told to, and notes when each URL was asked for.
 #[derive(Default)]
 struct FakeOpenMeteo {
     requests: Mutex<Vec<(Instant, String)>>,
     failing: AtomicBool,
+    null_aqi: AtomicBool,
+    during_next_request: Mutex<Option<Hook>>,
 }
 
 impl FakeOpenMeteo {
     fn fail(&self, failing: bool) {
         self.failing.store(failing, Ordering::SeqCst);
+    }
+
+    fn serve_null_aqi(&self) {
+        self.null_aqi.store(true, Ordering::SeqCst);
+    }
+
+    /// Runs `hook` while the next request is in flight.
+    fn during_next_request(&self, hook: impl FnOnce() + Send + 'static) {
+        *self.during_next_request.lock().unwrap() = Some(Box::new(hook));
     }
 
     fn request_count(&self) -> usize {
@@ -213,15 +254,49 @@ impl Fetch for FakeOpenMeteo {
             .lock()
             .unwrap()
             .push((Instant::now(), url.to_owned()));
+        let hook = self.during_next_request.lock().unwrap().take();
+        if let Some(hook) = hook {
+            hook();
+        }
         if self.failing.load(Ordering::SeqCst) {
             return Err(ureq::Error::ConnectionFailed.into());
         }
-        let body = if url.starts_with(AIR_HOST) {
-            AIR
-        } else {
-            FORECAST
+        let body = match (
+            url.starts_with(AIR_HOST),
+            self.null_aqi.load(Ordering::SeqCst),
+        ) {
+            (false, _) => FORECAST,
+            (true, false) => AIR,
+            (true, true) => AIR_NULL,
         };
         Ok(body.to_owned())
+    }
+}
+
+/// Wall-clock seconds that follow the paused tokio clock from `NOW_S`, moved on or back by however
+/// much the wall clock was jumped on its own.
+struct FakeWallClock {
+    start: Instant,
+    jumped_s: AtomicI64,
+}
+
+impl FakeWallClock {
+    fn now_s(&self) -> u64 {
+        let followed_s = NOW_S + self.start.elapsed().as_secs();
+        followed_s.wrapping_add_signed(self.jumped_s.load(Ordering::SeqCst))
+    }
+
+    /// A suspend: the wall clock moves on by `duration` while the monotonic clock stands still.
+    fn suspend_for(&self, duration: Duration) {
+        self.jump_s(duration.as_secs().try_into().unwrap());
+    }
+
+    fn set_back(&self, duration: Duration) {
+        self.jump_s(-i64::try_from(duration.as_secs()).unwrap());
+    }
+
+    fn jump_s(&self, seconds: i64) {
+        self.jumped_s.fetch_add(seconds, Ordering::SeqCst);
     }
 }
 
@@ -239,14 +314,19 @@ fn config_at(place: Option<(f64, f64)>) -> ResolvedConfig {
 /// The weather feed on its own, with its demand, config and output in the test's hands.
 struct Running {
     open_meteo: Arc<FakeOpenMeteo>,
+    clock: Arc<FakeWallClock>,
     demand: watch::Sender<BTreeSet<String>>,
-    config: watch::Sender<ResolvedConfig>,
+    config: Arc<watch::Sender<ResolvedConfig>>,
     published: mpsc::UnboundedReceiver<WeatherSnapshot>,
 }
 
 impl Running {
     fn start(place: Option<(f64, f64)>) -> Self {
         let open_meteo = Arc::new(FakeOpenMeteo::default());
+        let clock = Arc::new(FakeWallClock {
+            start: Instant::now(),
+            jumped_s: AtomicI64::new(0),
+        });
         let (demand, demand_rx) = watch::channel(BTreeSet::new());
         let (config, config_rx) = watch::channel(config_at(place));
         let (sent, published) = mpsc::unbounded_channel();
@@ -258,11 +338,14 @@ impl Running {
             demand: demand_rx,
             config: config_rx,
         };
-        tokio::spawn(feed(open_meteo.clone()).run(context));
+        let wall_clock = Arc::clone(&clock);
+        let weather = feed_with_clock(open_meteo.clone(), Arc::new(move || wall_clock.now_s()));
+        tokio::spawn(weather.run(context));
         Self {
             open_meteo,
+            clock,
             demand,
-            config,
+            config: Arc::new(config),
             published,
         }
     }
@@ -281,7 +364,11 @@ impl Running {
     }
 
     async fn next(&mut self) -> WeatherSnapshot {
-        self.published.recv().await.expect("the feed stopped")
+        // The paused clock would otherwise run on forever behind a feed that never publishes.
+        timeout(DAY, self.published.recv())
+            .await
+            .expect("nothing was published for a day")
+            .expect("the feed stopped")
     }
 
     async fn expect_nothing_before(&mut self, deadline: Instant) {
@@ -397,4 +484,100 @@ async fn a_location_change_refetches_at_once() {
     let requests = weather.open_meteo.request_count();
     weather.expect_nothing_before(Instant::now() + HOUR).await;
     assert_eq!(weather.open_meteo.request_count(), requests);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_response_for_the_place_left_mid_fetch_is_dropped() {
+    let mut weather = Running::start(Some(SAO_PAULO));
+    weather.next().await;
+    let config = Arc::clone(&weather.config);
+    weather.open_meteo.during_next_request(move || {
+        config.send_replace(config_at(Some(RIO)));
+    });
+    let wanted_at = Instant::now();
+    weather.want(true);
+
+    assert_eq!(weather.next().await, WeatherSnapshot::default());
+    assert!(weather.next().await.available);
+    assert_eq!(
+        weather.open_meteo.urls_since(wanted_at),
+        [
+            forecast_url(SAO_PAULO.0, SAO_PAULO.1),
+            forecast_url(RIO.0, RIO.1),
+            air_url(RIO.0, RIO.1),
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn after_a_suspend_the_next_wake_marks_stale_and_fetches_again() {
+    let mut weather = Running::start(Some(SAO_PAULO));
+    weather.next().await;
+    let wanted_at = Instant::now();
+    weather.want(true);
+    let good = weather.next().await;
+
+    weather.clock.suspend_for(8 * HOUR);
+    let stale = weather.next().await;
+
+    let noticed_after = wanted_at.elapsed();
+    assert!(noticed_after <= 61 * SECOND, "{noticed_after:?}");
+    assert_eq!(
+        stale,
+        WeatherSnapshot {
+            stale: true,
+            ..good.clone()
+        }
+    );
+    let fresh = weather.next().await;
+    assert!(fresh.available && !fresh.stale);
+    assert!(fresh.updated_s >= good.updated_s + 8 * HOUR_S);
+    let fetched_again = wanted_at.elapsed();
+    assert_eq!(
+        weather.open_meteo.offsets(wanted_at, false),
+        [Duration::ZERO, fetched_again]
+    );
+    assert_eq!(
+        weather.open_meteo.offsets(wanted_at, true),
+        [Duration::ZERO, fetched_again]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_clock_set_back_does_not_hold_the_next_fetch_back() {
+    let mut weather = Running::start(Some(SAO_PAULO));
+    weather.next().await;
+    let wanted_at = Instant::now();
+    weather.want(true);
+    weather.next().await;
+
+    weather.clock.set_back(HOUR);
+    assert!(weather.next().await.available);
+
+    let fetched_again = wanted_at.elapsed();
+    assert!(fetched_again <= 61 * SECOND, "{fetched_again:?}");
+    assert_eq!(
+        weather.open_meteo.offsets(wanted_at, false),
+        [Duration::ZERO, fetched_again]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_null_aqi_is_published_as_none_without_retrying() {
+    let mut weather = Running::start(Some(SAO_PAULO));
+    weather.next().await;
+    weather.open_meteo.serve_null_aqi();
+    let wanted_at = Instant::now();
+    weather.want(true);
+
+    let fetched = weather.next().await;
+    assert!(fetched.available);
+    assert_eq!(fetched.aqi, None);
+    weather
+        .expect_nothing_before(wanted_at + 15 * MINUTE - SECOND)
+        .await;
+    assert_eq!(
+        weather.open_meteo.offsets(wanted_at, true),
+        [Duration::ZERO]
+    );
 }
