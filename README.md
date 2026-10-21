@@ -414,6 +414,17 @@ The daemon now reads only the sources that some client is subscribed to. It also
 
 No measurable change on V1. Its cost is mostly the 15 fps alert animation, and its data arrives at 1 Hz. The gain is meant for high-rate topics such as Plan 2a's 30 Hz audio spectrum.
 
+### Plan 2a: clock modes (GhostKit gallery)
+
+The gallery at 2560×1440 against `ghostd run --fake`, 30 s per state, the shell's `qs` process only. The session was loaded: Plasma, the installed services, browsers, chat apps and other sessions, load average ≈ 1.0–1.3.
+
+| State | Frames/s | CPU | RSS |
+|---|---|---|---|
+| Stripes alone (normal clock, 67 ms) | 14.93 | 0.60 % | 218 MiB |
+| Fast mode held (33 ms) | 30.33 | 1.10 % | 226 MiB |
+
+The blink period stays 1.00 s in both (999.4 ms and 999.0 ms measured), because every motion follows `FrameClock.elapsedMs` rather than the tick count.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
