@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use futures_core::Stream;
 use ghost_proto::{DesktopSnapshot, ResolvedConfig, topics};
-use ghostd::feeds::desktop;
+use ghostd::feeds::desktop::{self, ScriptReload};
 use ghostd::feeds::shortcuts::Registration;
 use ghostd::server::{FeedContext, Publisher};
 use serde_json::Value;
@@ -102,8 +102,18 @@ pub struct RunningDesktop {
 }
 
 impl RunningDesktop {
-    /// Starts the feed and returns once it owns its bus name, its default already published.
+    /// Starts the feed as the daemon does outside fake mode, and returns once it owns its bus name,
+    /// its default already published.
     pub async fn start(bus: &PrivateBus, registration: Registration) -> Self {
+        Self::start_with(bus, registration, ScriptReload::Request).await
+    }
+
+    /// As [`Self::start`], with `reload` deciding whether the feed asks KWin's script to report.
+    pub async fn start_with(
+        bus: &PrivateBus,
+        registration: Registration,
+        reload: ScriptReload,
+    ) -> Self {
         let watcher = bus.connect().await;
         let mut owners = fdo::DBusProxy::builder(&watcher)
             .cache_properties(CacheProperties::No)
@@ -123,7 +133,7 @@ impl RunningDesktop {
             demand: demand_receiver,
             config: config_receiver,
         };
-        let feed = tokio::spawn(desktop::feed_on(bus.builder(), registration).run(context));
+        let feed = tokio::spawn(desktop::feed_on(bus.builder(), registration, reload).run(context));
         timeout(BUS_WAIT, next(&mut owners))
             .await
             .expect("the feed never took its bus name")

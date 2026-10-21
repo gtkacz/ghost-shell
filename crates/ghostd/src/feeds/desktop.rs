@@ -11,12 +11,12 @@ use zbus::fdo::{NameOwnerChangedStream, RequestNameFlags};
 use zbus::proxy::CacheProperties;
 use zbus::{Connection, connection, fdo, interface};
 
-use super::next;
 use super::shortcuts::{self, Registration};
+use super::{kwin_script, next};
 use crate::server::{Feed, Publisher};
 
 const BUS_NAME: &str = "org.ghostshell.Ghostd";
-const KWIN: &str = "org.kde.KWin";
+pub(crate) const KWIN: &str = "org.kde.KWin";
 const OBJECT_PATH: &str = "/org/ghostshell/Desktop";
 const OUTPUT_SEPARATOR: char = ',';
 /// The names `Activate` takes, which are also the ids the shortcuts are registered under, so a
@@ -124,17 +124,29 @@ impl DesktopService {
     }
 }
 
+/// Whether the feed asks KWin's desktop script to report again once it serves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptReload {
+    Request,
+    /// For a daemon that must leave the user's KWin alone.
+    Skip,
+}
+
 /// Serves the desktop service on the session bus and registers the view shortcuts, noting in
 /// `registration` that it did.
 ///
 /// Without a session bus, or while another ghostd owns the name, `desktop` keeps its default: the
 /// dashboard still renders, and shortcuts stay off.
-pub fn feed(registration: Registration) -> Feed {
-    feed_on(connection::Builder::session(), registration)
+pub fn feed(registration: Registration, reload: ScriptReload) -> Feed {
+    feed_on(connection::Builder::session(), registration, reload)
 }
 
 /// As [`feed`], on the bus that `bus` connects to.
-pub fn feed_on(bus: connection::Builder<'static>, registration: Registration) -> Feed {
+pub fn feed_on(
+    bus: connection::Builder<'static>,
+    registration: Registration,
+    reload: ScriptReload,
+) -> Feed {
     Feed::new(topics::DESKTOP, move |context| async move {
         context
             .publisher
@@ -152,6 +164,13 @@ pub fn feed_on(bus: connection::Builder<'static>, registration: Registration) ->
                         registration
                     ),
                     reset_when_kwin_leaves(kwin_owners, &desktop),
+                    async {
+                        // Only now, and not when KWin appears later: a KWin that starts loads
+                        // its enabled scripts itself, and they report as they load.
+                        if reload == ScriptReload::Request {
+                            kwin_script::reload(connection).await;
+                        }
+                    },
                 );
             }
             Err(error) => warn!(

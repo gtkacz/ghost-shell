@@ -13,6 +13,7 @@ use ghostd::collect::{
     SensorCollector, Source, StatvfsFs,
 };
 use ghostd::config::{DEFAULT_TOML, default_path};
+use ghostd::feeds::desktop::ScriptReload;
 use ghostd::feeds::http::Ureq;
 use ghostd::feeds::shortcuts::Registration;
 use ghostd::sampler::Sampler;
@@ -183,7 +184,10 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
     };
     let shortcuts = Registration::default();
     // Real in fake mode too, so a smoke run can drive the views over its own private bus.
-    feeds.push(feeds::desktop::feed(shortcuts.clone()));
+    feeds.push(feeds::desktop::feed(
+        shortcuts.clone(),
+        script_reload(options.fake),
+    ));
     let hub = Hub {
         config,
         sampler,
@@ -241,6 +245,15 @@ fn provider_specs(fake: bool) -> ProviderSpecs {
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_owned));
     Box::new(move |config| providers::effective_providers(config, own_dir.as_deref()))
+}
+
+/// A fake run must never reload the user's KWin script, though its desktop feed is real.
+fn script_reload(fake: bool) -> ScriptReload {
+    if fake {
+        ScriptReload::Skip
+    } else {
+        ScriptReload::Request
+    }
 }
 
 fn desktop_warning() -> WarningHook {
@@ -494,6 +507,12 @@ mod tests {
 
         assert!(provider_specs(true)(&config).is_empty());
         assert_eq!(provider_specs(false)(&config)[0].name, "alerts-inmet");
+    }
+
+    #[test]
+    fn fake_mode_never_reloads_the_kwin_script() {
+        assert_eq!(script_reload(true), ScriptReload::Skip);
+        assert_eq!(script_reload(false), ScriptReload::Request);
     }
 
     struct CallCount(u32);
