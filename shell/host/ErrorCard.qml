@@ -35,6 +35,8 @@ Panel {
         }
         visible: alert.truncated
         text: root.message
+        // The reason can quote a third-party widget's file or error text, which AutoText would render as markup.
+        textFormat: Text.PlainText
         color: Data.connected && !Data.stale ? Theme.text : Theme.dim
         wrapMode: Text.Wrap
         elide: Text.ElideRight

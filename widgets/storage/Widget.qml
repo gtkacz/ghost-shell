@@ -160,6 +160,8 @@ Panel {
 
                     width: Math.min(implicitWidth, parent.width - liveTemp.width - root.inlineGap)
                     text: liveRow.drive.label
+                    // Drive labels and mount points come from the filesystem, which AutoText would render as markup.
+                    textFormat: Text.PlainText
                     color: root.live ? Theme.hi : Theme.dim
                     elide: Text.ElideRight
                     font: line.font
@@ -173,6 +175,7 @@ Panel {
                     }
                     width: Math.max(0, liveTemp.x - root.inlineGap - x)
                     text: liveRow.drive.mounts.join(" · ")
+                    textFormat: Text.PlainText
                     color: Theme.dim
                     elide: Text.ElideRight
                     font: line.font
@@ -253,6 +256,7 @@ Panel {
 
                     width: Math.min(implicitWidth, parent.width - unmountedState.width - root.inlineGap)
                     text: unmountedRow.drive.label
+                    textFormat: Text.PlainText
                     color: Theme.dim
                     elide: Text.ElideRight
                     font: line.font
@@ -265,6 +269,7 @@ Panel {
                     }
                     width: Math.max(0, unmountedState.x - root.inlineGap - x)
                     text: unmountedRow.drive.kernel_name
+                    textFormat: Text.PlainText
                     color: Theme.dim
                     elide: Text.ElideRight
                     font: line.font

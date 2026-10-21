@@ -188,6 +188,8 @@ Item {
             }
             width: Math.max(0, Math.min(implicitWidth, headerLine.x + headerLine.width - x))
             text: root.label
+            // Widgets set the label and meta from their own data, which AutoText would render as markup.
+            textFormat: Text.PlainText
             color: Theme.hi
             elide: Text.ElideRight
             font {
@@ -228,6 +230,7 @@ Item {
                 verticalCenter: headerLine.verticalCenter
             }
             text: root.meta
+            textFormat: Text.PlainText
             color: Theme.dim
             horizontalAlignment: Text.AlignRight
             elide: Text.ElideRight

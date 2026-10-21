@@ -42,6 +42,8 @@ Item {
         width: root.width
         visible: root.monospace
         text: root.text
+        // Callers pass daemon and provider values, which AutoText would render as markup.
+        textFormat: Text.PlainText
         color: root.color
         elide: Text.ElideRight
         font {
@@ -69,6 +71,7 @@ Item {
                 clip: true
                 horizontalAlignment: Text.AlignHCenter
                 text: character
+                textFormat: Text.PlainText
                 color: root.color
                 font: whole.font
             }

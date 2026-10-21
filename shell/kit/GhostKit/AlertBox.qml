@@ -168,6 +168,8 @@ Item {
                 verticalCenter: parent.verticalCenter
             }
             text: root.text
+            // Callers pass provider and device strings, which AutoText would render as markup.
+            textFormat: Text.PlainText
             color: root.levelColor
             elide: Text.ElideRight
             font {

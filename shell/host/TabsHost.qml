@@ -56,6 +56,8 @@ Item {
 
                         anchors.centerIn: parent
                         text: tab.modelData.title
+                        // A third-party manifest supplies the title, which AutoText would render as markup.
+                        textFormat: Text.PlainText
                         // The mockup's dark text on the signal fill is the ground colour.
                         color: tab.selected ? Theme.ground : Theme.dim
                         font {

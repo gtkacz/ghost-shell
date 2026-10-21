@@ -271,6 +271,8 @@ Panel {
                         rightMargin: 2 * processList.columnWidth
                     }
                     text: process.entry.name
+                    // Any local process picks its own name, which AutoText would render as markup.
+                    textFormat: Text.PlainText
                     color: processList.rowColor
                     elide: Text.ElideRight
                     font: processLine.font

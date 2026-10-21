@@ -24,6 +24,7 @@ Item {
 
         width: root.width
         text: root.key
+        textFormat: Text.PlainText
         color: Theme.dim
         elide: Text.ElideRight
         font {

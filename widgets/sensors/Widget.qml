@@ -118,6 +118,8 @@ Panel {
                         rightMargin: Theme.d(root.valueGapPx)
                     }
                     text: cell.entry.reading.label
+                    // Labels can come from the user's config or a chip's own *_label file, which AutoText would render as markup.
+                    textFormat: Text.PlainText
                     color: Theme.dim
                     elide: Text.ElideRight
                     font: line.font
