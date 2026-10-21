@@ -272,6 +272,7 @@ fn user_layout_replaces_default_view() {
             settings: Default::default(),
         }
     );
+    assert!(c.layout.views.contains_key("v2") && c.layout.views.contains_key("monitor"));
 }
 
 #[test]
