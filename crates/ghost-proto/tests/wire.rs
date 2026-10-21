@@ -152,3 +152,30 @@ fn weather_snapshot_wire_form() {
         )
     );
 }
+
+#[test]
+fn sky_snapshot_wire_form() {
+    let snapshot = SkySnapshot {
+        available: true,
+        sunrise_s: Some(1792570620),
+        sunset_s: Some(1792619520),
+        moon_phase: 0.296,
+        moon_illumination: 0.64,
+        moon_name: "WAXING GIBBOUS".into(),
+    };
+
+    assert_eq!(
+        serde_json::to_string(&snapshot).unwrap(),
+        concat!(
+            r#"{"available":true,"sunrise_s":1792570620,"sunset_s":1792619520,"#,
+            r#""moon_phase":0.296,"moon_illumination":0.64,"moon_name":"WAXING GIBBOUS"}"#
+        )
+    );
+    assert_eq!(
+        serde_json::to_string(&SkySnapshot::default()).unwrap(),
+        concat!(
+            r#"{"available":false,"sunrise_s":null,"sunset_s":null,"moon_phase":0.0,"#,
+            r#""moon_illumination":0.0,"moon_name":""}"#
+        )
+    );
+}

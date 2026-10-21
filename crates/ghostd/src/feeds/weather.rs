@@ -23,7 +23,7 @@ use tokio::time::sleep;
 use tracing::warn;
 
 use super::http::{Fetch, FetchError};
-use super::{unix_now_s, wanted};
+use super::{Place, WallClock, place_in, unix_now_s, wanted};
 use crate::server::{Feed, FeedContext};
 
 const FORECAST_EVERY_S: u64 = 15 * 60;
@@ -36,9 +36,6 @@ const WALL_CLOCK_CHECK: Duration = Duration::from_secs(60);
 const HOUR_S: u64 = 60 * 60;
 const HOURS_SHOWN: usize = 6;
 const RAIN_PEAK_WINDOW_S: u64 = 12 * HOUR_S;
-
-/// The wall clock in seconds since the Unix epoch, passed in so that tests can move it on its own.
-pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
 pub fn forecast_url(lat: f64, lon: f64) -> String {
     format!(
@@ -263,19 +260,6 @@ async fn sleep_or_forever(duration: Option<Duration>) {
         Some(duration) => sleep(duration).await,
         None => pending().await,
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Place {
-    lat: f64,
-    lon: f64,
-}
-
-fn place_in(config: &ResolvedConfig) -> Option<Place> {
-    Some(Place {
-        lat: config.location.lat?,
-        lon: config.location.lon?,
-    })
 }
 
 /// What the feed knows about one place, and when it next fetches for it.
