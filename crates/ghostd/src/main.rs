@@ -1,42 +1,376 @@
-use std::io::Write;
+use std::collections::BTreeMap;
+use std::io::{IsTerminal, Write};
+use std::num::NonZeroU32;
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
+use std::{env, fs, io, thread};
 
-use ghostd::collect::{GpuCollector, GpuSource, NvmlSource, Source};
-use ghostd::config::DEFAULT_TOML;
+use ghost_proto::{CpuSnapshot, ResolvedConfig, topics};
+use ghostd::collect::{
+    CpuCollector, DiskCollector, GpuCollector, GpuSource, MemCollector, NvmlSource,
+    SensorCollector, Source, StatvfsFs,
+};
+use ghostd::config::{DEFAULT_TOML, default_path};
+use ghostd::sampler::Sampler;
+use ghostd::selfmon::SelfMon;
+use ghostd::server::{self, ConfigFeed, Hub, WarningHook};
+use ghostd::sysroot::SysRoot;
+use ghostd::{fake, notify, providers};
+use serde::Serialize;
+use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
+use tracing::{error, info, warn};
 
 const EXIT_USAGE: u8 = 2;
+const USAGE: &str = "usage: ghostd run [--socket PATH] [--config PATH] [--widgets-dir DIR] [--fake] \
+                     [--tick-ms N]\n       ghostd default-config\n       \
+                     ghostd probe <cpu | mem | sensors | gpu | disks | perf>";
+const DEFAULT_TICK_MS: NonZeroU32 = NonZeroU32::new(1000).unwrap();
+const RUNTIME_DIR_ENV: &str = "XDG_RUNTIME_DIR";
+const SOCKET_FILE: &str = "ghostd.sock";
+const TOP_PROCESSES: usize = 5;
+const PROBE_INTERVAL: Duration = Duration::from_secs(1);
+// A collector stuck in a blocking read must not keep a stopped daemon from exiting.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(1);
+
+type Labels = BTreeMap<String, String>;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
+        ["run", options @ ..] => run(options),
         ["default-config"] => print_stdout(DEFAULT_TOML),
-        ["probe", "gpu"] => probe_gpu(),
-        _ => {
-            eprintln!("usage: ghostd <default-config | probe gpu>");
-            ExitCode::from(EXIT_USAGE)
-        }
+        ["probe", topic] => probe(topic),
+        _ => usage(),
     }
+}
+
+fn usage() -> ExitCode {
+    eprintln!("{USAGE}");
+    ExitCode::from(EXIT_USAGE)
 }
 
 fn print_stdout(text: &str) -> ExitCode {
     // Piping into `head` closes stdout early, which must not panic like `print!` does.
-    match std::io::stdout().write_all(text.as_bytes()) {
+    match io::stdout().write_all(text.as_bytes()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
     }
 }
 
-/// Prints one GPU sample as a line of JSON. A machine without a readable GPU is not a failure: it
-/// prints `present:false`, which is exactly what the daemon would publish.
-fn probe_gpu() -> ExitCode {
-    let source = NvmlSource::open().map(|source| Box::new(source) as Box<dyn GpuSource>);
-    let snapshot = GpuCollector::new(source).sample();
-    match serde_json::to_string(&snapshot) {
+struct RunOptions {
+    socket: Option<PathBuf>,
+    config: Option<PathBuf>,
+    widgets_dir: Option<PathBuf>,
+    fake: bool,
+    tick_ms: NonZeroU32,
+}
+
+fn parse_run(mut args: &[&str]) -> Option<RunOptions> {
+    let mut options = RunOptions {
+        socket: None,
+        config: None,
+        widgets_dir: None,
+        fake: false,
+        tick_ms: DEFAULT_TICK_MS,
+    };
+    loop {
+        args = match args {
+            [] => return Some(options),
+            ["--socket", path, rest @ ..] => {
+                options.socket = Some(PathBuf::from(path));
+                rest
+            }
+            ["--config", path, rest @ ..] => {
+                options.config = Some(PathBuf::from(path));
+                rest
+            }
+            ["--widgets-dir", dir, rest @ ..] => {
+                options.widgets_dir = Some(PathBuf::from(dir));
+                rest
+            }
+            ["--fake", rest @ ..] => {
+                options.fake = true;
+                rest
+            }
+            ["--tick-ms", ms, rest @ ..] => {
+                options.tick_ms = ms.parse().ok()?;
+                rest
+            }
+            _ => return None,
+        };
+    }
+}
+
+fn run(args: &[&str]) -> ExitCode {
+    let Some(options) = parse_run(args) else {
+        return usage();
+    };
+    let Some(socket) = options.socket.clone().or_else(default_socket) else {
+        eprintln!("ghostd: set {RUNTIME_DIR_ENV} or pass --socket");
+        return ExitCode::from(EXIT_USAGE);
+    };
+    let config_path = match options.config.clone() {
+        Some(path) => path,
+        None => {
+            let path = default_path();
+            // Without either variable the default resolves against the working directory.
+            if !path.is_absolute() {
+                eprintln!("ghostd: set HOME or XDG_CONFIG_HOME, or pass --config");
+                return ExitCode::from(EXIT_USAGE);
+            }
+            path
+        }
+    };
+    tracing_subscriber::fmt()
+        .with_writer(io::stderr)
+        .with_ansi(io::stderr().is_terminal())
+        .init();
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            error!(%error, "cannot start the async runtime");
+            return ExitCode::FAILURE;
+        }
+    };
+    let code = runtime.block_on(run_daemon(options, socket, config_path));
+    runtime.shutdown_timeout(SHUTDOWN_GRACE);
+    code
+}
+
+fn default_socket() -> Option<PathBuf> {
+    env::var_os(RUNTIME_DIR_ENV)
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| PathBuf::from(dir).join(SOCKET_FILE))
+}
+
+async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) -> ExitCode {
+    let (mut terminate, mut interrupt) = match (
+        signal(SignalKind::terminate()),
+        signal(SignalKind::interrupt()),
+    ) {
+        (Ok(terminate), Ok(interrupt)) => (terminate, interrupt),
+        (Err(error), _) | (_, Err(error)) => {
+            error!(%error, "cannot install the signal handlers");
+            return ExitCode::FAILURE;
+        }
+    };
+    let listener = match server::bind(&socket) {
+        Ok(listener) => listener,
+        Err(error) => {
+            error!(%error, "cannot serve");
+            return ExitCode::FAILURE;
+        }
+    };
+    info!(socket = %socket.display(), config = %config_path.display(), "listening");
+
+    let config = ConfigFeed::open(&config_path);
+    // Kept until the daemon stops; dropping it kills the providers.
+    let _providers = providers::supervise(&config.current().providers, &socket);
+    let sampler = if options.fake {
+        fake::sampler()
+    } else {
+        host_sampler(config.subscribe())
+    };
+    let hub = Hub {
+        config,
+        sampler,
+        tick_ms: options.tick_ms,
+        widgets_dir: options.widgets_dir,
+        on_warning: desktop_warning(),
+    };
+
+    tokio::select! {
+        () = server::serve(listener, hub) => {}
+        _ = terminate.recv() => info!("SIGTERM received; stopping"),
+        _ = interrupt.recv() => info!("SIGINT received; stopping"),
+    }
+    if let Err(error) = fs::remove_file(&socket) {
+        warn!(%error, socket = %socket.display(), "cannot remove the socket file");
+    }
+    ExitCode::SUCCESS
+}
+
+fn desktop_warning() -> WarningHook {
+    Box::new(|summary, body| {
+        let (summary, body) = (summary.to_owned(), body.to_owned());
+        tokio::spawn(async move { notify::send_warning(&summary, &body).await });
+    })
+}
+
+fn host_sampler(config: watch::Receiver<ResolvedConfig>) -> Sampler {
+    let root = SysRoot::host();
+    let cpu: Box<dyn Source<CpuSnapshot> + Send> = match CpuCollector::new(&root) {
+        Ok(collector) => Box::new(collector),
+        Err(error) => {
+            warn!(%error, "cannot read the CPU topology; the cpu topic stays empty");
+            Box::new(NoCpu)
+        }
+    };
+    let gpu = open_gpu();
+    if gpu.is_none() {
+        info!("NVML is unavailable; the gpu topic reports no GPU");
+    }
+    let sensors_root = root.clone();
+    let disks_root = root.clone();
+    Sampler::new(
+        cpu,
+        Box::new(MemCollector::new(&root, TOP_PROCESSES)),
+        Box::new(Relabeled::new(
+            config.clone(),
+            sensor_labels,
+            move |labels| SensorCollector::new(&sensors_root, labels),
+        )),
+        Box::new(GpuCollector::new(gpu)),
+        Box::new(Relabeled::new(config, disk_labels, move |labels| {
+            DiskCollector::new(&disks_root, Box::new(StatvfsFs), labels)
+        })),
+    )
+}
+
+fn open_gpu() -> Option<Box<dyn GpuSource>> {
+    NvmlSource::open().map(|source| Box::new(source) as Box<dyn GpuSource>)
+}
+
+fn sensor_labels(config: &ResolvedConfig) -> &Labels {
+    &config.sensors.labels
+}
+
+fn disk_labels(config: &ResolvedConfig) -> &Labels {
+    &config.disks.labels
+}
+
+/// Stands in for a CPU collector that could not start, so everything else still runs.
+struct NoCpu;
+
+impl Source<CpuSnapshot> for NoCpu {
+    fn sample(&mut self) -> CpuSnapshot {
+        CpuSnapshot::default()
+    }
+}
+
+/// Rebuilds a collector whenever the labels it was built with change in the live config.
+struct Relabeled<C, B> {
+    config: watch::Receiver<ResolvedConfig>,
+    labels_of: fn(&ResolvedConfig) -> &Labels,
+    build: B,
+    labels: Labels,
+    collector: C,
+}
+
+impl<C, B: Fn(&Labels) -> C> Relabeled<C, B> {
+    fn new(
+        mut config: watch::Receiver<ResolvedConfig>,
+        labels_of: fn(&ResolvedConfig) -> &Labels,
+        build: B,
+    ) -> Self {
+        let labels = labels_of(&config.borrow_and_update()).clone();
+        Self {
+            collector: build(&labels),
+            config,
+            labels_of,
+            build,
+            labels,
+        }
+    }
+}
+
+impl<T, C: Source<T>, B: Fn(&Labels) -> C> Source<T> for Relabeled<C, B> {
+    fn sample(&mut self) -> T {
+        // A closed channel means the config can no longer change, so the current labels stand.
+        if self.config.has_changed().unwrap_or(false) {
+            let labels = (self.labels_of)(&self.config.borrow_and_update()).clone();
+            if labels != self.labels {
+                self.collector = (self.build)(&labels);
+                self.labels = labels;
+            }
+        }
+        self.collector.sample()
+    }
+}
+
+fn probe(topic: &str) -> ExitCode {
+    let root = SysRoot::host();
+    let no_labels = Labels::new();
+    match topic {
+        topics::CPU => match CpuCollector::new(&root) {
+            Ok(collector) => probe_source(collector),
+            Err(error) => {
+                eprintln!("ghostd: cannot read the CPU topology: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        topics::MEM => probe_source(MemCollector::new(&root, TOP_PROCESSES)),
+        topics::SENSORS => probe_source(SensorCollector::new(&root, &no_labels)),
+        // A machine without a readable GPU is not a failure: it prints `present:false`, exactly
+        // what the daemon would publish.
+        topics::GPU => probe_source(GpuCollector::new(open_gpu())),
+        topics::DISKS => probe_source(DiskCollector::new(&root, Box::new(StatvfsFs), &no_labels)),
+        topics::PERF => probe_source(SelfMon::new(root)),
+        _ => usage(),
+    }
+}
+
+/// Prints one sample as a line of JSON, taken a second after a baseline sample so that loads and
+/// rates cover a real interval.
+fn probe_source<T: Serialize>(mut source: impl Source<T>) -> ExitCode {
+    source.sample();
+    thread::sleep(PROBE_INTERVAL);
+    match serde_json::to_string(&source.sample()) {
         Ok(json) => print_stdout(&format!("{json}\n")),
         Err(error) => {
-            eprintln!("ghostd: cannot encode the gpu snapshot: {error}");
+            eprintln!("ghostd: cannot encode the sample: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    /// Reports the labels it was built with.
+    struct BuiltWith(Labels);
+
+    impl Source<Labels> for BuiltWith {
+        fn sample(&mut self) -> Labels {
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn relabeled_rebuilds_only_when_its_own_labels_change() {
+        let (config_tx, config_rx) = watch::channel(ResolvedConfig::default());
+        let builds = Cell::new(0);
+        let mut source = Relabeled::new(config_rx, sensor_labels, |labels| {
+            builds.set(builds.get() + 1);
+            BuiltWith(labels.clone())
+        });
+        assert!(source.sample().is_empty());
+
+        config_tx.send_modify(|config| {
+            config
+                .disks
+                .labels
+                .insert("SERIAL".to_owned(), "Backup".to_owned());
+        });
+        source.sample();
+        assert_eq!(builds.get(), 1, "a disk label change rebuilt the sensors");
+
+        config_tx.send_modify(|config| {
+            config
+                .sensors
+                .labels
+                .insert("k10temp/Tctl".to_owned(), "CPU".to_owned());
+        });
+        assert_eq!(source.sample()["k10temp/Tctl"], "CPU");
+        assert_eq!(builds.get(), 2);
     }
 }

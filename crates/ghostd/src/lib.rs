@@ -1,6 +1,11 @@
 pub mod collect;
 pub mod config;
+pub mod fake;
 pub mod history;
+pub mod notify;
+pub mod providers;
 pub mod sampler;
+pub mod selfmon;
+pub mod server;
 pub mod sysroot;
 pub mod widgets;
