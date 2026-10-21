@@ -8,7 +8,8 @@ import "media.mjs" as Media
 // The player: its art, track, a spectrum of what the default output plays, the progress and the controls, in three
 // styles: a stack with the art on top (V1), a headerless strip (V2) and a compact row for the MONITOR band. Paused,
 // the spectrum falls to dark; stopped or gone, the last track played is shown dimmed. That track is remembered across
-// restarts in $XDG_STATE_HOME/ghost-shell/media.json.
+// restarts in $XDG_STATE_HOME/ghost-shell/media.json. Below the player, rows show the default output and input, and
+// a MIC LIVE alert says which apps record.
 Panel {
     id: root
 
@@ -45,18 +46,15 @@ Panel {
     readonly property real controlGapPx: 20
     readonly property real spectrumCellPx: 3
     readonly property real spectrumGapPx: 2
+    readonly property real controlVolumePx: 9.5
     // Letter spacing in em.
     readonly property real statusTracking: 0.14
     readonly property real titleTracking: 0.02
+    readonly property real controlVolumeTracking: 0.1
     // The mockup's scramble(el, to, dur) for a new track.
     readonly property real titleScrambleMs: 600
     readonly property real artistScrambleMs: 700
 
-    readonly property int spectrumBands: 32
-    // appearance.spectrum_fps at which the spectrum holds FrameClock's fast interval; any other rate holds the normal one.
-    readonly property int fastSpectrumFps: 30
-    readonly property real bandMax: 255
-    readonly property var darkLevels: new Array(spectrumBands).fill(0)
     readonly property real millisPerSecond: 1000
     readonly property string stateFile: "ghost-shell/media.json"
     readonly property string defaultStateDir: ".local/state"
@@ -64,6 +62,8 @@ Panel {
     property var settings
 
     readonly property string style: settings.style
+    // Whether the OUT and IN rows show. MIC LIVE shows either way: it is a privacy cue, and it opens no capture stream.
+    readonly property bool audio: settings.audio
     // The daemon's default style when no config has arrived.
     readonly property bool mono: (Data.config?.bar?.icons ?? "mono") === "mono"
 
@@ -117,16 +117,6 @@ Panel {
     readonly property bool canPlayPause: player !== null ? (playing ? player.canPause : player.canPlay) : launcher !== null
 
     readonly property bool hasSpectrum: style !== compactStyle
-    readonly property int spectrumFps: Theme.spectrumFps
-    readonly property bool spectrumShown: hasSpectrum && visible
-    // The spec's "only while playing and visible"; the rate is appearance.spectrum_fps.
-    readonly property bool spectrumLive: spectrumShown && playing
-    readonly property var spectrumTopic: Data.topic("audio.spectrum")
-    // The bands the bars fall through after the music stops, 0..255, or none when they are not falling. The topic is
-    // released at once, and the daemon stops capturing, so the fall runs on the shell's copy of the last bands.
-    property var fallBands: []
-    readonly property bool falling: fallBands.length > 0
-    readonly property var levels: spectrumLive && spectrumTopic.live && spectrumTopic.value ? spectrumTopic.value.bands.map(band => band / bandMax) : falling ? fallBands.map(band => band / bandMax) : darkLevels
 
     readonly property string statePath: {
         const stateHome = Quickshell.env("XDG_STATE_HOME") || "";
@@ -136,9 +126,6 @@ Panel {
     }
 
     property bool holdsSeconds: false
-    property bool holdsSpectrum: false
-    // The rate the spectrum holds the frame clock at, 0 while it holds none.
-    property int heldFps: 0
 
     function stateWord(state) {
         if (state === MprisPlaybackState.Playing) {
@@ -211,80 +198,6 @@ Panel {
             FrameClock.releaseSeconds();
         }
         holdsSeconds = wanted;
-    }
-
-    // Only when playing-and-visible changes, never per frame: every change of the subscription makes the daemon
-    // resend history and replay each value.
-    function holdSpectrum(wanted) {
-        if (wanted === holdsSpectrum) {
-            return;
-        }
-        if (wanted) {
-            Data.want("audio.spectrum");
-        } else {
-            Data.release("audio.spectrum");
-        }
-        holdsSpectrum = wanted;
-        holdSpectrumClock();
-    }
-
-    // Called a turn after spectrumLive changes, never from its handler: that handler runs while `view` is still being
-    // worked out (spectrumLive follows playing, which follows view), and dropping the last clock hold there lets
-    // FrameClock re-read the second, which nowMs and so `view` depend on. Qt then reports a binding loop for `view`.
-    function holdLiveSpectrum() {
-        holdSpectrum(spectrumLive);
-        // holdSpectrum returns early when the data hold already matches, but a resume and a pause inside one turn can
-        // start or clear a fall without changing it, and the clock hold has to follow the fall too.
-        holdSpectrumClock();
-    }
-
-    // The clock runs for the live spectrum and for its fall. A fall that starts or ends beside a live spectrum asks
-    // for the rate already held, so the one hold carries over and the clock never stops between the two.
-    function holdSpectrumClock() {
-        holdClockAt((holdsSpectrum || falling) ? spectrumFps : 0);
-    }
-
-    // The released topic keeps its last value, which is what the bars showed while the topic was live.
-    function startFall() {
-        const shown = spectrumTopic.live && spectrumTopic.value ? spectrumTopic.value.bands : [];
-        if (!Media.isDark(shown)) {
-            fallBands = Array.from(shown);
-        }
-    }
-
-    function stepFall() {
-        const next = Media.fallStep(fallBands);
-        if (Media.isDark(next)) {
-            endFall();
-        } else {
-            fallBands = next;
-        }
-    }
-
-    function endFall() {
-        fallBands = [];
-        holdSpectrumClock();
-    }
-
-    // A changed appearance.spectrum_fps moves the hold to the other interval and leaves the subscription alone.
-    function holdClockAt(fps) {
-        if (fps === heldFps) {
-            return;
-        }
-        const previous = heldFps;
-        // The new hold is taken before the old one goes, so a widget that is the clock's only holder never lets it
-        // stop for an instant between the two.
-        if (fps === fastSpectrumFps) {
-            FrameClock.acquireFast();
-        } else if (fps > 0) {
-            FrameClock.acquire();
-        }
-        if (previous === fastSpectrumFps) {
-            FrameClock.releaseFast();
-        } else if (previous > 0) {
-            FrameClock.release();
-        }
-        heldFps = fps;
     }
 
     // The art of the track shown, dimmed with it when it is the remembered one.
@@ -431,6 +344,11 @@ Panel {
     }
 
     component Controls: Row {
+        id: controls
+
+        // The output's volume, as the mockup's `VOL 64`, or nothing without the audio rows.
+        property string volume
+
         spacing: Theme.d(root.controlGapPx)
 
         Control {
@@ -450,6 +368,29 @@ Panel {
             available: root.canNext
             onActivated: root.player.next()
         }
+
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: controls.volume !== ""
+            text: controls.volume
+            color: Theme.dim
+            font {
+                family: Theme.font
+                pixelSize: Theme.d(root.controlVolumePx)
+                weight: Font.Medium
+                letterSpacing: Theme.d(root.controlVolumePx) * root.controlVolumeTracking
+            }
+        }
+    }
+
+    // MIC LIVE, naming the apps a style's audio rows see recording.
+    component MicAlert: AlertBox {
+        property AudioRows rows
+
+        visible: rows.recording
+        text: rows.alertText
+        level: "warn"
+        chipKey: "live"
     }
 
     anchors.fill: parent
@@ -460,22 +401,6 @@ Panel {
     padding: header ? Theme.d(paddingPx) : 0
 
     onVisibleChanged: holdSeconds(visible)
-    onSpectrumLiveChanged: {
-        if (spectrumLive) {
-            fallBands = [];
-        } else if (spectrumShown) {
-            startFall();
-        }
-        Qt.callLater(holdLiveSpectrum);
-    }
-    // A fall ends when the bars are hidden. A live spectrum that is hidden stops through its own spectrumLive change, but a
-    // paused one has no change of its own to end the fall on.
-    onSpectrumShownChanged: {
-        if (!spectrumShown) {
-            endFall();
-        }
-    }
-    onSpectrumFpsChanged: holdSpectrumClock()
     onPlayingChanged: Qt.callLater(noteActive)
     onPlayerStateChanged: rememberIfNew()
     // The pick can move to another playing player without playing changing, so every new pick is noted as well. A
@@ -496,12 +421,14 @@ Panel {
         noteActive();
         rememberIfNew();
         holdSeconds(visible);
-        holdSpectrum(spectrumLive);
     }
-    Component.onDestruction: {
-        holdSeconds(false);
-        endFall();
-        holdSpectrum(false);
+    Component.onDestruction: holdSeconds(false)
+
+    Spectrum {
+        id: spectrum
+
+        spectrumShown: root.hasSpectrum && root.visible
+        playing: root.playing
     }
 
     FileView {
@@ -519,15 +446,6 @@ Panel {
             }
         }
         onSaveFailed: error => console.warn("media: cannot write " + path + ": " + FileViewError.toString(error))
-    }
-
-    Connections {
-        target: FrameClock
-        enabled: root.falling
-
-        function onFrameChanged() {
-            root.stepFall();
-        }
     }
 
     // MprisPlayer works the position out only when asked, by this signal.
@@ -588,31 +506,43 @@ Panel {
                     topMargin: Theme.d(root.bodyGapPx)
                     left: parent.left
                     right: parent.right
-                    bottom: stackProgress.visible ? stackProgress.top : stackControls.top
+                    bottom: stackBottom.top
                     bottomMargin: Theme.d(root.bodyGapPx)
                 }
-                levels: root.levels
+                levels: spectrum.levels
                 cellH: root.spectrumCellPx
                 gap: root.spectrumGapPx
             }
 
-            Progress {
-                id: stackProgress
+            Column {
+                id: stackBottom
 
                 anchors {
                     left: parent.left
                     right: parent.right
-                    bottom: stackControls.top
-                    bottomMargin: Theme.d(root.bodyGapPx)
-                }
-            }
-
-            Controls {
-                id: stackControls
-
-                anchors {
                     bottom: parent.bottom
-                    horizontalCenter: parent.horizontalCenter
+                }
+                spacing: Theme.d(root.bodyGapPx)
+
+                Progress {
+                    width: parent.width
+                }
+
+                Controls {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    volume: root.audio ? stackAudio.controlVolume : ""
+                }
+
+                AudioRows {
+                    id: stackAudio
+
+                    width: parent.width
+                    visible: root.audio
+                }
+
+                MicAlert {
+                    width: parent.width
+                    rows: stackAudio
                 }
             }
         }
@@ -649,10 +579,19 @@ Panel {
                     width: Theme.d(root.stripInfoWidthPx)
                     spacing: Theme.d(root.stripInfoGapPx)
 
-                    // Headerless, so the player's name joins the status, as in the mockup.
+                    // Headerless, so the player's name joins the status, as in the mockup. The strip has no other room
+                    // for MIC LIVE, so the alert takes the status's place while an app records.
                     StatusLine {
                         width: parent.width
+                        visible: !stripAlert.visible
                         text: root.view.identity !== "" ? root.lineStatus + " · " + root.view.identity.toUpperCase() : root.lineStatus
+                    }
+
+                    MicAlert {
+                        id: stripAlert
+
+                        width: parent.width
+                        rows: stripAudio
                     }
 
                     Title {
@@ -669,34 +608,46 @@ Panel {
                 }
 
                 Item {
+                    id: stripSide
+
                     anchors {
                         left: stripInfo.right
                         leftMargin: Theme.d(root.stripColumnGapPx)
                         right: parent.right
-                        verticalCenter: parent.verticalCenter
+                        top: parent.top
+                        bottom: parent.bottom
                     }
-                    height: stripSpectrum.height + Theme.d(root.bodyGapPx) + stripControls.height
 
-                    SegBars {
-                        id: stripSpectrum
-
+                    Column {
                         anchors {
-                            top: parent.top
                             left: parent.left
                             right: parent.right
+                            verticalCenter: parent.verticalCenter
                         }
-                        height: Theme.d(root.stripSpectrumPx)
-                        levels: root.levels
-                        cellH: root.spectrumCellPx
-                        gap: root.spectrumGapPx
-                    }
+                        spacing: Theme.d(root.bodyGapPx)
 
-                    Controls {
-                        id: stripControls
+                        // The rows take their room from the spectrum, which keeps the mockup's height without them.
+                        SegBars {
+                            width: parent.width
+                            height: Math.min(Theme.d(root.stripSpectrumPx), stripSide.height - parent.spacing
+                                - stripControls.height - (stripAudio.visible ? parent.spacing + stripAudio.height : 0))
+                            levels: spectrum.levels
+                            cellH: root.spectrumCellPx
+                            gap: root.spectrumGapPx
+                        }
 
-                        anchors {
-                            bottom: parent.bottom
-                            horizontalCenter: parent.horizontalCenter
+                        Controls {
+                            id: stripControls
+
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            volume: root.audio ? stripAudio.controlVolume : ""
+                        }
+
+                        AudioRows {
+                            id: stripAudio
+
+                            width: parent.width
+                            visible: root.audio
                         }
                     }
                 }
@@ -763,12 +714,26 @@ Panel {
                             right: parent.right
                             verticalCenter: parent.verticalCenter
                         }
+                        volume: root.audio ? compactAudio.controlVolume : ""
                     }
                 }
 
                 Progress {
                     width: parent.width
                 }
+
+                MicAlert {
+                    width: parent.width
+                    rows: compactAudio
+                }
+            }
+
+            // The band has no room for two rows, so they stay hidden and only tell the alert which apps record. Hidden,
+            // they never read the input's level.
+            AudioRows {
+                id: compactAudio
+
+                visible: false
             }
         }
     }
