@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ResolvedConfig;
+
 #[derive(Debug, thiserror::Error)]
 pub enum WireError {
     #[error("invalid message: {0}")]
@@ -27,6 +29,9 @@ pub enum ClientMsg {
     },
 }
 
+// Config is sent only when the file changes, so a larger enum on the stack costs less than
+// boxing it at every construction site.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ServerMsg {
@@ -45,6 +50,12 @@ pub enum ServerMsg {
         topic: String,
         seq: u64,
         data: serde_json::Value,
+    },
+    Config {
+        data: ResolvedConfig,
+    },
+    ConfigError {
+        message: String,
     },
 }
 

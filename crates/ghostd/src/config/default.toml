@@ -1,0 +1,195 @@
+# ghost-shell configuration.
+#
+# Every key below is shown at its default value, so deleting a key or the whole file gives the
+# same result. Keep only what you change. Unknown keys are rejected so typos do not go unnoticed.
+# Saved edits are applied live; if the file is invalid, the last good configuration stays in
+# effect and the problem is reported.
+# Print this file again with `ghostd default-config`.
+
+[appearance]
+# Interface font, and the font used for Japanese text.
+font = "Kode Mono"
+font_cjk = "Noto Sans CJK JP"
+# How Japanese accents are drawn: "kanji", "katakana", "mixed" or "off".
+japanese = "mixed"
+# How opaque panels are, from 0 (see-through) to 100 (solid).
+panel_fill = 55
+
+# Colours are written as #rrggbb.
+[appearance.colors]
+ground = "#0a0f11"  # Screen background.
+panel = "#0a0f11"   # Panel background, drawn at panel_fill opacity.
+hair = "#2a3a3d"    # Panel borders and dividers.
+hair2 = "#1a2527"   # Fainter dividers inside panels.
+text = "#b7d1cd"    # Normal text.
+hi = "#e4f1ef"      # Emphasised text and values.
+dim = "#587170"     # Captions and inactive items.
+signal = "#a3d4cc"  # Accent colour for live data.
+warn = "#e9a84c"    # A value past its warn threshold.
+crit = "#ff3b45"    # A value past its crit threshold.
+dot = "#a3d4cc"     # The background dot grid.
+
+[appearance.dots]
+# Distance between background dots in pixels (at least 1), and their opacity from 0 to 100.
+spacing = 24
+opacity = 16
+
+[appearance.scanlines]
+# Opacity of the scanline overlay from 0 (off) to 100.
+opacity = 15
+
+# Load, temperature and air quality turn warn or crit once they rise to the limit; battery
+# turns warn or crit once it falls to it. Each warn/crit pair must be ordered, with crit below
+# warn for the battery.
+[thresholds]
+load_warn = 75
+load_crit = 90
+temp_warn = 80
+temp_crit = 90
+battery_warn = 20
+battery_crit = 10
+aqi_warn = 100
+aqi_crit = 150
+
+# Per-sensor limits replacing temp_warn and temp_crit, keyed by sensor id, for example:
+# "<sensor id>" = { warn = 70, crit = 85 }
+[thresholds.sensors]
+
+[display]
+# Model name of the monitor to use. Outputs are matched by model because connector names such as
+# DP-1 can change between boots. Empty means no preference.
+model = ""
+
+# Custom names for sensors, keyed by sensor id, for example:
+# "<sensor id>" = "Water loop"
+[sensors.labels]
+
+# Custom names for drives, keyed by serial number, for example:
+# "<serial>" = "Games"
+[disks.labels]
+
+[dashboard]
+# The views the swap shortcut cycles through, in order, and the one shown at start. Every name
+# must be defined under [layout.views], and default_view must be one of main_views.
+main_views = ["v1"]
+default_view = "v1"
+# The view the monitor shortcut opens; empty means none.
+monitor_view = ""
+# How many minutes of history the graphs keep, from 1 to 60.
+history_minutes = 5
+
+[bar]
+# Bar arrangement: "a" (one bar with app icons), "b" (status bar plus a dock) or "c" (window tabs).
+layout = "a"
+# "top" or "bottom".
+position = "top"
+# App icon style: "mono" tints icons in the accent colour; "colour" keeps the original icons.
+icons = "mono"
+# Pinned apps, in order, shown in the bar or dock.
+pinned = []
+
+[bar.brand]
+# The brand block at the bar's left edge; turn it off to give the space to the next item.
+enabled = true
+text = "GS//01"
+subtitle = "攻殻"
+
+[greeting]
+# Name used in the greeting. Empty means your login name.
+name = ""
+
+[location]
+# Used for the clock, weather and sun and moon times. lat and lon are left out by default:
+# lat = -23.55
+# lon = -46.63
+city = ""
+
+[location.alerts]
+# The weather alert provider and the area code it should watch.
+provider = ""
+area = ""
+
+[shortcuts]
+# Toggle the monitor view, and move to the next main view.
+monitor = "Meta+M"
+swap = "Meta+Shift+M"
+
+[notifications]
+# How many past notifications are kept, and how long a popup stays up in seconds.
+history_limit = 200
+popup_timeout_s = 6
+
+# The dashboard is a tree of nodes, one tree per named view.
+#   Split: lays out children in a "row" or a "column".
+#   Slot:  shows one widget; `settings` is passed to it.
+#   Tabs:  shows one of several widgets at a time, starting at `default` (counted from 0).
+# `size` is in design pixels along the parent's direction; a node without it shares the leftover
+# space equally. A view you define here replaces the default view of the same name; other views
+# are added alongside.
+[layout]
+gutter = 12
+margin = 12
+
+[layout.views.v1]
+direction = "row"
+
+[[layout.views.v1.children]]
+direction = "column"
+size = 300
+
+[[layout.views.v1.children.children]]
+widget = "processor"
+size = 250
+
+[[layout.views.v1.children.children]]
+widget = "graphics"
+size = 204
+
+[[layout.views.v1.children.children]]
+widget = "memory"
+
+[[layout.views.v1.children]]
+direction = "column"
+
+[[layout.views.v1.children.children]]
+widget = "placeholder"
+size = 262
+settings = { label = "Clock" }
+
+[[layout.views.v1.children.children]]
+direction = "row"
+
+[[layout.views.v1.children.children.children]]
+widget = "placeholder"
+size = 290
+settings = { label = "Media" }
+
+[[layout.views.v1.children.children.children]]
+widget = "placeholder"
+settings = { label = "Notifications" }
+
+[[layout.views.v1.children]]
+direction = "column"
+size = 300
+
+[[layout.views.v1.children.children]]
+widget = "placeholder"
+size = 300
+settings = { label = "Uplink" }
+
+[[layout.views.v1.children.children]]
+widget = "storage"
+
+[[layout.views.v1.children.children]]
+widget = "sensors"
+size = 184
+
+[widgets]
+# Extra directories searched for third-party widgets.
+paths = []
+
+# External data providers started and supervised by ghostd, for example:
+# [[providers]]
+# name = "inmet"
+# exec = ["inmet-provider", "--area", "3550308"]
+# restart = true  # Start it again if it exits.

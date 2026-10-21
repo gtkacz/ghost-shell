@@ -1,6 +1,8 @@
+mod config;
 mod msg;
 mod snapshot;
 
+pub use config::*;
 pub use msg::*;
 pub use snapshot::*;
 
