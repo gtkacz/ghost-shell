@@ -30,7 +30,7 @@ Scope {
 
     Component.onCompleted: {
         if (forcedUText !== "" && !hasForcedU) {
-            console.warn("GHOST_FORCE_U must be a positive number, got '" + forcedUText + "'; using the surface width");
+            console.warn("GHOST_FORCE_U must be a positive number, got '" + forcedUText + "'; using the screen width");
         }
         if (viewOverride !== "" && viewOverride !== galleryView) {
             console.warn("GHOST_VIEW must be '" + galleryView + "', got '" + viewOverride + "'; ignoring it");

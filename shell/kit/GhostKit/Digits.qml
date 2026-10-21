@@ -64,6 +64,8 @@ Item {
                 readonly property string character: root.text.charAt(index)
 
                 width: root.digitPattern.test(character) ? root.cellWidth : implicitWidth
+                // A glyph wider than "0" would otherwise spill into its neighbours' cells.
+                clip: true
                 horizontalAlignment: Text.AlignHCenter
                 text: character
                 color: root.color

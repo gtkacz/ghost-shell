@@ -27,6 +27,8 @@ Item {
     readonly property int rowCount: Segments.cellCount(height, cellHeight, gapSize)
     // Leftover width goes on the left, so the newest sample always sits on the right edge.
     readonly property real firstColumnX: width - columnCount * (columnWidth + gapSize) + gapSize
+    // A cell above the lit ones, so segments.mjs stays the one place that defines how unlit cells look.
+    readonly property color unlitColor: Segments.cellColor("ok", 0, 0, 1, Theme)
 
     // A series shorter than the graph fills it from the right; the columns before it read as missing.
     function sampleAt(column) {
@@ -60,7 +62,9 @@ Item {
                     y: root.height - (index + 1) * (root.cellHeight + root.gapSize) + root.gapSize
                     width: column.width
                     height: root.cellHeight
-                    color: Segments.cellColor(column.columnLevel, index, column.lit, root.rowCount, Theme)
+                    // Unlit cells share one colour, so a full-width graph scrolling at 1 Hz recomputes the
+                    // colour only of the cells that are lit.
+                    color: index < column.lit ? Segments.cellColor(column.columnLevel, index, column.lit, root.rowCount, Theme) : root.unlitColor
                 }
             }
         }

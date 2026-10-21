@@ -26,7 +26,6 @@ Item {
 
     readonly property int stripePeriodMs: 1600
     readonly property int arrivalMs: 1600
-    readonly property int percent: 100
     // Held steps: each opacity starts at its percentage of arrivalMs and holds until the next one.
     readonly property var arrivalStartPercents: [0, 6, 10, 14, 40, 70]
     readonly property var arrivalOpacities: [0.3, 1, 0.46, 1, 0.82, 0.64]
@@ -42,6 +41,9 @@ Item {
     property string chipKey
 
     readonly property bool live: Data.connected && !Data.stale
+    // A stale alert stands still: the daemon is gone, so nothing it reported is current.
+    readonly property bool animating: visible && live
+    readonly property bool truncated: messageText.truncated
     readonly property bool hasChip: chipText.text !== ""
     readonly property bool hasTrailing: trailing !== ""
     readonly property color levelColor: !live ? Theme.dim : level === "crit" ? Theme.crit : Theme.warn
@@ -52,11 +54,14 @@ Item {
     property bool holdsClock: false
 
     readonly property real contentOpacity: {
+        if (!holdsClock) {
+            return 1;
+        }
         const sinceArrival = FrameClock.elapsedMs - appearedAt;
         if (sinceArrival >= arrivalMs) {
             return FrameClock.blinkOpacity;
         }
-        const reachedPercent = percent * sinceArrival / arrivalMs;
+        const reachedPercent = Theme.percent * sinceArrival / arrivalMs;
         let opacity = arrivalOpacities[0];
         for (let i = 0; i < arrivalStartPercents.length; i += 1) {
             if (reachedPercent >= arrivalStartPercents[i]) {
@@ -67,33 +72,33 @@ Item {
     }
 
     // The clock runs only while something holds it, so an alert holds it exactly while it can be seen
-    // and restarts its arrival whenever it reappears.
+    // with live data and restarts its arrival whenever it reappears.
     function holdClock(wanted) {
         if (wanted === holdsClock) {
             return;
         }
-        holdsClock = wanted;
         if (wanted) {
             appearedAt = FrameClock.elapsedMs;
             FrameClock.acquire();
         } else {
             FrameClock.release();
         }
+        holdsClock = wanted;
     }
 
     implicitWidth: Theme.d(edgePx + 2 * sidePaddingPx) + (hasChip ? chip.width + gap : 0) + messageText.implicitWidth
         + (hasTrailing ? gap + trailingText.implicitWidth : 0)
     implicitHeight: Theme.d(chipLinePx + 2 * chipBorderPx + 2 * verticalPaddingPx)
 
-    onVisibleChanged: holdClock(visible)
-    Component.onCompleted: holdClock(visible)
+    onAnimatingChanged: holdClock(animating)
+    Component.onCompleted: holdClock(animating)
     Component.onDestruction: holdClock(false)
 
     ShaderEffect {
         property color stripeColor: ThemeLib.withAlpha(root.levelColor, root.stripeAlphaPct)
         // Whole physical pixels, so every stripe has the same staircase edge.
         property real tile: Math.max(1, Math.round(Theme.d(root.tilePx) * root.pixelRatio))
-        property real phase: tile * (FrameClock.elapsedMs % root.stripePeriodMs) / root.stripePeriodMs
+        property real phase: root.holdsClock ? tile * (FrameClock.elapsedMs % root.stripePeriodMs) / root.stripePeriodMs : 0
         property size resolution: Qt.size(width * root.pixelRatio, height * root.pixelRatio)
 
         anchors.fill: parent
@@ -108,13 +113,21 @@ Item {
         color: root.levelColor
     }
 
+    // The blink is a uniform of this alert's own layer. Stepping an item's opacity instead makes Qt
+    // rebuild every batch in the window (measured: about 2 600 elements uploaded four times a second),
+    // and a layer whose content blinks renders each step one frame late, adding frames.
     Item {
         anchors {
             fill: parent
             leftMargin: edge.width + Theme.d(root.sidePaddingPx)
             rightMargin: Theme.d(root.sidePaddingPx)
         }
-        opacity: root.contentOpacity
+        layer.enabled: true
+        layer.effect: ShaderEffect {
+            property real level: root.contentOpacity
+
+            fragmentShader: Qt.resolvedUrl("shaders/fade.frag.qsb")
+        }
 
         Rectangle {
             id: chip

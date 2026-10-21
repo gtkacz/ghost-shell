@@ -48,7 +48,7 @@ Singleton {
     readonly property var appearance: Data.config ? Data.config.appearance : defaultAppearance
     readonly property var thresholds: Data.config ? Data.config.thresholds : defaultThresholds
 
-    // Logical pixels per design pixel, set by the desktop from its surface width.
+    // Logical pixels per design pixel, set by the desktop from its screen width.
     property real u: 1
 
     readonly property color ground: appearance.colors.ground
