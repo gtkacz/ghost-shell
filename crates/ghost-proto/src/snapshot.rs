@@ -130,7 +130,7 @@ pub struct PerfSnapshot {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct WeatherSnapshot {
     pub available: bool,
-    /// The forecast is older than two forecast cadences, because fetching keeps failing.
+    /// The last good forecast is over 30 min old, whether fetches failed or the machine slept.
     pub stale: bool,
     /// When the forecast was fetched, in seconds since the Unix epoch.
     pub updated_s: u64,
@@ -148,7 +148,7 @@ pub struct WeatherSnapshot {
     pub hours: Vec<WeatherHour>,
     /// The likeliest rain in the next 12 hours; `None` when no rain is forecast.
     pub rain_peak: Option<RainPeak>,
-    /// The US AQI; `None` until air quality has been fetched for the place.
+    /// The US AQI; `None` until air quality is fetched, and when Open-Meteo reports no value.
     pub aqi: Option<u32>,
 }
 
@@ -166,4 +166,20 @@ pub struct RainPeak {
     pub pct: u8,
     /// Seconds since the Unix epoch.
     pub at_s: u64,
+}
+
+/// The sun and moon at `location`, computed locally. Without a location `available` is false and
+/// every other field keeps its default.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SkySnapshot {
+    pub available: bool,
+    /// Seconds since the Unix epoch, for the machine's calendar day; `None` on a polar day or
+    /// night, when the sun does not cross the horizon.
+    pub sunrise_s: Option<u64>,
+    pub sunset_s: Option<u64>,
+    /// How far through the lunar cycle, from 0 at a new moon to 1 at the next.
+    pub moon_phase: f32,
+    /// The lit fraction of the disc, from 0 to 1.
+    pub moon_illumination: f32,
+    pub moon_name: String,
 }

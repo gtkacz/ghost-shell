@@ -270,6 +270,7 @@ fn host_feeds() -> Vec<Feed> {
     vec![
         feeds::host::feed(SysRoot::host()),
         feeds::weather::feed(Arc::new(Ureq::default())),
+        feeds::sky::feed(),
     ]
 }
 

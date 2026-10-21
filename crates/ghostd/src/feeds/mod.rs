@@ -4,6 +4,7 @@ pub mod desktop;
 pub mod host;
 pub mod http;
 pub mod shortcuts;
+pub mod sky;
 pub mod weather;
 
 use std::future::{pending, poll_fn};

@@ -7,7 +7,8 @@ use std::future::pending;
 
 use ghost_proto::{
     CcdLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, HostSnapshot, MemSnapshot,
-    ProcUsage, RainPeak, Reading, SensorSnapshot, WeatherHour, WeatherSnapshot, topics,
+    ProcUsage, RainPeak, Reading, SensorSnapshot, SkySnapshot, WeatherHour, WeatherSnapshot,
+    topics,
 };
 
 use crate::collect::Source;
@@ -29,7 +30,7 @@ pub fn sampler() -> Sampler {
 
 /// The fake feeds, one per feed topic.
 pub fn feeds() -> Vec<Feed> {
-    vec![host(), weather()]
+    vec![host(), weather(), sky()]
 }
 
 /// A sine between `low` and `high` that repeats every `period` samples, starting `phase` of a
@@ -539,6 +540,31 @@ fn mockup_weather(now_s: u64) -> WeatherSnapshot {
         hours,
         aqi: Some(WEATHER_AQI),
     }
+}
+
+/// 05:17 and 18:52 in UTC-3; the shell shows only the time of day.
+const SKY_SUNRISE_S: u64 = 1_792_570_620;
+const SKY_SUNSET_S: u64 = 1_792_619_520;
+const SKY_MOON_PHASE: f32 = 0.295;
+const SKY_MOON_ILLUMINATION: f32 = 0.64;
+const SKY_MOON_NAME: &str = "WAXING GIBBOUS";
+
+/// The mockup's sky, published once.
+fn sky() -> Feed {
+    Feed::new(topics::SKY, |context| async move {
+        context.publisher.publish(
+            topics::SKY,
+            &SkySnapshot {
+                available: true,
+                sunrise_s: Some(SKY_SUNRISE_S),
+                sunset_s: Some(SKY_SUNSET_S),
+                moon_phase: SKY_MOON_PHASE,
+                moon_illumination: SKY_MOON_ILLUMINATION,
+                moon_name: SKY_MOON_NAME.to_owned(),
+            },
+        );
+        pending::<()>().await;
+    })
 }
 
 #[cfg(test)]
