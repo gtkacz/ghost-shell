@@ -74,13 +74,13 @@ Singleton {
         }
 
         function perform(action) {
-            if (root.busy || root.dashboard === null || current === "") {
+            if (root.dashboard === null || current === "") {
                 return;
             }
             const next = ViewsLib.applyAction({
                 current,
                 lastMain
-            }, action, root.dashboard);
+            }, action, root.dashboard, root.busy);
             if (next === null) {
                 return;
             }

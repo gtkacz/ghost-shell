@@ -28,6 +28,8 @@ Item {
     property Item shown: null
     property Item leaving: null
     property int step: ViewsLib.PRINT_STEPS
+    property int printMs: 0
+    property double printStartedMs: 0
     readonly property bool printing: leaving !== null
 
     // Nothing takes clicks during a print, so none lands on a view that is being erased.
@@ -54,8 +56,14 @@ Item {
         leaving.outgoing = true;
         shown = createPage();
         step = 0;
-        stepTimer.interval = Math.round(Views.durationMs / ViewsLib.PRINT_STEPS);
-        stepTimer.start();
+        printMs = Views.durationMs;
+        printStartedMs = Date.now();
+        armStep();
+    }
+
+    function armStep() {
+        stepTimer.interval = ViewsLib.stepDelay(step, ViewsLib.PRINT_STEPS, printMs, Date.now() - printStartedMs);
+        stepTimer.restart();
     }
 
     function finish() {
@@ -137,12 +145,15 @@ Item {
     Timer {
         id: stepTimer
 
-        repeat: true
+        // Re-armed for every step with the wait to that step's due time, so the print takes its length.
+        repeat: false
         onTriggered: {
             root.step += 1;
             if (root.step >= ViewsLib.PRINT_STEPS) {
                 root.finish();
+                return;
             }
+            root.armStep();
         }
     }
 

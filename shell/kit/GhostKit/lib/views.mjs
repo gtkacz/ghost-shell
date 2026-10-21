@@ -36,8 +36,11 @@ function swapMain(state, dashboard) {
   return change(state, next, next, durationMs);
 }
 
-// Null means the action changes nothing.
-export function applyAction(state, action, dashboard) {
+// Null means the action changes nothing. One that arrives while a print runs is dropped, not queued.
+export function applyAction(state, action, dashboard, busy = false) {
+  if (busy) {
+    return null;
+  }
   if (action === MONITOR_ACTION) {
     return toggleMonitor(state, dashboard);
   }
@@ -47,16 +50,27 @@ export function applyAction(state, action, dashboard) {
   return null;
 }
 
-// After a config or layout change. A view that has gone is replaced at once, without a print.
+// After a config or layout change. A view that has gone, or that no shortcut could leave or come
+// back to, is replaced at once, without a print, by the last main view, or the default one if that
+// has gone too.
 export function reconcileViews(state, dashboard, viewNames) {
+  const lastMain = dashboard.main_views.includes(state.lastMain) ? state.lastMain : dashboard.default_view;
+  const isReachable = dashboard.main_views.includes(state.current) || state.current === dashboard.monitor_view;
   return {
-    current: viewNames.includes(state.current) ? state.current : dashboard.default_view,
-    lastMain: dashboard.main_views.includes(state.lastMain) ? state.lastMain : dashboard.default_view,
+    current: isReachable && viewNames.includes(state.current) ? state.current : lastMain,
+    lastMain,
   };
 }
 
 export function revealRows(step, steps, height) {
   return Math.round(height * step / steps);
+}
+
+// The wait, from elapsedMs into the print, before step + 1, which is due at a whole millisecond
+// rounded from its exact time. Measured from the start rather than from the last tick, because timers
+// fire on the animation driver's ticks, a little late, and 24 late ticks would add up.
+export function stepDelay(step, steps, durationMs, elapsedMs) {
+  return Math.max(1, Math.round((step + 1) * durationMs / steps) - elapsedMs);
 }
 
 // `seen` is the connection the last desktop value arrived on and its action_seq, or null before the

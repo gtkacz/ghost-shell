@@ -17,14 +17,53 @@ if (( ${#actions[@]} > 0 )) && [[ $bus != private ]]; then
     exit 1
 fi
 # One dbus-run-session around both processes: the script runs again inside it, told which bus it
-# left behind.
+# left behind and where to write its pid, and this one waits for it. Stopping dbus-run-session would
+# leave the shell, the daemon and the bus running, so a stop of this script goes to the inner one,
+# whose cleanup stops the shell and the daemon; the bus then ends with dbus-run-session.
 if [[ $bus == private && -z ${GHOST_SMOKE_OUTER_BUS+set} ]]; then
-    exec env GHOST_SMOKE_OUTER_BUS="${DBUS_SESSION_BUS_ADDRESS:-}" \
-        dbus-run-session --config-file="$(dirname "${BASH_SOURCE[0]}")/private-bus.conf" -- "${BASH_SOURCE[0]}" "$@"
+    # The inner script writes its pid before it starts anything, so this wait is short.
+    inner_start_s=5
+    bus_run_dir=$(mktemp -d -t ghost-smoke-bus.XXXXXX)
+    inner_pid_file=$bus_run_dir/inner.pid
+    session_pid=
+
+    stop_inner() {
+        local deadline=$((SECONDS + inner_start_s))
+        while [[ ! -s $inner_pid_file ]] && kill -0 "$session_pid" 2> /dev/null && (( SECONDS < deadline )); do
+            sleep 0.1
+        done
+        # Only while dbus-run-session lives, which it does for as long as the inner script does, so the
+        # pid cannot have been reused.
+        if [[ -s $inner_pid_file ]] && kill -0 "$session_pid" 2> /dev/null; then
+            kill "$(< "$inner_pid_file")" 2> /dev/null || true
+        fi
+        wait "$session_pid" 2> /dev/null || true
+    }
+
+    leave_private_bus() {
+        if [[ -n $session_pid ]]; then
+            stop_inner
+        fi
+        rm -r -- "$bus_run_dir"
+    }
+
+    trap leave_private_bus EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    env GHOST_SMOKE_OUTER_BUS="${DBUS_SESSION_BUS_ADDRESS:-}" GHOST_SMOKE_PID_FILE="$inner_pid_file" \
+        dbus-run-session --config-file="$(dirname "${BASH_SOURCE[0]}")/private-bus.conf" -- "${BASH_SOURCE[0]}" "$@" &
+    session_pid=$!
+    session_status=0
+    wait "$session_pid" || session_status=$?
+    session_pid=
+    exit "$session_status"
 fi
 if [[ $bus == private ]] && [[ -z ${DBUS_SESSION_BUS_ADDRESS:-} || $DBUS_SESSION_BUS_ADDRESS == "$GHOST_SMOKE_OUTER_BUS" ]]; then
     echo "smoke: FAIL (not on a bus of its own: DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-})" >&2
     exit 1
+fi
+if [[ -n ${GHOST_SMOKE_PID_FILE:-} ]]; then
+    echo "$$" > "$GHOST_SMOKE_PID_FILE"
 fi
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -224,5 +263,8 @@ fi
 if (( view_changes != ${#actions[@]} )); then
     echo "smoke: FAIL (${#actions[@]} view actions sent, $view_changes view changes in $shell_log)" >&2
     exit 1
+fi
+if (( view_changes > 0 )); then
+    grep -oE "$view_change_line" "$shell_log" | sed 's/^qml: /smoke: /'
 fi
 echo "smoke: ok ($connects connects, $errors errors, $allowed allowed, $view_changes view changes)"
