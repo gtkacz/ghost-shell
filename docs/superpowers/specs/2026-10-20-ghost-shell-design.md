@@ -170,10 +170,10 @@ Everything stays teal-grey until it needs the user. Default thresholds: loads �
 
 ### 6.1 Views
 
-There are three views: **V1** (main), **V2** (main) and **MONITOR**.
+By default there are three views: **V1** (main), **V2** (main) and **MONITOR**. Views are just named layouts (§13), so users can add more.
 
 - The **monitor shortcut** toggles MONITOR from either main view and returns to the main view you came from. It's one step from either.
-- The **swap shortcut** switches V1 and V2. This is the secondary action.
+- The **swap shortcut** moves to the next main view: V1 and V2 by default, or any list set in `dashboard.main_views`. This is the secondary action.
 - **Shortcuts only act when the user is already on the desktop** (no focused window). They never summon the dashboard over windows.
 - The bar's view chip reads **`MAIN`** or **`MONITOR`** (no V1/V2, no Japanese). Clicking it toggles MONITOR, and a chevron button next to it swaps V1 and V2.
 - **[call]** Default keys: `Meta+M` (monitor) and `Meta+Shift+M` (swap), configurable.
@@ -396,7 +396,18 @@ The user plans to open-source ghost-shell, so **every component must be pluggabl
   - **Discovery order:** built-ins (install dir), then `~/.config/ghost-shell/widgets/`, then any extra `widgets.paths`. A user widget with a built-in's id replaces it.
   - The daemon reads the manifests and validates the config's layout against them, so a typo produces one clear error, e.g. `layout.v1[0][1]: widget "graphics" has no setting "foo"`.
 - **Layout lives in the config file.**
-  - V1, V2, MONITOR and the bar are described as trees of rows and columns. Each slot names a widget, an optional fixed size (otherwise it flexes), and that slot's settings.
+  - **Views are named layouts** under `layout.views.<name>`. There can be any number.
+    - `dashboard.main_views` (default `["v1", "v2"]`) is the order the swap shortcut and chevron cycle through.
+    - `dashboard.monitor_view` (default `"monitor"`) is what the monitor shortcut opens.
+    - `dashboard.default_view` is the view shown at start.
+  - **A layout is a tree** of three node types:
+    - **row/column splits:** children with fixed or flex sizes;
+    - **slots:** one widget plus its settings;
+    - **tabs:** a tabbed container of slots. Each tab shows the widget's name or a `title` override, the default tab is configurable, and only the active tab's widget is loaded.
+
+    For example, the UPLINK / SILICON / PROCESS TREE centrepiece is a `tabs` node of three separate widgets, so any widget can be put in a tab, and those three can be placed on their own.
+  - **[call]** New node types (e.g. a grid) can be added later without breaking existing configs. Third-party containers aren't part of the API yet.
+  - The bar is a layout too: left, centre and right lists of bar widgets (§8).
   - The defaults reproduce the layouts in §6 and §8. The same widget can appear in several slots and several views.
   - If fixed sizes overflow the screen, they shrink proportionally with a logged warning. Panels never overlap.
 - **The widget kit** is a QML module, `GhostKit`. It contains:
@@ -438,7 +449,7 @@ The user plans to open-source ghost-shell, so **every component must be pluggabl
   - **panel fill %**;
   - warn/crit thresholds (including batteries and AQI);
   - pinned apps;
-  - default view;
+  - main views, monitor view and default view;
   - shortcuts;
   - the greeting name (default: the login name);
   - the brand block: on/off, text (default `GS//01`), subtitle (default `攻殻`);
