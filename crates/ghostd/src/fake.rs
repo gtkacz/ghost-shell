@@ -4,16 +4,19 @@
 
 use std::f64::consts::TAU;
 use std::future::pending;
+use std::time::Duration;
 
 use ghost_proto::{
     AlertLevel, CcdLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, HostSnapshot,
-    MemSnapshot, ProcUsage, RainPeak, Reading, SensorSnapshot, SkySnapshot, WeatherAlert,
-    WeatherAlerts, WeatherHour, WeatherSnapshot, topics,
+    MemSnapshot, ProcUsage, RainPeak, Reading, SensorSnapshot, SkySnapshot, SpectrumSnapshot,
+    WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, topics,
 };
+use tokio::time::{MissedTickBehavior, interval};
 
 use crate::collect::Source;
-use crate::feeds::unix_now_s;
+use crate::feeds::spectrum::{BANDS, FRAMES_PER_S};
 use crate::feeds::weather::condition;
+use crate::feeds::{unix_now_s, until_unwanted, until_wanted};
 use crate::sampler::Sampler;
 use crate::server::Feed;
 
@@ -30,7 +33,7 @@ pub fn sampler() -> Sampler {
 
 /// The fake feeds, one per feed topic, plus `weather.alerts` in place of the alerts provider.
 pub fn feeds() -> Vec<Feed> {
-    vec![host(), weather(), sky(), alerts()]
+    vec![host(), weather(), sky(), spectrum(), alerts()]
 }
 
 /// A sine between `low` and `high` that repeats every `period` samples, starting `phase` of a
@@ -601,6 +604,46 @@ fn sky() -> Feed {
         );
         pending::<()>().await;
     })
+}
+
+const SPECTRUM_LEVEL: Wave = Wave::new(0.0, 255.0, 45.0);
+// Each band runs the wave a little apart from the one below it, so the bands ripple instead of
+// moving together.
+const SPECTRUM_PHASE_STEP: f64 = 1.0 / BANDS as f64;
+
+/// Sine-shaped bands 30 times a second, but only while some client wants them, as the real feed
+/// does.
+fn spectrum() -> Feed {
+    Feed::new(topics::SPECTRUM, |mut context| async move {
+        let mut frame = 0;
+        loop {
+            until_wanted(&mut context.demand, topics::SPECTRUM).await;
+            let mut frames = interval(Duration::from_secs(1) / FRAMES_PER_S);
+            frames.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    biased;
+                    () = until_unwanted(&mut context.demand, topics::SPECTRUM) => break,
+                    _ = frames.tick() => {
+                        frame += 1;
+                        context.publisher.publish(topics::SPECTRUM, &fake_spectrum(frame));
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn fake_spectrum(frame: u64) -> SpectrumSnapshot {
+    SpectrumSnapshot {
+        bands: (0..BANDS)
+            .map(|band| {
+                SPECTRUM_LEVEL
+                    .shifted(band as f64 * SPECTRUM_PHASE_STEP)
+                    .at(frame) as u8
+            })
+            .collect(),
+    }
 }
 
 #[cfg(test)]

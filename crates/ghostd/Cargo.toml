@@ -10,6 +10,8 @@ ghost-proto = { path = "../ghost-proto" }
 nix = { workspace = true, features = ["feature", "fs", "hostname", "signal"] }
 notify.workspace = true
 nvml-wrapper.workspace = true
+pipewire.workspace = true
+realfft.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

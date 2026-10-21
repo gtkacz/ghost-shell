@@ -298,6 +298,7 @@ fn host_feeds() -> Vec<Feed> {
         feeds::host::feed(SysRoot::host()),
         feeds::weather::feed(Arc::new(Ureq::default())),
         feeds::sky::feed(),
+        feeds::spectrum::feed(),
     ]
 }
 

@@ -216,3 +216,10 @@ pub struct SkySnapshot {
     pub moon_illumination: f32,
     pub moon_name: String,
 }
+
+/// What the default output plays: bands from 50 Hz up to 16 kHz on a log scale, lowest first. Each
+/// is the level of its loudest frequency, from 0 (−60 dBFS or quieter) up to 255 (0 dBFS).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SpectrumSnapshot {
+    pub bands: Vec<u8>,
+}
