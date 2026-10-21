@@ -152,7 +152,7 @@ test('a fall step drops each band to the floor of 0.8 of its value', () => {
   assert.deepEqual(fallStep([255, 100, 6, 5, 1, 0]), [204, 80, 4, 4, 0, 0]);
 });
 
-test('a fall step matches the analyzer for every byte', () => {
+test('a fall step keeps four fifths of every byte value, rounded down', () => {
   const every = Array.from({ length: BAND_MAX + 1 }, (_, band) => band);
   assert.deepEqual(fallStep(every), every.map(band => Math.floor((band * 4) / 5)));
 });

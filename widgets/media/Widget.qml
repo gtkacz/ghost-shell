@@ -233,15 +233,18 @@ Panel {
     // FrameClock re-read the second, which nowMs and so `view` depend on. Qt then reports a binding loop for `view`.
     function holdLiveSpectrum() {
         holdSpectrum(spectrumLive);
+        // holdSpectrum returns early when the data hold already matches, but a resume and a pause inside one turn can
+        // start or clear a fall without changing it, and the clock hold has to follow the fall too.
+        holdSpectrumClock();
     }
 
     // The clock runs for the live spectrum and for its fall. A fall that starts or ends beside a live spectrum asks
     // for the rate already held, so the one hold carries over and the clock never stops between the two.
     function holdSpectrumClock() {
-        holdClockAt(holdsSpectrum || falling ? spectrumFps : 0);
+        holdClockAt((holdsSpectrum || falling) ? spectrumFps : 0);
     }
 
-    // The bars fall from the bands they showed when playback stopped, unless they showed none lit.
+    // The released topic keeps its last value, which is what the bars showed while the topic was live.
     function startFall() {
         const shown = spectrumTopic.live && spectrumTopic.value ? spectrumTopic.value.bands : [];
         if (!Media.isDark(shown)) {
