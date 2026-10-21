@@ -93,7 +93,21 @@ By chip, 1 s spacing, n = 20:
   The current version costs **≈ 0.1 % of a core**. The baseline is ≈ 0.45 ms, with a ≈ 6 ms chip refresh on 4 of 40 samples. A lone reader would refresh on every 5th sample, for an expected mean of ≈ 1.65 ms (≈ 0.17 %). Here gridlock was also reading the chip and keeping its cache warm, so the measured mean is lower.
 - The NVMe and i2c reads block for milliseconds but use little CPU: a sample still takes ≈ 4.5–5 ms of wall time. The daemon therefore runs its collectors off its event loop.
 
+#### GPU (`collect/gpu.rs`, NVML)
+
+RTX 4080 SUPER, driver 615.78.08. Two runs of 40 reads each, at 1 s spacing:
+
+| Operation | Wall | CPU |
+|---|---|---|
+| `NvmlSource::open()` (NVML init, once) | 4.2–4.6 ms | — |
+| First `read()` | 4–9 ms | — |
+| Steady-state `read()` | 0.76 ms median, 0.78–0.79 ms mean | ≈ the same (no blocking) |
+
+- At 1 Hz a read costs **≈ 0.08 % of a core**.
+- About 0.61 ms of each read is `fan_speed`. Reading the fan less often is the obvious lever if that's ever needed.
+- NVML init adds **+25.7 MiB RSS** to the daemon, about 20 MiB of it anonymous memory.
+
 #### Not yet measured
 
 - CPU (`collect/cpu.rs`): `/proc/stat` plus 32 `scaling_cur_freq` reads per sample.
-- GPU (NVML), drives, and the daemon and shell as a whole. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
+- Drives, and the daemon and shell as a whole. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
