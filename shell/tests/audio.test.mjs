@@ -93,6 +93,7 @@ test('only other apps\' audio captures are bound', () => {
   assert.equal(needsBinding(node({}, { name: 'pw-record', isAudio: false })), false);
 });
 
-test('Quickshell\'s own level meters are never bound', () => {
+test('Quickshell\'s own level meters and ghostd\'s spectrum are never bound', () => {
   assert.equal(needsBinding(node({}, { name: 'quickshell' })), false);
+  assert.equal(needsBinding(node({}, { name: 'ghostd-spectrum' })), false);
 });

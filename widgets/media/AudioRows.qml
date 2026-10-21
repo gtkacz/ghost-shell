@@ -199,10 +199,13 @@ Column {
         objects: [root.sink, root.source].filter(node => node !== null).concat(root.captureStreams)
     }
 
+    // Quickshell's monitor starts out enabled and opens its stream the moment it has a node, before an `enabled`
+    // binding lands, so it is given the node only while the level is read; otherwise every new view would open the
+    // microphone for an instant.
     PwNodePeakMonitor {
         id: peaks
 
-        node: root.source
+        node: root.levelEnabled ? root.source : null
         enabled: root.levelEnabled
     }
 

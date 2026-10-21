@@ -10,6 +10,8 @@ const PEAKS_ONLY = 'resample.peaks';
 const PIPEWIRE_TRUE = 'true';
 // The name Quickshell gives its level meters' streams, in any Quickshell process.
 const QUICKSHELL_STREAM = 'quickshell';
+// ghostd's spectrum capture, which hears the output and never the microphone.
+const GHOSTD_SPECTRUM = 'ghostd-spectrum';
 
 const MIC_LIVE = 'MIC LIVE';
 const IS_RECORDING = 'IS RECORDING';
@@ -31,12 +33,13 @@ function isCapture(node) {
   return node.isStream && !node.isSink && node.isAudio;
 }
 
-// The streams the rows bind to read their properties: every capture but Quickshell's own level meters, which record
-// nothing. Binding the shell's own meter is unsafe: destroying the binding and the meter together, as covering the
-// dashboard does, sends PipeWire a destroy for a resource it already dropped with the stream, and Quickshell 0.2.1
-// takes that error as fatal and stays disconnected from PipeWire.
+// The streams the rows bind to read their properties: every capture but Quickshell's own level meters and ghostd's
+// spectrum, neither of which records the microphone. Binding a stream that may go in the same moment as the binding is
+// unsafe: destroying the binding and the stream together, as covering the dashboard does to the shell's meter and to
+// a spectrum that stops with it, sends PipeWire a destroy for a resource it already dropped with the stream, and
+// Quickshell 0.2.1 takes that error as fatal and stays disconnected from PipeWire.
 export function needsBinding(node) {
-  return isCapture(node) && node.name !== QUICKSHELL_STREAM;
+  return isCapture(node) && node.name !== QUICKSHELL_STREAM && node.name !== GHOSTD_SPECTRUM;
 }
 
 function isRecording(node, ownPids) {
