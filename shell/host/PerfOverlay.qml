@@ -43,7 +43,7 @@ Text {
     Connections {
         target: root.perf
 
-        // Every new subscription replays the last sample, which the window already holds.
+        // After a reconnect the daemon replays its last sample, which the window may already hold.
         function onValueChanged() {
             if (root.perf.seq === root.lastSeq) {
                 return;

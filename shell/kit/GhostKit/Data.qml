@@ -39,7 +39,7 @@ Singleton {
         link.release(name);
     }
 
-    onCoveredChanged: link.subscribe()
+    onCoveredChanged: link.subscribeLater()
     Component.onCompleted: link.start()
 
     // The protocol lives in here so widgets see only the properties, functions and signal above.
@@ -73,6 +73,9 @@ Singleton {
         property var subscribed: null
         // Each wanted topic's count of want() calls without a matching release().
         property var wantCounts: new Map()
+        // Each topic's seq last received on this connection. Every subscribe makes the daemon replay
+        // each topic's last message with its seq unchanged, which is not new data.
+        property var receivedSeqs: new Map()
 
         // Each topic's TopicValue. Filled in place rather than replaced: every binding that calls
         // topic() reads this property, so replacing it would re-run all of them.
@@ -125,6 +128,7 @@ Singleton {
             }
             connected = true;
             subscribed = null;
+            receivedSeqs.clear();
             console.info("ghostd connected");
             send({
                 t: "hello",
@@ -173,7 +177,7 @@ Singleton {
                 break;
             case "layout":
                 layout = message.data;
-                subscribe();
+                subscribeLater();
                 break;
             case "history":
                 takeHistory(message);
@@ -213,7 +217,7 @@ Singleton {
             const count = (wantCounts.get(name) || 0) + 1;
             wantCounts.set(name, count);
             if (count === 1) {
-                subscribe();
+                subscribeLater();
             }
         }
 
@@ -231,11 +235,16 @@ Singleton {
                 return;
             }
             wantCounts.delete(name);
-            subscribe();
+            subscribeLater();
         }
 
-        // Every subscribe makes the daemon resend the history and each topic's last value, so an
-        // unchanged list is not sent again.
+        // Changes in one event-loop turn, such as a release followed by a want, add up to one list.
+        function subscribeLater() {
+            Qt.callLater(subscribe);
+        }
+
+        // Every subscribe makes the daemon replay each subscribed topic's last message, and resend
+        // the history when cpu or gpu is subscribed, so an unchanged list is not sent again.
         function subscribe() {
             if (!connected) {
                 return;
@@ -270,11 +279,14 @@ Singleton {
                 historyStaged = true;
             }
             track = recorded;
-            staged.set(message.topic, {
-                value: message.data,
-                seq: message.seq,
-                receivedMs: Date.now()
-            });
+            if (receivedSeqs.get(message.topic) !== message.seq) {
+                receivedSeqs.set(message.topic, message.seq);
+                staged.set(message.topic, {
+                    value: message.data,
+                    seq: message.seq,
+                    receivedMs: Date.now()
+                });
+            }
             publishUnlessAnimating();
         }
 
