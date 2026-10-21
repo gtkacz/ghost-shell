@@ -27,7 +27,8 @@ Singleton {
         readonly property string cpuTopic: "cpu"
         readonly property string gpuTopic: "gpu"
         readonly property string perfTopic: "perf"
-        readonly property int staleAfterMs: 3000
+        readonly property int minStaleAfterMs: 3000
+        readonly property int staleAfterSteps: 3
         readonly property int firstRetryMs: 1000
         readonly property int maxRetryMs: 10000
         readonly property int defaultStepMs: 1000
@@ -50,6 +51,8 @@ Singleton {
         property var config: null
         property var layout: null
         property int stepMs: defaultStepMs
+        // Data arrives once per step, so a fixed limit would flag every gap between ticks of a slower daemon.
+        readonly property int staleAfterMs: Math.max(minStaleAfterMs, staleAfterSteps * stepMs)
         property int retryMs: firstRetryMs
         property var replayPending: ({})
 
