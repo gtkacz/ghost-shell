@@ -4,14 +4,15 @@
 
 use std::f64::consts::TAU;
 use std::future::pending;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use ghost_proto::{
     CcdLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, HostSnapshot, MemSnapshot,
-    ProcUsage, Reading, SensorSnapshot, topics,
+    ProcUsage, RainPeak, Reading, SensorSnapshot, WeatherHour, WeatherSnapshot, topics,
 };
 
 use crate::collect::Source;
+use crate::feeds::unix_now_s;
+use crate::feeds::weather::condition;
 use crate::sampler::Sampler;
 use crate::server::Feed;
 
@@ -28,7 +29,7 @@ pub fn sampler() -> Sampler {
 
 /// The fake feeds, one per feed topic.
 pub fn feeds() -> Vec<Feed> {
-    vec![host()]
+    vec![host(), weather()]
 }
 
 /// A sine between `low` and `high` that repeats every `period` samples, starting `phase` of a
@@ -465,19 +466,79 @@ const UPTIME_S: u64 = 8047;
 
 fn host() -> Feed {
     Feed::new(topics::HOST, |context| async move {
-        let now_s = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since_epoch| since_epoch.as_secs());
         context.publisher.publish(
             topics::HOST,
             &HostSnapshot {
                 hostname: HOSTNAME.to_owned(),
                 kernel: KERNEL.to_owned(),
-                boot_time_s: now_s.saturating_sub(UPTIME_S),
+                boot_time_s: unix_now_s().saturating_sub(UPTIME_S),
             },
         );
         pending::<()>().await;
     })
+}
+
+const WEATHER_TEMP_C: f32 = 18.0;
+const WEATHER_CODE: u8 = 95;
+const WEATHER_HUMIDITY_PCT: u8 = 88;
+const WEATHER_WIND_KMH: f32 = 31.0;
+const WEATHER_HIGH_C: f32 = 22.0;
+const WEATHER_LOW_C: f32 = 14.0;
+const WEATHER_AQI: u32 = 42;
+/// The temperature and chance of rain for each of the next hours.
+const WEATHER_HOURS: [(f32, u8); 6] = [
+    (18.0, 80),
+    (17.0, 95),
+    (17.0, 70),
+    (16.0, 40),
+    (15.0, 20),
+    (15.0, 10),
+];
+const RAIN_PEAK_HOUR: usize = 1;
+const HOUR_S: u64 = 60 * 60;
+
+/// The mockup's weather, published once.
+fn weather() -> Feed {
+    Feed::new(topics::WEATHER, |context| async move {
+        context
+            .publisher
+            .publish(topics::WEATHER, &mockup_weather(unix_now_s()));
+        pending::<()>().await;
+    })
+}
+
+fn mockup_weather(now_s: u64) -> WeatherSnapshot {
+    let next_hour_s = (now_s / HOUR_S + 1) * HOUR_S;
+    let hours: Vec<WeatherHour> = WEATHER_HOURS
+        .iter()
+        .zip(0..)
+        .map(|(&(temp_c, rain_pct), index)| WeatherHour {
+            at_s: next_hour_s + index * HOUR_S,
+            temp_c,
+            rain_pct,
+        })
+        .collect();
+    let peak = &hours[RAIN_PEAK_HOUR];
+    WeatherSnapshot {
+        available: true,
+        stale: false,
+        updated_s: now_s,
+        temp_c: WEATHER_TEMP_C,
+        code: WEATHER_CODE,
+        condition: condition(WEATHER_CODE).to_owned(),
+        // The mockup's rain peaks at 22H, two hours ahead, so it is evening there.
+        is_day: false,
+        humidity_pct: WEATHER_HUMIDITY_PCT,
+        wind_kmh: WEATHER_WIND_KMH,
+        high_c: WEATHER_HIGH_C,
+        low_c: WEATHER_LOW_C,
+        rain_peak: Some(RainPeak {
+            pct: peak.rain_pct,
+            at_s: peak.at_s,
+        }),
+        hours,
+        aqi: Some(WEATHER_AQI),
+    }
 }
 
 #[cfg(test)]

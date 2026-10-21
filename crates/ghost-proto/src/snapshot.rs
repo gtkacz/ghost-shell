@@ -124,3 +124,46 @@ pub struct PerfSnapshot {
     pub shell_cpu: Option<f32>,
     pub shell_rss_kib: Option<u64>,
 }
+
+/// Open-Meteo's weather at `location`. Until a forecast for the configured place arrives, and
+/// always without one, `available` is false and every other field keeps its default.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WeatherSnapshot {
+    pub available: bool,
+    /// The forecast is older than two forecast cadences, because fetching keeps failing.
+    pub stale: bool,
+    /// When the forecast was fetched, in seconds since the Unix epoch.
+    pub updated_s: u64,
+    pub temp_c: f32,
+    /// The WMO weather code that `condition` names.
+    pub code: u8,
+    pub condition: String,
+    pub is_day: bool,
+    pub humidity_pct: u8,
+    pub wind_kmh: f32,
+    /// Today's, in the place's own time zone.
+    pub high_c: f32,
+    pub low_c: f32,
+    /// The hours from the next full hour on.
+    pub hours: Vec<WeatherHour>,
+    /// The likeliest rain in the next 12 hours; `None` when no rain is forecast.
+    pub rain_peak: Option<RainPeak>,
+    /// The US AQI; `None` until air quality has been fetched for the place.
+    pub aqi: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WeatherHour {
+    /// Seconds since the Unix epoch.
+    pub at_s: u64,
+    pub temp_c: f32,
+    /// The chance of rain, as a percentage.
+    pub rain_pct: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct RainPeak {
+    pub pct: u8,
+    /// Seconds since the Unix epoch.
+    pub at_s: u64,
+}
