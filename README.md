@@ -132,13 +132,26 @@ Release build, real collectors, 1 s tick, measured over 60 s with `scripts/measu
 - **Budget.** On a quiet machine the daemon alone uses about half of the 1 % "nothing animating" budget. On a busy one it can use all of it. If the acceptance run confirms this, the next cuts are:
   1. refresh the top-process list every 2 samples;
   2. read the GPU fan every 5 samples;
-  3. cache the per-CPU frequency reads.
+  3. ~~cache the per-CPU frequency reads~~ — measured below: ≤ 0.01 % to gain, not worth doing.
 - **Breakdown.** The collector figures above roughly account for the total: about 0.25 % for processes, about 0.1 % for sensors, about 0.08 % for the GPU, about 0.03 % for drives, plus CPU sampling, JSON encoding and the socket.
 - **`perf` granularity.** The daemon's own per-tick `perf` value moves in 1 % steps (clock-tick resolution), so the shell should average it.
 
+#### CPU frequency reads (`collect/cpu.rs`)
+
+The CPU collector reads `/proc/stat` plus one `scaling_cur_freq` per thread. Driver `amd-pstate-epp`, governor `performance`. These figures come from a Python probe, so they include interpreter overhead and are an upper bound for the Rust collector:
+
+| Pass | CPU per pass |
+|---|---|
+| 32 files, back-to-back (warm caches) | ≈ 53 µs |
+| 32 files, 100 ms apart | ≈ 162 µs |
+| 16 files (one thread per core), 100 ms apart | ≈ 85 µs |
+
+- At 1 Hz the frequency reads cost **≈ 0.01–0.016 % of a core**.
+- Reading them causes no measurable inter-processor interrupts: `amd-pstate-epp` serves a cached value instead of waking each core.
+- Caching them, or reading one thread per core, would save ≤ 0.01 %, so it is not worth doing.
+
 #### Not yet measured
 
-- CPU (`collect/cpu.rs`) on its own: `/proc/stat` plus 32 `scaling_cur_freq` reads per sample.
 - The shell with real panels, and the shell and daemon together. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
 
 ## License
