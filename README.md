@@ -554,7 +554,7 @@ The three styles stacked (hero, band, compact), against a fake daemon, 30 s each
 
 ### Plan 2a: alerts hold still after 10 s
 
-An alert blinks when it first appears, then holds still. Measured on the default V1 with the dead drive's alert, against a fake debug daemon, over 60 s starting 20 s after start. `godot-bin` was using ≈ 75 % of a core and `kwin_wayland` ≈ 6 % throughout:
+An alert blinks for its first 10 s on screen, then holds still. The 10 s count only while the alert is visible and the desktop isn't covered. Measured on the default V1 with the dead drive's alert, against a fake debug daemon, over 60 s starting 20 s after start. `godot-bin` was using ≈ 75 % of a core and `kwin_wayland` ≈ 6 % throughout:
 
 | Build | Frames in 60 s | Shell CPU | Daemon CPU |
 |---|---|---|---|
@@ -562,6 +562,15 @@ An alert blinks when it first appears, then holds still. Measured on the default
 | Holding still after 10 s | **60** (1/s) | **0.63 %** | 0.07 % |
 
 The remaining 1 frame/s is the data panels repainting with each sample. The held alert adds nothing.
+
+**The 10 s count only time on screen.** The fake daemon ran on a private bus while the default V1 showed the dead drive's alert:
+
+| Phase | Frames/s |
+|---|---|
+| Blinking, first 4.0 s | 15.00 |
+| Covered for 12 s | 0 |
+| Uncovered: blinking for the remaining 6.05 s | 14.8 |
+| Held | 2.00 |
 
 **Held stripes step once a second.** Once an alert has held for its first 10 s, its stripes keep moving in one small jump a second, at the same average speed as the scroll. The text stays still. Held state, 20 s with `QSG_RENDER_TIMING=1`, fake daemon on a private bus:
 

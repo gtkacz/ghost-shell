@@ -118,6 +118,21 @@ test('a new alert starts with its whole window while an old one stays held', () 
   assert.equal(attentionLeftMs(seen, 'new', later), ATTENTION_MS);
 });
 
+test('a key that changes while shown keeps the old key partly spent and starts the new one whole', () => {
+  const seen = new Map();
+  showAlert(seen, 'id:warn', T0);
+  const escalation = T0 + 4 * SECOND_MS;
+  hideAlert(seen, 'id:warn', escalation);
+  showAlert(seen, 'id:crit', escalation);
+  assert.equal(attentionLeftMs(seen, 'id:warn', escalation), 6 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'id:crit', escalation), ATTENTION_MS);
+  const back = escalation + 2 * SECOND_MS;
+  hideAlert(seen, 'id:crit', back);
+  showAlert(seen, 'id:warn', back);
+  assert.equal(attentionLeftMs(seen, 'id:warn', back), 6 * SECOND_MS);
+  assert.equal(attentionLeftMs(seen, 'id:crit', back), 8 * SECOND_MS);
+});
+
 test('a box destroyed while showing commits the time it showed', () => {
   const seen = new Map();
   showAlert(seen, 'a', T0);

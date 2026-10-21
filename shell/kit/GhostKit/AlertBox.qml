@@ -173,7 +173,8 @@ Item {
         id: attentionTimer
 
         // The clock counts in whole ticks and this timer in wall time, so the window is marked spent here rather
-        // than left to whatever the ticks added up to.
+        // than left to whatever the ticks added up to. Wall time is safe only because covering the desktop
+        // destroys every box: a box that outlived a cover would spend its window while the clock is frozen.
         onTriggered: {
             AlertAttention.spend(root.countedKey);
             root.attracting = false;
