@@ -107,27 +107,50 @@ async fn reload_when_quiet(
         // creation racing it.
         let missing_before_load = is_missing(&path);
         let loaded = load_path(&path);
-        if is_missing(&path) {
-            if !removal_reported {
-                // A dropped error receiver only means nobody wants reports; config updates still
-                // publish.
-                let _ = error_tx.send(ConfigError {
-                    message: REMOVED_MESSAGE.to_owned(),
-                });
-            }
-            removal_reported = true;
-            continue;
+        let pass = Pass {
+            missing_before_load,
+            loaded,
+            missing_after_load: is_missing(&path),
+        };
+        settle_pass(pass, &mut removal_reported, &config_tx, &error_tx);
+    }
+}
+
+/// What one debounce pass observed: the file's existence on either side of its read, and the read.
+struct Pass {
+    missing_before_load: bool,
+    loaded: Result<ResolvedConfig, ConfigError>,
+    missing_after_load: bool,
+}
+
+fn settle_pass(
+    pass: Pass,
+    removal_reported: &mut bool,
+    config_tx: &watch::Sender<ResolvedConfig>,
+    error_tx: &mpsc::UnboundedSender<ConfigError>,
+) {
+    if pass.missing_after_load {
+        if !*removal_reported {
+            // A dropped error receiver only means nobody wants reports; config updates still
+            // publish.
+            let _ = error_tx.send(ConfigError {
+                message: REMOVED_MESSAGE.to_owned(),
+            });
         }
-        if missing_before_load {
-            // The creation's own event starts another pass that reads the real contents.
-            continue;
-        }
-        removal_reported = false;
-        match loaded {
-            Ok(config) => publish_if_changed(&config_tx, config),
-            Err(error) => {
-                let _ = error_tx.send(error);
-            }
+        *removal_reported = true;
+        return;
+    }
+    // Cleared before the skip below, because the file existed at the end of this pass: a removal
+    // after it is a new one and must be reported even if the pass skipped its own creation.
+    *removal_reported = false;
+    if pass.missing_before_load {
+        // The creation's own event starts another pass that reads the real contents.
+        return;
+    }
+    match pass.loaded {
+        Ok(config) => publish_if_changed(config_tx, config),
+        Err(error) => {
+            let _ = error_tx.send(error);
         }
     }
 }
@@ -144,4 +167,41 @@ fn publish_if_changed(config_tx: &watch::Sender<ResolvedConfig>, config: Resolve
         }
         changed
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gone() -> Pass {
+        Pass {
+            missing_before_load: false,
+            loaded: Ok(ResolvedConfig::default()),
+            missing_after_load: true,
+        }
+    }
+
+    fn present(missing_before_load: bool) -> Pass {
+        Pass {
+            missing_before_load,
+            loaded: Ok(ResolvedConfig::default()),
+            missing_after_load: false,
+        }
+    }
+
+    #[test]
+    fn a_removal_after_a_creation_that_raced_the_read_is_reported_again() {
+        let (config_tx, _config_rx) = watch::channel(ResolvedConfig::default());
+        let (error_tx, mut errors) = mpsc::unbounded_channel();
+        let mut removal_reported = false;
+
+        settle_pass(gone(), &mut removal_reported, &config_tx, &error_tx);
+        settle_pass(present(true), &mut removal_reported, &config_tx, &error_tx);
+        settle_pass(gone(), &mut removal_reported, &config_tx, &error_tx);
+
+        let reported: Vec<String> = std::iter::from_fn(|| errors.try_recv().ok())
+            .map(|error| error.message)
+            .collect();
+        assert_eq!(reported, [REMOVED_MESSAGE, REMOVED_MESSAGE]);
+    }
 }
