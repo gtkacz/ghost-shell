@@ -21,7 +21,6 @@ Panel {
     readonly property real stackArtPx: 124
     readonly property real stripArtPx: 84
     readonly property real compactArtPx: 44
-    readonly property real artBorderPx: 1
     readonly property real artGapPx: 12
     readonly property real bodyGapPx: 8
     readonly property real infoGapPx: 2
@@ -53,28 +52,9 @@ Panel {
     readonly property real titleScrambleMs: 600
     readonly property real artistScrambleMs: 700
 
-    // The mockup's .art backdrop, rgba(5, 8, 9, .6), and its rings: a radial gradient whose stops are fractions of
-    // the distance from the centre to a corner, each ring in the signal colour at the given opacity.
-    readonly property color artBackdrop: "#99050809"
-    readonly property var artRings: [
-        {
-            inner: 0.14,
-            outer: 0.165,
-            alpha: 1
-        },
-        {
-            inner: 0.28,
-            outer: 0.30,
-            alpha: 0.55
-        },
-        {
-            inner: 0.40,
-            outer: 0.42,
-            alpha: 1
-        }
-    ]
-
     readonly property int spectrumBands: 32
+    // appearance.spectrum_fps at which the spectrum holds FrameClock's fast interval; any other rate holds the normal one.
+    readonly property int fastSpectrumFps: 30
     readonly property real bandMax: 255
     readonly property var darkLevels: new Array(spectrumBands).fill(0)
     readonly property real millisPerSecond: 1000
@@ -93,6 +73,7 @@ Panel {
     property string lastActiveId: ""
     readonly property int playerIndex: Media.pickPlayer(players.map(candidate => ({
                     id: candidate.dbusName,
+                    identity: candidate.identity,
                     playing: candidate.playbackState === MprisPlaybackState.Playing
                 })), lastActiveId)
     readonly property MprisPlayer player: playerIndex >= 0 ? players[playerIndex] : null
@@ -112,12 +93,16 @@ Panel {
     // Read from media.json once the widget is complete, then written with every new track and when the player goes.
     property var remembered: null
     property bool hadPlayer: false
+    // The player's state can change while the widget is still being created, before the file has a path or was read.
+    property bool loaded: false
 
     readonly property real nowMs: FrameClock.epochSecond * millisPerSecond
     readonly property var view: Media.mediaView(playerState, remembered, nowMs)
     readonly property bool playing: view.mode === "playing"
     readonly property bool stopped: view.mode === "stopped"
     readonly property string chipKey: playing ? "play" : stopped ? "stop" : "pause"
+    // A headerless line is narrow, so when its chip already gives the state the words leave it out.
+    readonly property string lineStatus: Theme.chip(chipKey) !== "" ? Media.shortStatus(view) : view.status
     readonly property var fraction: Media.progress(view.positionS, view.lengthS)
     readonly property bool hasProgress: fraction !== null
     // The title's key is the track's, so a new track scrambles once however many views show it; the artist line needs
@@ -132,6 +117,7 @@ Panel {
     readonly property bool canPlayPause: player !== null ? (playing ? player.canPause : player.canPlay) : launcher !== null
 
     readonly property bool hasSpectrum: style !== compactStyle
+    readonly property int spectrumFps: Theme.spectrumFps
     // The spec's "30 fps only while playing and visible".
     readonly property bool spectrumLive: hasSpectrum && visible && playing
     readonly property var spectrumTopic: Data.topic("audio.spectrum")
@@ -146,6 +132,8 @@ Panel {
 
     property bool holdsSeconds: false
     property bool holdsSpectrum: false
+    // The rate the spectrum holds the frame clock at, 0 while it holds none.
+    property int heldFps: 0
 
     function stateWord(state) {
         if (state === MprisPlaybackState.Playing) {
@@ -183,6 +171,9 @@ Panel {
 
     // A new track, or the same one whose art or player details arrived later.
     function rememberIfNew() {
+        if (!loaded) {
+            return;
+        }
         const track = Media.rememberTrack(playerState, Date.now());
         if (track !== null && trackIdentity(track) !== trackIdentity(remembered)) {
             remember(track);
@@ -225,81 +216,36 @@ Panel {
         }
         if (wanted) {
             Data.want("audio.spectrum");
-            FrameClock.acquireFast();
         } else {
             Data.release("audio.spectrum");
-            FrameClock.releaseFast();
         }
         holdsSpectrum = wanted;
+        holdClockAt(wanted ? spectrumFps : 0);
     }
 
-    // The album art in a hair border, or the mockup's rings while there is none.
-    component Art: Item {
-        id: art
-
-        required property real sidePx
-
-        readonly property real border: Theme.d(root.artBorderPx)
-        readonly property real inner: width - 2 * border
-        // The mockup's gradient is sized to the farthest corner, so its stops are fractions of half the diagonal.
-        readonly property real reach: inner / Math.SQRT2
-        readonly property bool showsCover: cover.status === Image.Ready
-
-        width: Theme.d(sidePx)
-        height: width
-
-        Rectangle {
-            anchors.fill: parent
-            color: root.artBackdrop
+    // A changed appearance.spectrum_fps moves the hold to the other interval and leaves the subscription alone.
+    function holdClockAt(fps) {
+        if (fps === heldFps) {
+            return;
         }
-
-        Repeater {
-            model: art.showsCover ? [] : root.artRings
-
-            Rectangle {
-                required property var modelData
-
-                anchors.centerIn: parent
-                width: 2 * modelData.outer * art.reach
-                height: width
-                radius: width / 2
-                color: "transparent"
-                border {
-                    width: (modelData.outer - modelData.inner) * art.reach
-                    color: Qt.rgba(Theme.signal.r, Theme.signal.g, Theme.signal.b, modelData.alpha)
-                }
-            }
+        if (heldFps === fastSpectrumFps) {
+            FrameClock.releaseFast();
+        } else if (heldFps > 0) {
+            FrameClock.release();
         }
-
-        // Shown as it is in the colour icon style; in mono the Duotone below draws it instead.
-        Image {
-            id: cover
-
-            x: art.border
-            y: art.border
-            width: art.inner
-            height: art.inner
-            source: root.view.artUrl
-            sourceSize: Qt.size(art.inner, art.inner)
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            visible: art.showsCover && !root.mono
+        if (fps === fastSpectrumFps) {
+            FrameClock.acquireFast();
+        } else if (fps > 0) {
+            FrameClock.acquire();
         }
+        heldFps = fps;
+    }
 
-        Duotone {
-            anchors.fill: cover
-            visible: art.showsCover && root.mono
-            source: cover
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            color: "transparent"
-            border {
-                width: art.border
-                color: Theme.hair
-            }
-        }
+    // The art of the track shown, dimmed with it when it is the remembered one.
+    component MediaArt: Art {
+        source: root.view.artUrl
+        mono: root.mono
+        dimmed: root.stopped
     }
 
     // The play state's chip and the status words.
@@ -469,10 +415,17 @@ Panel {
 
     onVisibleChanged: holdSeconds(visible)
     onSpectrumLiveChanged: holdSpectrum(spectrumLive)
+    onSpectrumFpsChanged: {
+        if (holdsSpectrum) {
+            holdClockAt(spectrumFps);
+        }
+    }
     onPlayingChanged: Qt.callLater(noteActive)
     onPlayerStateChanged: rememberIfNew()
-    // A player that quits is the moment its track was last played.
+    // The pick can move to another playing player without playing changing, so every new pick is noted as well. A
+    // player that quits is the moment its track was last played.
     onPlayerChanged: {
+        Qt.callLater(noteActive);
         if (player === null && hadPlayer && remembered !== null) {
             remember(Object.assign({}, remembered, {
                 atMs: Date.now()
@@ -482,6 +435,7 @@ Panel {
     }
     Component.onCompleted: {
         remembered = Media.parseRemembered(store.text());
+        loaded = true;
         hadPlayer = player !== null;
         noteActive();
         rememberIfNew();
@@ -534,7 +488,7 @@ Panel {
                 }
                 spacing: Theme.d(root.artGapPx)
 
-                Art {
+                MediaArt {
                     anchors.horizontalCenter: parent.horizontalCenter
                     sidePx: root.stackArtPx
                 }
@@ -611,7 +565,7 @@ Panel {
                     rightMargin: Theme.d(root.stripSidePx)
                 }
 
-                Art {
+                MediaArt {
                     id: stripArt
 
                     anchors.verticalCenter: parent.verticalCenter
@@ -632,7 +586,7 @@ Panel {
                     // Headerless, so the player's name joins the status, as in the mockup.
                     StatusLine {
                         width: parent.width
-                        text: root.view.identity !== "" ? root.view.status + " · " + root.view.identity.toUpperCase() : root.view.status
+                        text: root.view.identity !== "" ? root.lineStatus + " · " + root.view.identity.toUpperCase() : root.lineStatus
                     }
 
                     Title {
@@ -702,7 +656,7 @@ Panel {
                     width: parent.width
                     height: Math.max(compactArt.height, compactInfo.height)
 
-                    Art {
+                    MediaArt {
                         id: compactArt
 
                         anchors.verticalCenter: parent.verticalCenter
@@ -723,7 +677,7 @@ Panel {
 
                         StatusLine {
                             width: parent.width
-                            text: root.view.status
+                            text: root.lineStatus
                         }
 
                         Title {

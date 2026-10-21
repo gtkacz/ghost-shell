@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ago } from '../kit/GhostKit/lib/format.mjs';
-import { pickPlayer, mediaView, rememberTrack, parseRemembered, progress, mmss, agoText } from '../../widgets/media/media.mjs';
+import {
+  pickPlayer, mediaView, rememberTrack, parseRemembered, progress, mmss, agoText, allowedArtUrl, shortStatus,
+} from '../../widgets/media/media.mjs';
 
 const MINUTE_MS = 60000;
 
@@ -29,7 +31,7 @@ test('a playing player shows its own track, identity and times', () => {
   }, { title: 'Older', artist: 'Someone', atMs: 0 }, 5 * MINUTE_MS);
   assert.deepEqual(v, {
     mode: 'playing', title: 'Derezzed', artist: 'Daft Punk', artUrl: 'https://i.scdn.co/image/x', identity: 'Spotify',
-    positionS: 38, lengthS: 104, status: 'NOW PLAYING',
+    positionS: 38, lengthS: 104, status: 'NOW PLAYING', detail: '',
   });
 });
 
@@ -93,4 +95,50 @@ test('a media.json that is not a remembered track reads as nothing remembered', 
   assert.equal(parseRemembered('{"title":"","atMs":1}'), null);
   assert.equal(parseRemembered('{"title":"Derezzed","atMs":"soon"}'), null);
   assert.deepEqual(parseRemembered('{"title":"Derezzed","atMs":5,"artist":7}'), { title: 'Derezzed', artist: '', artUrl: '', identity: '', desktopEntry: '', atMs: 5 });
+});
+
+const MIRROR = { id: 'org.mpris.MediaPlayer2.kdeconnect.mpris_229b827e', identity: 'Spotify - Galaxy S25 Ultra', playing: true };
+const LOCAL = { id: 'org.mpris.MediaPlayer2.spotify', identity: 'Spotify', playing: true };
+
+test('a local player beats a KDE Connect mirror when both play, even a last active mirror', () => {
+  assert.equal(pickPlayer([MIRROR, LOCAL], ''), 1);
+  assert.equal(pickPlayer([MIRROR, LOCAL], MIRROR.id), 1);
+});
+
+test('a mirror is known by its identity too, in any case', () => {
+  const mirror = { id: 'org.mpris.MediaPlayer2.phone', identity: 'KDEConnect relay', playing: true };
+  assert.equal(pickPlayer([mirror, LOCAL], mirror.id), 1);
+});
+
+test('among local players that play, the last active one still wins', () => {
+  const other = { id: 'org.mpris.MediaPlayer2.firefox', identity: 'Firefox', playing: true };
+  assert.equal(pickPlayer([LOCAL, MIRROR, other], other.id), 2);
+});
+
+test('a mirror that plays alone is shown', () => {
+  assert.equal(pickPlayer([MIRROR, { ...LOCAL, playing: false }], LOCAL.id), 0);
+});
+
+test('only https and file art is loaded', () => {
+  for (const url of ['https://i.scdn.co/image/x', 'file:///home/u/.cache/a.jpg', 'HTTPS://I.SCDN.CO/x', 'File:///a.png']) {
+    assert.equal(allowedArtUrl(url), url, url);
+  }
+  for (const url of ['http://example.com/a.jpg', 'data:image/png;base64,AAAA', 'image://icon/x', 'qrc:/a.png', 'javascript:alert(1)', 'https', '/tmp/a.png', '', undefined]) {
+    assert.equal(allowedArtUrl(url), '', String(url));
+  }
+});
+
+test('other art reads as no art, from the player or the remembered track', () => {
+  assert.equal(mediaView({ playbackState: 'playing', trackTitle: 'T', trackArtUrl: 'http://x/a.jpg', position: 1, length: 2 }, null, 0).artUrl, '');
+  assert.equal(mediaView(null, { title: 'T', artUrl: 'data:image/png;base64,AA', atMs: 0 }, 0).artUrl, '');
+  assert.equal(rememberTrack({ playbackState: 'playing', trackTitle: 'T', trackArtUrl: 'http://x/a.jpg' }, 0).artUrl, '');
+});
+
+test('a line whose chip says the state shows only the age of the remembered track', () => {
+  const remembered = mediaView(null, { title: 'Derezzed', atMs: 0 }, 12 * MINUTE_MS);
+  assert.equal(remembered.detail, 'LAST PLAYED 12M AGO');
+  assert.equal(shortStatus(remembered), 'LAST PLAYED 12M AGO');
+  assert.equal(shortStatus(mediaView(null, { title: 'Derezzed', atMs: 0 }, 0)), 'LAST PLAYED NOW');
+  assert.equal(shortStatus(mediaView(null, null, 0)), 'STOPPED');
+  assert.equal(shortStatus(mediaView({ playbackState: 'paused', trackTitle: 'T', position: 1, length: 2 }, null, 0)), 'PAUSED');
 });

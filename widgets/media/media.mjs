@@ -23,27 +23,41 @@ const SECONDS_PER_DAY = SECONDS_PER_HOUR * HOURS_PER_DAY;
 const AGO_NOW = 'NOW';
 const SECONDS_DIGITS = 2;
 const MISSING_TIME = '-:--';
+// KDE Connect republishes a phone's player on the desktop's bus, under a bus name holding this word.
+const MIRROR_MARK = 'kdeconnect';
+// Players hand over art as local files or from the web, and the shell loads nothing else.
+const ART_SCHEME = /^(https|file):/i;
 
 function text(value) {
   return typeof value === 'string' ? value : '';
 }
 
-// The index of the player to show: a playing one, the last active one first, else the last active one, else the
-// first. `players` is [{ id, playing }].
+function isMirror(player) {
+  return [player.id, player.identity].some(name => text(name).toLowerCase().includes(MIRROR_MARK));
+}
+
+// The index of the player to show. Among the playing ones a local player beats a KDE Connect mirror, which plays
+// whatever the phone does, and then the last active one wins; with none playing, the last active one, else the first.
+// `players` is [{ id, identity, playing }].
 export function pickPlayer(players, lastActiveId) {
   const list = players || [];
   const last = list.findIndex(player => player.id === lastActiveId);
-  if (last !== NO_PLAYER && list[last].playing) {
-    return last;
-  }
-  const playing = list.findIndex(player => player.playing);
-  if (playing !== NO_PLAYER) {
-    return playing;
+  const playing = list.map((_, index) => index).filter(index => list[index].playing);
+  if (playing.length > 0) {
+    const local = playing.filter(index => !isMirror(list[index]));
+    const candidates = local.length > 0 ? local : playing;
+    return candidates.includes(last) ? last : candidates[0];
   }
   if (last !== NO_PLAYER) {
     return last;
   }
   return list.length > 0 ? 0 : NO_PLAYER;
+}
+
+// The art URL if it is one the shell loads, else no art, which shows the rings: any process can set a player's art.
+export function allowedArtUrl(url) {
+  const candidate = text(url);
+  return ART_SCHEME.test(candidate) ? candidate : '';
 }
 
 // Fmt.ago's wording. A widget's helper files can reach only their own folder, not the kit's libraries, so the rule
@@ -61,17 +75,16 @@ export function agoText(seconds) {
   return Math.floor(seconds / SECONDS_PER_DAY) + 'D';
 }
 
-function stoppedStatus(remembered, nowMs) {
+function lastPlayed(remembered, nowMs) {
   if (!remembered) {
-    return STATUS_STOPPED;
+    return '';
   }
   const age = agoText(Math.floor((nowMs - remembered.atMs) / MS_PER_SECOND));
-  const lastPlayed = age === AGO_NOW ? LAST_PLAYED + ' ' + AGO_NOW : LAST_PLAYED + ' ' + age + ' ' + AGO;
-  return STATUS_STOPPED + SEPARATOR + lastPlayed;
+  return age === AGO_NOW ? LAST_PLAYED + ' ' + AGO_NOW : LAST_PLAYED + ' ' + age + ' ' + AGO;
 }
 
 // What the widget shows. A playing or paused player shows its own track; a stopped one, or none, shows the
-// remembered track, which the widget dims, and no times.
+// remembered track, which the widget dims, and no times. `detail` is the status after its state word.
 export function mediaView(player, remembered, nowMs) {
   const mode = player ? player.playbackState : STOPPED;
   if (mode === PLAYING || mode === PAUSED) {
@@ -79,23 +92,31 @@ export function mediaView(player, remembered, nowMs) {
       mode,
       title: text(player.trackTitle),
       artist: text(player.trackArtist),
-      artUrl: text(player.trackArtUrl),
+      artUrl: allowedArtUrl(player.trackArtUrl),
       identity: text(player.identity),
       positionS: player.position,
       lengthS: player.length,
       status: mode === PLAYING ? STATUS_PLAYING : STATUS_PAUSED,
+      detail: '',
     };
   }
+  const detail = lastPlayed(remembered, nowMs);
   return {
     mode: STOPPED,
     title: remembered ? remembered.title : '',
     artist: remembered ? text(remembered.artist) : '',
-    artUrl: remembered ? text(remembered.artUrl) : '',
+    artUrl: remembered ? allowedArtUrl(remembered.artUrl) : '',
     identity: (player && text(player.identity)) || (remembered ? text(remembered.identity) : ''),
     positionS: null,
     lengthS: null,
-    status: stoppedStatus(remembered, nowMs),
+    status: detail !== '' ? STATUS_STOPPED + SEPARATOR + detail : STATUS_STOPPED,
+    detail,
   };
+}
+
+// The status for a line whose chip already gives the state, so a narrow line keeps the age: LAST PLAYED 12M AGO.
+export function shortStatus(view) {
+  return view.detail !== '' ? view.detail : view.status;
 }
 
 export function rememberTrack(player, nowMs) {
@@ -105,7 +126,7 @@ export function rememberTrack(player, nowMs) {
   return {
     title: player.trackTitle,
     artist: text(player.trackArtist),
-    artUrl: text(player.trackArtUrl),
+    artUrl: allowedArtUrl(player.trackArtUrl),
     identity: text(player.identity),
     desktopEntry: text(player.desktopEntry),
     atMs: nowMs,
