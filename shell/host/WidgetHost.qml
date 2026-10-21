@@ -78,8 +78,10 @@ Item {
         }
     }
 
+    // From the slot rather than widgetId: a slot set after completion is loaded from onSlotChanged,
+    // before the widgetId binding has caught up, so widgetId would still name the previous widget.
     function fail(reason) {
-        failure = "widget \"" + widgetId + "\" failed to load: " + reason;
+        failure = "widget \"" + slot.widget + "\" failed to load: " + reason;
         console.warn(failure);
     }
 
