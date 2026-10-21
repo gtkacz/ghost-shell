@@ -8,7 +8,10 @@ data_home=${XDG_DATA_HOME:-$HOME/.local/share}
 config_home=${XDG_CONFIG_HOME:-$HOME/.config}
 
 bin_dir=$HOME/.local/bin
-app_dir=$data_home/ghost-shell
+# Pinned to $HOME/.local/share rather than $XDG_DATA_HOME because the units hard-code
+# %h/.local/share and ghostd looks for its built-in widgets there; honouring the variable would
+# install the shell and widgets where neither is looking.
+app_dir=$HOME/.local/share/ghost-shell
 shell_dir=$app_dir/shell
 widgets_dir=$app_dir/widgets
 font_dir=$data_home/fonts/ghost-shell
@@ -21,7 +24,7 @@ units_src=$repo/packaging/systemd
 binary=${CARGO_TARGET_DIR:-$repo/target}/release/ghostd
 
 excluded_widget=broken-example
-required_tools=(cargo qsb-qt6 fc-list fc-cache)
+required_tools=(cargo fc-list fc-cache)
 
 font_url=https://github.com/google/fonts/raw/main/ofl/kodemono
 # curl treats [] as a glob and GitHub rejects the literal brackets, so each entry is "<local name> <percent-encoded remote name>".
