@@ -128,6 +128,9 @@ fi
 # defaults is used and removed afterwards.
 config=${GHOST_CONFIG:-}
 temp_config=
+# The shell's own state, such as the media widget's remembered track, lives in a directory made for
+# this run, so a smoke run never reads or writes the desktop shell's.
+state_dir=
 daemon_pid=
 shell_pid=
 
@@ -148,6 +151,9 @@ cleanup() {
     rm -f "$socket"
     if [[ -n $temp_config ]]; then
         rm -f "$temp_config"
+    fi
+    if [[ -n $state_dir ]]; then
+        rm -r -- "$state_dir"
     fi
 }
 
@@ -208,9 +214,11 @@ elif [[ ! -r $config ]]; then
     exit 1
 fi
 
+state_dir=$(mktemp -d -t ghost-smoke-state.XXXXXX)
+
 : > "$daemon_log"
 start_daemon
-GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
+GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
 shell_pid=$!
 
 sleep "$startup_s"
