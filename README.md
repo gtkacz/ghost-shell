@@ -7,27 +7,42 @@ A Tron: Legacy / Cyberpunk 2077 / Ghost in the Shell desktop shell for KDE Plasm
 Requires a recent stable Rust toolchain, Quickshell (`qs`, Qt 6) and `qsb-qt6` for the shaders.
 
 ```sh
-cargo build --release
+make release
 ```
 
-The daemon is `target/release/ghostd`. The shell's shaders are compiled with `make shaders`.
+This runs `cargo build --release` and `make shaders`. The daemon is `target/release/ghostd`; the shell's shaders are compiled next to their sources as `<name>.frag.qsb`.
 
 ## Test
 
 Requires Node for the shell's logic tests.
 
 ```sh
-cargo test --workspace
-node --test 'shell/tests/*.test.mjs'
+make test
 ```
+
+This runs `node --test 'shell/tests/*.test.mjs'` and `cargo test --workspace`.
+
+The QML smoke tests start a debug `ghostd --fake` on a private socket, load the shell against it, restart the daemon once and fail on any QML error in the shell's log:
+
+```sh
+make smoke          # the default configuration
+make smoke-layout   # scripts/layout-test.toml: a broken widget, a missing one and a tabs node
+```
+
+Two environment variables adjust a smoke run:
+
+- `GHOST_CONFIG=<path>` runs it against that config file instead of a temporary copy of the defaults (this is how `make smoke-layout` works).
+- `GHOST_SMOKE_ALLOW=<extended regex>` accepts extra shell-log lines, for example a widget the layout names before it exists. A pattern that does not compile, or that matches an empty line, fails the run instead of hiding every error.
+
+The smoke tests run their daemon without a session bus, so they never raise desktop notifications.
 
 ## Install
 
 ```sh
-scripts/install.sh
+make install
 ```
 
-The script is idempotent and installs for the current user only:
+This runs `make release` and then `scripts/install.sh`. The script is idempotent and installs for the current user only:
 
 - `ghostd` into `~/.local/bin/`;
 - `shell/` (with its compiled shaders) and `widgets/` (without `broken-example`) into `~/.local/share/ghost-shell/`;
@@ -43,7 +58,18 @@ systemctl --user start ghostd ghost-shell
 systemctl --user stop ghost-shell ghostd
 ```
 
-Neither unit is enabled at login.
+Neither unit is enabled at login. Their logs, including every config reload and config problem, are in the journal:
+
+```sh
+journalctl --user -u ghostd -u ghost-shell -f
+```
+
+To go back to the previous desktop, stop both services and start the old HUD again, either with your own `dash` script or directly:
+
+```sh
+systemctl --user stop ghost-shell ghostd
+qs -c gridlock &
+```
 
 ## Configuration
 
