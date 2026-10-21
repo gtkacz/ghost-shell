@@ -1,0 +1,104 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { computeRects } from '../kit/GhostKit/lib/layout.mjs';
+
+const slot = (widget, size = null, settings = {}) => ({ widget, source: 'builtin', size, settings, requires: [], animates: false, error: null });
+
+const DEFAULT_V1_FOR_TEST = {
+  direction: 'row',
+  size: null,
+  children: [
+    { direction: 'column', size: 300, children: [slot('processor', 250), slot('graphics', 204), slot('memory')] },
+    {
+      direction: 'column',
+      size: null,
+      children: [
+        slot('placeholder', 262, { label: 'Clock' }),
+        { direction: 'row', size: null, children: [slot('placeholder', 290, { label: 'Media' }), slot('placeholder', null, { label: 'Notifications' })] },
+      ],
+    },
+    { direction: 'column', size: 300, children: [slot('placeholder', 300, { label: 'Uplink' }), slot('storage'), slot('sensors', 184)] },
+  ],
+};
+
+const pick = (rects, widget) => {
+  const { x, y, w, h } = rects.find((rect) => rect.widget === widget);
+  return { x, y, w, h };
+};
+
+test('default v1 geometry', () => {
+  const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
+  assert.deepEqual(pick(r, 'processor'), { x: 12, y: 42, w: 300, h: 250 });
+  assert.equal(pick(r, 'storage').h, 666 - 300 - 184 - 24);
+});
+
+test('default v1 flex columns fill the space between the fixed ones', () => {
+  const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
+  const clock = r.find((rect) => rect.settings.label === 'Clock');
+  const notifications = r.find((rect) => rect.settings.label === 'Notifications');
+  assert.deepEqual({ x: clock.x, y: clock.y, w: clock.w, h: clock.h }, { x: 324, y: 42, w: 632, h: 262 });
+  assert.equal(notifications.x, 324 + 290 + 12);
+  assert.equal(notifications.w, 632 - 290 - 12);
+  assert.equal(pick(r, 'sensors').x, 12 + 1256 - 300);
+  assert.equal(r.overflow, undefined);
+});
+
+test('rects carry their path and the slot fields', () => {
+  const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
+  const media = r.find((rect) => rect.settings.label === 'Media');
+  assert.equal(r[0].path, '[0][0]');
+  assert.equal(media.path, '[1][1][0]');
+  assert.equal(media.widget, 'placeholder');
+  assert.equal(media.source, 'builtin');
+  assert.equal(media.error, null);
+});
+
+test('flex children share the remaining space equally', () => {
+  const r = computeRects({ direction: 'row', children: [slot('a', 100), slot('b'), slot('c')] }, { x: 0, y: 0, w: 412, h: 50 }, 12);
+  assert.equal(pick(r, 'b').w, 144);
+  assert.equal(pick(r, 'c').w, 144);
+  assert.equal(pick(r, 'c').x, 100 + 12 + 144 + 12);
+});
+
+test('a lone slot fills the rect', () => {
+  const r = computeRects(slot('a'), { x: 3, y: 4, w: 50, h: 60 }, 12);
+  assert.deepEqual(pick(r, 'a'), { x: 3, y: 4, w: 50, h: 60 });
+  assert.equal(r[0].path, '');
+});
+
+test('overflow shrinks instead of overlapping', () => {
+  const r = computeRects({ direction: 'column', children: [{ widget: 'a', size: 400 }, { widget: 'b', size: 400 }] }, { x: 0, y: 0, w: 100, h: 500 }, 12);
+  assert.ok(r.overflow);
+  assert.ok(r[1].y >= r[0].y + r[0].h);
+});
+
+test('overflowing fixed sizes scale proportionally and starve the flex children', () => {
+  const r = computeRects({ direction: 'row', children: [slot('a', 300), slot('b', 100), slot('flex')] }, { x: 0, y: 0, w: 212, h: 10 }, 6);
+  assert.equal(r.overflow, true);
+  assert.equal(pick(r, 'a').w, 150);
+  assert.equal(pick(r, 'b').w, 50);
+  assert.equal(pick(r, 'flex').w, 0);
+});
+
+test('no rect ever has a negative size', () => {
+  const tight = { direction: 'row', children: [slot('a', 50), slot('b'), slot('c', 50)] };
+  for (const rect of computeRects(tight, { x: 0, y: 0, w: 10, h: -5 }, 12)) {
+    assert.ok(rect.w >= 0);
+    assert.ok(rect.h >= 0);
+  }
+});
+
+test('tabs node is one rect', () => {
+  const r = computeRects({ tabs: [{ title: 'A', widget: 'a' }, { title: 'B', widget: 'b' }], default: 1 }, { x: 0, y: 0, w: 300, h: 200 }, 12);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].tabs.length, 2);
+  assert.equal(r[0].default, 1);
+});
+
+test('a tabs rect fills its slot and lists the flat tab entries', () => {
+  const tabs = { size: 200, default: 0, tabs: [{ title: 'A', widget: 'a', source: 'builtin', settings: { k: 1 }, error: null, extra: true }] };
+  const r = computeRects({ direction: 'row', children: [tabs, slot('b')] }, { x: 0, y: 0, w: 412, h: 80 }, 12);
+  assert.deepEqual({ x: r[0].x, y: r[0].y, w: r[0].w, h: r[0].h, path: r[0].path }, { x: 0, y: 0, w: 200, h: 80, path: '[0]' });
+  assert.deepEqual(r[0].tabs, [{ title: 'A', widget: 'a', source: 'builtin', settings: { k: 1 }, error: null }]);
+  assert.equal(r[1].widget, 'b');
+});
