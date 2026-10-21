@@ -1,7 +1,7 @@
 [Unit]
 Description=ghost-shell Quickshell UI
 Wants=ghostd.service
-After=ghostd.service
+After=ghostd.service graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
