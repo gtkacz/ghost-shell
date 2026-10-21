@@ -87,8 +87,8 @@ Singleton {
         running: users + fastUsers > 0 && !root.suspended
         onTriggered: {
             frame += 1;
-            elapsedMs += interval;
             epochMs = Date.now();
+            elapsedMs += interval;
             // The tick that crosses a second boundary carries the new second, so a held clock needs no
             // timer of its own.
             if (seconds.users > 0) {
