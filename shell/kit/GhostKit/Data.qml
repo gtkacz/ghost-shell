@@ -3,6 +3,8 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "lib/history.mjs" as HistoryLib
+import "lib/subscriptions.mjs" as Subscriptions
 
 Singleton {
     id: root
@@ -11,22 +13,41 @@ Singleton {
     readonly property bool stale: link.stale
     readonly property var config: link.config
     readonly property var layout: link.layout
-    readonly property var topics: link.topics
     readonly property var history: link.history
+
+    // While windows cover the dashboard it subscribes only to what the bar shows. Read-only here so
+    // that one widget cannot starve the whole desktop of data; the host writes it through hostControl.
+    readonly property bool covered: hostControl.covered
+    readonly property QtObject hostControl: QtObject {
+        property bool covered: false
+    }
 
     signal configError(string message)
 
+    // The one TopicValue for the topic, whose value is null until the topic's first message.
+    function topic(name) {
+        return link.topicValue(name);
+    }
+
+    // Subscribes to a topic that no layout slot requires, until the matching release(). Counted, so
+    // widgets that want the same topic each release their own claim.
+    function want(name) {
+        link.want(name);
+    }
+
+    function release(name) {
+        link.release(name);
+    }
+
+    onCoveredChanged: link.subscribe()
     Component.onCompleted: link.start()
 
-    // The protocol lives in here so widgets see only the properties and the signal above.
+    // The protocol lives in here so widgets see only the properties, functions and signal above.
     QtObject {
         id: link
 
         readonly property int protoVersion: 1
         readonly property string socketFile: "ghostd.sock"
-        readonly property string cpuTopic: "cpu"
-        readonly property string gpuTopic: "gpu"
-        readonly property string perfTopic: "perf"
         readonly property int minStaleAfterMs: 3000
         readonly property int staleAfterSteps: 3
         readonly property int firstRetryMs: 1000
@@ -34,14 +55,8 @@ Singleton {
         readonly property int defaultStepMs: 1000
         readonly property int defaultHistoryMinutes: 5
         readonly property int msPerMinute: 60000
-        // History series, named as the daemon records them.
-        readonly property string loadKey: "load"
-        readonly property var ccdKeys: ["ccd0", "ccd1"]
-        readonly property string gpuLoadKey: "gpu_load"
-        readonly property var historyKeys: ({
-                [cpuTopic]: [loadKey].concat(ccdKeys),
-                [gpuTopic]: [gpuLoadKey]
-            })
+        // The bar's topics, which stay subscribed while the dashboard is covered. There is no bar yet.
+        readonly property var barRequires: []
 
         readonly property string socketPath: Quickshell.env("GHOST_SOCKET") || runtimeSocket()
 
@@ -54,15 +69,20 @@ Singleton {
         // Data arrives once per step, so a fixed limit would flag every gap between ticks of a slower daemon.
         readonly property int staleAfterMs: Math.max(minStaleAfterMs, staleAfterSteps * stepMs)
         property int retryMs: firstRetryMs
-        property var replayPending: ({})
+        // The topic list last sent on this connection, as JSON, or null before the first.
+        property var subscribed: null
+        // Each wanted topic's count of want() calls without a matching release().
+        property var wantCounts: new Map()
 
-        // What widgets see. Each is replaced as a whole on publish so bindings fire.
-        property var topics: ({})
+        // Each topic's TopicValue. Filled in place rather than replaced: every binding that calls
+        // topic() reads this property, so replacing it would re-run all of them.
+        property var values: new Map()
+        // What widgets see of the history, replaced as a whole on publish so bindings fire.
         property var history: ({})
-        // The latest received state, published on the next frame clock tick while the clock runs.
-        property var stagedTopics: ({})
-        property var stagedHistory: ({})
-        property bool topicsStaged: false
+        // The latest received state, published on the next frame clock tick while the clock runs:
+        // each topic's newest message, and the history with its gap bookkeeping.
+        property var staged: new Map()
+        property var track: HistoryLib.fromHistory({})
         property bool historyStaged: false
 
         function start() {
@@ -104,6 +124,7 @@ Singleton {
                 return;
             }
             connected = true;
+            subscribed = null;
             console.info("ghostd connected");
             send({
                 t: "hello",
@@ -152,16 +173,13 @@ Singleton {
                 break;
             case "layout":
                 layout = message.data;
-                send({
-                    t: "subscribe",
-                    topics: requiredTopics(message.data)
-                });
+                subscribe();
                 break;
             case "history":
                 takeHistory(message);
                 break;
             case "data":
-                takeData(message.topic, message.data);
+                takeData(message);
                 break;
             case "config_error":
                 console.warn("ghostd config problem: " + message.message);
@@ -173,74 +191,91 @@ Singleton {
             }
         }
 
-        function requiredTopics(resolvedLayout) {
-            const wanted = new Set([perfTopic]);
-            const visit = node => {
-                if (Array.isArray(node.children)) {
-                    node.children.forEach(visit);
-                    return;
-                }
-                const slots = Array.isArray(node.tabs) ? node.tabs : [node];
-                slots.forEach(slot => slot.requires.forEach(topic => wanted.add(topic)));
-            };
-            Object.keys(resolvedLayout.views).forEach(name => visit(resolvedLayout.views[name]));
-            return Array.from(wanted);
+        function topicValue(name) {
+            if (!values.has(name)) {
+                values.set(name, topicFactory.createObject(root));
+            }
+            return values.get(name);
+        }
+
+        function warnUnlessValid(name) {
+            const valid = Subscriptions.isValidTopic(name);
+            if (!valid) {
+                console.warn("invalid topic name \"" + name + "\"");
+            }
+            return valid;
+        }
+
+        function want(name) {
+            if (!warnUnlessValid(name)) {
+                return;
+            }
+            const count = (wantCounts.get(name) || 0) + 1;
+            wantCounts.set(name, count);
+            if (count === 1) {
+                subscribe();
+            }
+        }
+
+        function release(name) {
+            if (!warnUnlessValid(name)) {
+                return;
+            }
+            const count = wantCounts.get(name) || 0;
+            if (count === 0) {
+                console.warn("Data.release(\"" + name + "\") called without a matching want()");
+                return;
+            }
+            if (count > 1) {
+                wantCounts.set(name, count - 1);
+                return;
+            }
+            wantCounts.delete(name);
+            subscribe();
+        }
+
+        // Every subscribe makes the daemon resend the history and each topic's last value, so an
+        // unchanged list is not sent again.
+        function subscribe() {
+            if (!connected) {
+                return;
+            }
+            const topics = Subscriptions.subscriptionFor({
+                requires: layout ? Subscriptions.requiresOf(layout) : [],
+                wanted: Array.from(wantCounts.keys()),
+                covered: root.covered,
+                barRequires: barRequires
+            });
+            const list = JSON.stringify(topics);
+            if (list === subscribed) {
+                return;
+            }
+            subscribed = list;
+            send({
+                t: "subscribe",
+                topics: topics
+            });
         }
 
         function takeHistory(message) {
             stepMs = message.step_ms;
-            stagedHistory = message.series;
+            track = HistoryLib.fromHistory(message.series);
             historyStaged = true;
-            // After a history the daemon replays each topic's last value, which the history already
-            // ends with; appending it again would shift every graph by one sample.
-            const pending = {};
-            for (const topic of Object.keys(historyKeys)) {
-                pending[topic] = historyKeys[topic].some(key => (message.series[key] || []).length > 0);
-            }
-            replayPending = pending;
             publishUnlessAnimating();
         }
 
-        function takeData(topic, data) {
-            const isReplay = replayPending[topic] === true;
-            replayPending[topic] = false;
-            const samples = isReplay ? null : historySamples(topic, data);
-            if (samples) {
-                appendHistory(samples);
+        function takeData(message) {
+            const recorded = HistoryLib.withData(track, message, historyLength());
+            if (recorded.series !== track.series) {
+                historyStaged = true;
             }
-            stagedTopics[topic] = data;
-            topicsStaged = true;
+            track = recorded;
+            staged.set(message.topic, {
+                value: message.data,
+                seq: message.seq,
+                receivedMs: Date.now()
+            });
             publishUnlessAnimating();
-        }
-
-        // A series only grows while its source exists, matching the daemon, which records gpu_load
-        // only while a GPU is present.
-        function historySamples(topic, data) {
-            if (topic === cpuTopic) {
-                const samples = {
-                    [loadKey]: data.load
-                };
-                const ccdCount = Math.min(data.ccds.length, ccdKeys.length);
-                for (let i = 0; i < ccdCount; i += 1) {
-                    samples[ccdKeys[i]] = data.ccds[i].load;
-                }
-                return samples;
-            }
-            if (topic === gpuTopic && data.present) {
-                return {
-                    [gpuLoadKey]: data.load
-                };
-            }
-            return null;
-        }
-
-        // Series are replaced, never changed in place, so published snapshots can share them.
-        function appendHistory(samples) {
-            const keep = historyLength();
-            for (const key of Object.keys(samples)) {
-                stagedHistory[key] = (stagedHistory[key] || []).concat([samples[key]]).slice(-keep);
-            }
-            historyStaged = true;
         }
 
         function historyLength() {
@@ -257,15 +292,25 @@ Singleton {
             }
         }
 
+        // Only the topics that received a message are written, each once with its newest message, so
+        // only their bindings re-run.
         function publish() {
-            if (topicsStaged) {
-                topicsStaged = false;
-                topics = Object.assign({}, stagedTopics);
+            if (staged.size > 0) {
+                const pending = staged;
+                staged = new Map();
+                pending.forEach((message, name) => deliver(topicValue(name).dataControl, message));
             }
             if (historyStaged) {
                 historyStaged = false;
-                history = Object.assign({}, stagedHistory);
+                history = track.series;
             }
+        }
+
+        // The value goes last, so a handler on it already sees the same message's seq and time.
+        function deliver(control, message) {
+            control.seq = message.seq;
+            control.receivedMs = message.receivedMs;
+            control.value = message.value;
         }
     }
 
@@ -294,6 +339,12 @@ Singleton {
         id: retryTimer
 
         onTriggered: link.open()
+    }
+
+    Component {
+        id: topicFactory
+
+        TopicValue {}
     }
 
     Component {

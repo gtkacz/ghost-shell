@@ -11,3 +11,4 @@ BlockGraph 1.0 BlockGraph.qml
 AlertBox 1.0 AlertBox.qml
 Digits 1.0 Digits.qml
 Kv 1.0 Kv.qml
+internal TopicValue TopicValue.qml

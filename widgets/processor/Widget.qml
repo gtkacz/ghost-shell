@@ -25,8 +25,8 @@ Panel {
 
     property var settings
 
-    readonly property var cpu: Data.topics.cpu || null
-    readonly property var sensors: Data.topics.sensors || null
+    readonly property var cpu: Data.topic("cpu").value
+    readonly property var sensors: Data.topic("sensors").value
     readonly property bool live: Data.connected && !Data.stale
     readonly property var ccds: cpu ? cpu.ccds : []
     // The daemon reports 0 MHz without cpufreq and an empty thread list when it has no CPU data;

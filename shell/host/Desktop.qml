@@ -168,11 +168,13 @@ Scope {
                 })
             }
 
+            // perf is in every subscription and arrives on every daemon tick, so its first value marks
+            // the first round of data.
             Connections {
-                target: Data
+                target: Data.topic("perf")
                 enabled: window.isMain && root.snapshotPath !== "" && !window.snapshotScheduled
 
-                function onTopicsChanged() {
+                function onValueChanged() {
                     window.snapshotScheduled = true;
                     snapshotTimer.start();
                 }

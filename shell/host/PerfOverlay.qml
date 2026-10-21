@@ -12,8 +12,9 @@ Text {
     readonly property real fontPx: 10
     readonly property string missing: "--"
 
+    readonly property QtObject perf: Data.topic("perf")
     property var samples: []
-    property var lastPerf: null
+    property int lastSeq: 0
 
     function mean(key) {
         const values = samples.map(sample => sample[key]).filter(Number.isFinite);
@@ -40,16 +41,15 @@ Text {
     font.pixelSize: Theme.d(fontPx)
 
     Connections {
-        target: Data
+        target: root.perf
 
-        // Every topic replaces Data.topics, so a new perf sample is told apart by identity.
-        function onTopicsChanged() {
-            const perf = Data.topics.perf;
-            if (!perf || perf === root.lastPerf) {
+        // Every new subscription replays the last sample, which the window already holds.
+        function onValueChanged() {
+            if (root.perf.seq === root.lastSeq) {
                 return;
             }
-            root.lastPerf = perf;
-            root.samples = root.samples.concat([perf]).slice(-root.windowSamples);
+            root.lastSeq = root.perf.seq;
+            root.samples = root.samples.concat([root.perf.value]).slice(-root.windowSamples);
         }
     }
 }

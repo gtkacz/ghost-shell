@@ -21,7 +21,7 @@ Panel {
 
     property var settings
 
-    readonly property var gpu: Data.topics.gpu || null
+    readonly property var gpu: Data.topic("gpu").value
     readonly property bool present: gpu !== null && gpu.present
     readonly property bool live: Data.connected && !Data.stale
 

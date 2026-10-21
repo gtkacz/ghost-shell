@@ -29,7 +29,7 @@ Panel {
 
     property var settings
 
-    readonly property var disks: Data.topics.disks || null
+    readonly property var disks: Data.topic("disks").value
     readonly property bool live: Data.connected && !Data.stale
     readonly property var drives: disks ? disks.drives.filter(drive => settings.show_unmounted || drive.state !== "unmounted") : []
     readonly property real lineHeight: Math.ceil(line.height)

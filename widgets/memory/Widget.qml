@@ -23,7 +23,7 @@ Panel {
 
     property var settings
 
-    readonly property var mem: Data.topics.mem || null
+    readonly property var mem: Data.topic("mem").value
     readonly property bool live: Data.connected && !Data.stale
 
     readonly property var usedKib: mem ? mem.used_kib : null

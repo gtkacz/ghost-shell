@@ -17,7 +17,7 @@ Panel {
 
     property var settings
 
-    readonly property var sensors: Data.topics.sensors || null
+    readonly property var sensors: Data.topic("sensors").value
     readonly property bool live: Data.connected && !Data.stale
     readonly property var temps: sensors ? sensors.temps : []
     readonly property var fans: sensors ? sensors.fans : []
