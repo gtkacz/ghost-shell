@@ -4,7 +4,7 @@ import "lib/attention.mjs" as Attention
 import "lib/theme.mjs" as ThemeLib
 
 // A boxed alert: a coloured left edge, scrolling stripes, and text that flickers in on arrival and then
-// blinks like the boot cursor. That lasts ATTENTION_MS from the first time the alert is shown, and then the text
+// blinks like the boot cursor. That lasts ATTENTION_MS of the time the alert is on screen, and then the text
 // holds still at full colour while the stripes step once a second. Every step lands on a FrameClock tick or
 // second, so it adds no frames of its own.
 Item {
@@ -48,7 +48,7 @@ Item {
 
     readonly property bool live: Data.connected && !Data.stale && sourceLive
     readonly property bool shown: visible && live
-    // True from the first time the alert is shown until its attention window ends. A stale alert stands still:
+    // True from the time the alert is shown until its attention window ends. A stale alert stands still:
     // the daemon is gone, so nothing it reported is current.
     property bool attracting: false
     readonly property bool animating: attracting
@@ -62,6 +62,9 @@ Item {
     property real appearedAt: 0
     property bool holdsClock: false
     property bool holdsSeconds: false
+    // The key this box is counted under while it shows, which is not alertKey once the key has changed under it;
+    // null while the box is not counted.
+    property var countedKey: null
 
     readonly property real contentOpacity: {
         if (!holdsClock) {
@@ -115,10 +118,30 @@ Item {
         + (hasTrailing ? gap + trailingText.implicitWidth : 0))
     implicitHeight: Theme.d(chipLinePx + 2 * chipBorderPx + 2 * verticalPaddingPx)
 
+    // Commits what this box showed to its alert's record, so a hidden or destroyed box does not leave the
+    // alert's window running while nobody sees it.
+    function stopCounting() {
+        if (countedKey === null) {
+            return;
+        }
+        AlertAttention.hide(countedKey);
+        countedKey = null;
+    }
+
     // Shown with live data, an alert blinks for what is left of its window, which another box showing the same
     // alert, or an earlier showing of this one, may already have used.
     function claimAttention() {
-        const leftMs = shown ? AlertAttention.attentionLeftMs(alertKey) : 0;
+        // Read before anything is counted: while the box is being created, the first read of either binding
+        // evaluates it, and its change runs another claimAttention() inside this one, which would be counted twice
+        // for a single stop.
+        const key = alertKey;
+        const showing = shown;
+        stopCounting();
+        if (showing) {
+            AlertAttention.show(key);
+            countedKey = key;
+        }
+        const leftMs = showing ? AlertAttention.attentionLeftMs(key) : 0;
         attracting = leftMs > 0;
         if (attracting) {
             attentionTimer.interval = Math.ceil(leftMs);
@@ -126,7 +149,7 @@ Item {
         } else {
             attentionTimer.stop();
         }
-        holdSeconds(shown && !attracting);
+        holdSeconds(showing && !attracting);
     }
 
     onShownChanged: claimAttention()
@@ -141,6 +164,7 @@ Item {
     onAttractingChanged: holdSeconds(shown && !attracting)
     Component.onCompleted: claimAttention()
     Component.onDestruction: {
+        stopCounting();
         holdClock(false);
         holdSeconds(false);
     }
@@ -148,7 +172,12 @@ Item {
     Timer {
         id: attentionTimer
 
-        onTriggered: root.attracting = false
+        // The clock counts in whole ticks and this timer in wall time, so the window is marked spent here rather
+        // than left to whatever the ticks added up to.
+        onTriggered: {
+            AlertAttention.spend(root.countedKey);
+            root.attracting = false;
+        }
     }
 
     ShaderEffect {

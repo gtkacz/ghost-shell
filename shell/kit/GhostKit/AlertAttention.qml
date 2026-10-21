@@ -4,17 +4,26 @@ import QtQuick
 import Quickshell
 import "lib/attention.mjs" as Attention
 
-// When each alert was first shown this session, so an alert draws the eye once: recreating the same one, for
-// example after a view switch, a widget reload or an uncover, does not blink again.
+// How much of its attention window each alert has spent this session, counted only while a box shows it, so an
+// alert draws the eye for its whole window even if a cover, a view switch or a widget reload took it off the screen
+// for a while. It reads FrameClock.elapsedMs, which stands still while the desktop is covered and is unmoved by
+// wall-clock steps, and which an attracting box keeps running for exactly as long as it counts.
 Singleton {
     readonly property var seen: new Map()
 
-    // The time the alert with this key was first shown, which is now for a key never shown before.
-    function firstShown(key) {
-        return Attention.firstShown(seen, key, Date.now());
+    function show(key) {
+        Attention.showAlert(seen, key, FrameClock.elapsedMs);
+    }
+
+    function hide(key) {
+        Attention.hideAlert(seen, key, FrameClock.elapsedMs);
     }
 
     function attentionLeftMs(key) {
-        return Attention.attentionLeftMs(firstShown(key), Date.now());
+        return Attention.attentionLeftMs(seen, key, FrameClock.elapsedMs);
+    }
+
+    function spend(key) {
+        Attention.spendAttention(seen, key, FrameClock.elapsedMs);
     }
 }
