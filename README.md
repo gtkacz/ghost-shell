@@ -403,6 +403,17 @@ The daemon now reads only the sources that some client is subscribed to. It also
 - While the dashboard is covered (Plan 2a's occlusion work), the daemon can drop to the first or second row.
 - The history graphs show the skipped time as a gap, not as joined-up lines.
 
+### Plan 2a: per-topic data in the shell
+
+`Data` now keeps one object per topic, so a message re-evaluates only the bindings on its own topic. Previously every message re-ran every topic binding. Default V1 against `ghostd run --fake`, six interleaved 60 s runs; the installed services and several other sessions were running:
+
+| Build | Runs | Mean CPU | RSS |
+|---|---|---|---|
+| Before (a73d3b9) | 1.62, 1.70, 1.70 % | 1.67 % | 219–222 MiB |
+| After | 1.75, 1.65, 1.63 % | 1.68 % | 219–222 MiB |
+
+No measurable change on V1. Its cost is mostly the 15 fps alert animation, and its data arrives at 1 Hz. The gain is meant for high-rate topics such as Plan 2a's 30 Hz audio spectrum.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
