@@ -5,8 +5,11 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use ghost_proto::{
-    Appearance, Dashboard, LayoutConfig, LayoutNode, ProviderSpec, ResolvedConfig, Thresholds,
+    Appearance, Dashboard, LayoutConfig, LayoutNode, ProviderSpec, ResolvedConfig, Shortcuts,
+    Thresholds,
 };
+
+use crate::keyseq;
 
 const PERCENT: RangeInclusive<u32> = 0..=100;
 const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
@@ -110,6 +113,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_thresholds(&config.thresholds)?;
     validate_layout(&config.layout)?;
     validate_dashboard(&config.dashboard, &config.layout)?;
+    validate_shortcuts(&config.shortcuts)?;
     validate_providers(&config.providers)
 }
 
@@ -314,6 +318,13 @@ fn check_view_defined(path: &str, view: &str, layout: &LayoutConfig) -> Result<(
         path,
         format!("view {view:?} is not defined in layout.views"),
     ))
+}
+
+fn validate_shortcuts(shortcuts: &Shortcuts) -> Result<(), ConfigError> {
+    for (name, sequence) in [("monitor", &shortcuts.monitor), ("swap", &shortcuts.swap)] {
+        keyseq::parse(sequence).map_err(|error| invalid(format!("shortcuts.{name}"), error))?;
+    }
+    Ok(())
 }
 
 fn validate_providers(providers: &[ProviderSpec]) -> Result<(), ConfigError> {

@@ -98,6 +98,25 @@ pub struct HostSnapshot {
     pub boot_time_s: u64,
 }
 
+/// What the KWin script last reported, and the last view action a shortcut asked for.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DesktopSnapshot {
+    /// The connector names (`DP-1`) of the outputs that windows cover completely.
+    pub covered_outputs: Vec<String>,
+    /// The desktop, not an app window, has focus, so shortcuts act on the dashboard.
+    pub active: bool,
+    pub action: Option<ViewAction>,
+    /// Counts accepted actions, so pressing the same shortcut twice is two changes.
+    pub action_seq: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewAction {
+    Monitor,
+    Swap,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PerfSnapshot {
     pub daemon_cpu: f32,

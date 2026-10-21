@@ -174,11 +174,13 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
 
     let config = ConfigFeed::open(&config_path);
     let providers = providers::supervise(&config.current().providers, &socket);
-    let (sampler, feeds) = if options.fake {
+    let (sampler, mut feeds) = if options.fake {
         (fake::sampler(), fake::feeds())
     } else {
         (host_sampler(config.subscribe()), host_feeds())
     };
+    // Real in fake mode too, so a smoke run can drive the views over its own private bus.
+    feeds.push(feeds::desktop::feed());
     let hub = Hub {
         config,
         sampler,

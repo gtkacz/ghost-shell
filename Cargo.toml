@@ -7,6 +7,7 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
+futures-core = "0.3.34"
 nix = { version = "0.31.3", default-features = false }
 notify = "8.2.0"
 nvml-wrapper = "0.13.0"

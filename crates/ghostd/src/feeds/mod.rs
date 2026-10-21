@@ -1,6 +1,8 @@
 //! Built-in topics published from async tasks, each started once by `serve`.
 
+pub mod desktop;
 pub mod host;
+pub mod shortcuts;
 
 use std::future::pending;
 

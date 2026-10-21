@@ -108,6 +108,21 @@ fn user_layout_replaces_default_view() {
 }
 
 #[test]
+fn bad_shortcut_names_the_key() {
+    assert_eq!(
+        load_str_with_user("[shortcuts]\nmonitor = \"Meta+\"\n", "u")
+            .unwrap_err()
+            .message,
+        "shortcuts.monitor: cannot parse \"Meta+\" as a key sequence"
+    );
+}
+
+#[test]
+fn default_shortcuts_parse() {
+    assert!(load_str_with_user("", "u").is_ok());
+}
+
+#[test]
 fn views_must_exist() {
     assert_eq!(
         load_str_with_user("[dashboard]\nmain_views = [\"v1\", \"v2\"]\n", "u")
