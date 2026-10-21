@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use ghost_proto::{MemSnapshot, ProcUsage};
@@ -19,12 +19,16 @@ const SWAP_TOTAL_KEY: &str = "SwapTotal";
 const SWAP_FREE_KEY: &str = "SwapFree";
 
 // 1-based positions in /proc/<pid>/stat, counting the pid as field 1.
+const FLAGS_FIELD: usize = 9;
 const UTIME_FIELD: usize = 14;
 const STIME_FIELD: usize = 15;
 const START_TIME_FIELD: usize = 22;
 const RSS_FIELD: usize = 24;
 // comm is field 2 and may itself contain spaces, so parsing resumes after its closing parenthesis.
 const FIRST_FIELD_AFTER_COMM: usize = 3;
+
+// Set in a task's flags when it is a kernel thread (include/linux/sched.h).
+const PF_KTHREAD: u64 = 0x0020_0000;
 
 const FULL_SHARE_PCT: f64 = 100.0;
 const BYTES_PER_KIB: u64 = 1024;
@@ -49,6 +53,7 @@ struct ProcRow {
 
 struct StatFields<'a> {
     name: &'a [u8],
+    flags: u64,
     cpu_ticks: u64,
     start_time: u64,
     rss_pages: u64,
@@ -68,8 +73,13 @@ pub struct MemCollector {
     page_size_bytes: u64,
     previous_all_cpu_ticks: Option<u64>,
     previous_proc_ticks: HashMap<ProcId, u64>,
+    // A kernel thread stays one for as long as its pid lives, so it is read once and then skipped.
+    // Keyed by pid alone, since the start time is unknowable without the read being avoided: an
+    // entry survives only while its pid is listed every tick, so a recycled pid is read afresh.
+    known_kernel_threads: HashSet<u32>,
     // Everything below is per-tick scratch, kept so a 1 Hz tick does not reallocate it.
     current_proc_ticks: HashMap<ProcId, u64>,
+    current_kernel_threads: HashSet<u32>,
     rows: Vec<ProcRow>,
     names: Vec<u8>,
     file: Vec<u8>,
@@ -90,7 +100,9 @@ impl MemCollector {
                 .unwrap_or_default(),
             previous_all_cpu_ticks: None,
             previous_proc_ticks: HashMap::new(),
+            known_kernel_threads: HashSet::new(),
             current_proc_ticks: HashMap::new(),
+            current_kernel_threads: HashSet::new(),
             rows: Vec::new(),
             names: Vec::new(),
             file: Vec::with_capacity(FILE_BUFFER_BYTES),
@@ -126,11 +138,12 @@ impl MemCollector {
     }
 
     /// Refills `rows` and `current_proc_ticks` from `/proc`, skipping kernel threads and any
-    /// process that exits while its file is being read.
+    /// process that exits while its file is being read. Also rolls `known_kernel_threads` forward.
     fn scan_processes(&mut self) {
         self.rows.clear();
         self.names.clear();
         self.current_proc_ticks.clear();
+        self.current_kernel_threads.clear();
         let Ok(entries) = self.root.entries(PROC_DIR) else {
             return;
         };
@@ -141,6 +154,10 @@ impl MemCollector {
             let Ok(pid) = dir_name.parse() else {
                 continue;
             };
+            if self.known_kernel_threads.contains(&pid) {
+                self.current_kernel_threads.insert(pid);
+                continue;
+            }
             self.path.clear();
             self.path
                 .extend([PROC_DIR, "/", dir_name, "/", PID_STAT_FILE]);
@@ -150,8 +167,13 @@ impl MemCollector {
             let Some(stat) = parse_stat(&self.file) else {
                 continue;
             };
-            // Kernel threads have no address space, so the kernel reports an RSS of 0.
-            if stat.rss_pages == 0 {
+            let is_kernel_thread = stat.flags & PF_KTHREAD != 0;
+            if is_kernel_thread {
+                self.current_kernel_threads.insert(pid);
+            }
+            // Kernel threads have no address space of their own, so the kernel reports an RSS of 0
+            // for most of them. The flag catches the few that borrow a user address space.
+            if is_kernel_thread || stat.rss_pages == 0 {
                 continue;
             }
             let id = ProcId {
@@ -169,6 +191,10 @@ impl MemCollector {
                 cpu: 0.0,
             });
         }
+        std::mem::swap(
+            &mut self.known_kernel_threads,
+            &mut self.current_kernel_threads,
+        );
     }
 
     /// Orders `rows` by cpu share and keeps the busiest `top_n`.
@@ -261,12 +287,14 @@ fn parse_stat(stat: &[u8]) -> Option<StatFields<'_>> {
     let name = stat.get(name_start..name_end)?;
     let after_comm = std::str::from_utf8(&stat[name_end + 1..]).ok()?;
 
+    let mut flags: Option<u64> = None;
     let mut utime: Option<u64> = None;
     let mut stime: Option<u64> = None;
     let mut start_time: Option<u64> = None;
     let mut rss_pages: Option<u64> = None;
     for (offset, token) in after_comm.split_ascii_whitespace().enumerate() {
         match FIRST_FIELD_AFTER_COMM + offset {
+            FLAGS_FIELD => flags = token.parse().ok(),
             UTIME_FIELD => utime = token.parse().ok(),
             STIME_FIELD => stime = token.parse().ok(),
             START_TIME_FIELD => start_time = token.parse().ok(),
@@ -279,6 +307,7 @@ fn parse_stat(stat: &[u8]) -> Option<StatFields<'_>> {
     }
     Some(StatFields {
         name,
+        flags: flags?,
         cpu_ticks: utime?.saturating_add(stime?),
         start_time: start_time?,
         rss_pages: rss_pages?,

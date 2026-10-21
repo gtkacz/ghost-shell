@@ -17,12 +17,15 @@ pub const CURRENT_FREQ_KHZ: u32 = 4_500_000;
 const CCD_WIDTH: usize = 8;
 const VCACHE_CPU_LIST: &str = "0-7,16-23";
 const PLAIN_CPU_LIST: &str = "8-15,24-31";
-// Fields 4 to 13 of /proc/<pid>/stat sit between the state and utime.
-const PROC_STAT_FIELDS_BEFORE_UTIME: usize = 10;
+// Fields 4 to 8 of /proc/<pid>/stat sit between the state and flags.
+const PROC_STAT_FIELDS_BEFORE_FLAGS: usize = 5;
+// Fields 10 to 13 sit between flags and utime.
+const PROC_STAT_FIELDS_BEFORE_UTIME: usize = 4;
 // Fields 16 to 21 sit between stime and starttime.
 const PROC_STAT_FIELDS_BEFORE_START_TIME: usize = 6;
 const DEFAULT_START_TIME: u64 = 1000;
 pub const DEFAULT_RSS_KIB: u64 = 4096;
+pub const PF_KTHREAD: u64 = 0x0020_0000;
 const BYTES_PER_KIB: u64 = 1024;
 
 pub struct FakeRoot {
@@ -78,14 +81,15 @@ impl FakeRoot {
             "rss_kib must be a whole number of {page_size_kib} KiB pages"
         );
         let rss_pages = process.rss_kib / page_size_kib;
+        let before_flags = ["0"; PROC_STAT_FIELDS_BEFORE_FLAGS].join(" ");
         let before_utime = ["0"; PROC_STAT_FIELDS_BEFORE_UTIME].join(" ");
         let before_start_time = ["0"; PROC_STAT_FIELDS_BEFORE_START_TIME].join(" ");
         let mut stat = format!("{} (", process.pid).into_bytes();
         stat.extend_from_slice(&process.comm);
         stat.extend_from_slice(
             format!(
-                ") S {before_utime} {} {} {before_start_time} {} 0 {rss_pages} 0\n",
-                process.utime, process.stime, process.start_time
+                ") S {before_flags} {} {before_utime} {} {} {before_start_time} {} 0 {rss_pages} 0\n",
+                process.flags, process.utime, process.stime, process.start_time
             )
             .as_bytes(),
         );
@@ -93,10 +97,11 @@ impl FakeRoot {
     }
 }
 
-/// A `/proc/<pid>/stat` entry; an `rss_kib` of 0 makes it look like a kernel thread.
+/// A `/proc/<pid>/stat` entry.
 pub struct FakeProcess {
     pid: u32,
     comm: Vec<u8>,
+    flags: u64,
     utime: u64,
     stime: u64,
     start_time: u64,
@@ -108,10 +113,20 @@ impl FakeProcess {
         Self {
             pid,
             comm: comm.as_ref().to_vec(),
+            flags: 0,
             utime: 0,
             stime: 0,
             start_time: DEFAULT_START_TIME,
             rss_kib: DEFAULT_RSS_KIB,
+        }
+    }
+
+    /// Flagged `PF_KTHREAD` with no address space, as the kernel reports its own threads.
+    pub fn kernel_thread(pid: u32, comm: impl AsRef<[u8]>) -> Self {
+        Self {
+            flags: PF_KTHREAD,
+            rss_kib: 0,
+            ..Self::new(pid, comm)
         }
     }
 

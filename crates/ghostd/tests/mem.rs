@@ -1,6 +1,6 @@
 mod common;
 
-use common::{FakeProcess, FakeRoot, Ticks, meminfo, proc_stat};
+use common::{DEFAULT_RSS_KIB, FakeProcess, FakeRoot, Ticks, meminfo, proc_stat};
 use ghost_proto::MemSnapshot;
 use ghostd::collect::{MemCollector, Source};
 
@@ -249,11 +249,52 @@ fn vanished_process_skipped() {
 #[test]
 fn kernel_threads_excluded() {
     let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(2, "kthreadd").rss_kib(0));
+    fake.write_process(&FakeProcess::kernel_thread(2, "kthreadd"));
+    fake.write_process(&FakeProcess::new(5, "zombie").rss_kib(0));
     fake.write_process(&FakeProcess::new(4, "bash"));
     let mut mem = MemCollector::new(&fake.root(), TOP_N);
 
     assert_eq!(pids(&mem.sample()), vec![4]);
+}
+
+#[test]
+fn kernel_thread_with_borrowed_address_space_excluded() {
+    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
+    fake.write_process(&FakeProcess::new(4, "bash"));
+    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+
+    fake.write_process(&FakeProcess::kernel_thread(3, "vhost-worker").rss_kib(DEFAULT_RSS_KIB));
+
+    assert_eq!(pids(&mem.sample()), vec![4]);
+}
+
+#[test]
+fn kernel_thread_is_read_once_then_skipped() {
+    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
+    fake.write_process(&FakeProcess::kernel_thread(2, "kthreadd"));
+    fake.write_process(&FakeProcess::new(4, "bash"));
+    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+
+    // Were pid 2 read again, this stat would list it as a user process.
+    fake.write_process(&FakeProcess::new(2, "impostor"));
+    assert_eq!(pids(&mem.sample()), vec![4]);
+    fake.write_bytes("proc/2/stat", b"not a stat line\n");
+    assert_eq!(pids(&mem.sample()), vec![4]);
+}
+
+#[test]
+fn pid_recycled_after_a_kernel_thread_is_read_again() {
+    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
+    fake.write_process(&FakeProcess::kernel_thread(2, "kworker").start_time(1_000));
+    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+
+    fake.remove("proc/2");
+    assert!(mem.sample().top.is_empty());
+    fake.write_process(&FakeProcess::new(2, "reborn").start_time(2_000));
+    let snapshot = mem.sample();
+
+    assert_eq!(pids(&snapshot), vec![2]);
+    assert_eq!(snapshot.top[0].name, "reborn");
 }
 
 #[test]
