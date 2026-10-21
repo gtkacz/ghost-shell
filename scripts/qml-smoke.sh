@@ -23,13 +23,18 @@ declare -A fixture_lines=(
 # Extra shell-log lines to accept, as an extended regex, e.g. for widgets a layout names before they
 # exist.
 extra_allowed=${GHOST_SMOKE_ALLOW:-}
-# grep exits 2 on a pattern it cannot compile. An invalid pattern would make the final filter drop
-# every line, so the smoke test would pass with all its errors hidden.
+# A pattern grep cannot compile (exit 2) makes the final filter drop every line, and so does one that
+# matches an empty line (exit 0), such as `.*` or `foo|`: either way the smoke test would pass with
+# all its errors hidden.
 if [[ -n $extra_allowed ]]; then
     allow_status=0
-    grep -qE -- "$extra_allowed" < /dev/null || allow_status=$?
+    grep -qE -- "$extra_allowed" <<< "" || allow_status=$?
     if (( allow_status == 2 )); then
         echo "smoke: FAIL (GHOST_SMOKE_ALLOW is not a valid extended regex: $extra_allowed)" >&2
+        exit 1
+    fi
+    if (( allow_status == 0 )); then
+        echo "smoke: FAIL (GHOST_SMOKE_ALLOW matches an empty line, so it would hide every error: $extra_allowed)" >&2
         exit 1
     fi
 fi
