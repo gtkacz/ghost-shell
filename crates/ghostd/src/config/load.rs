@@ -130,28 +130,27 @@ fn check_range(path: &str, value: u32, range: &RangeInclusive<u32>) -> Result<()
 }
 
 fn validate_thresholds(thresholds: &Thresholds) -> Result<(), ConfigError> {
-    let t = thresholds;
     check_below(
         "thresholds",
-        ("load_warn", t.load_warn),
-        ("load_crit", t.load_crit),
+        ("load_warn", thresholds.load_warn),
+        ("load_crit", thresholds.load_crit),
     )?;
     check_below(
         "thresholds",
-        ("temp_warn", t.temp_warn),
-        ("temp_crit", t.temp_crit),
+        ("temp_warn", thresholds.temp_warn),
+        ("temp_crit", thresholds.temp_crit),
     )?;
     check_below(
         "thresholds",
-        ("battery_crit", t.battery_crit),
-        ("battery_warn", t.battery_warn),
+        ("battery_crit", thresholds.battery_crit),
+        ("battery_warn", thresholds.battery_warn),
     )?;
     check_below(
         "thresholds",
-        ("aqi_warn", t.aqi_warn),
-        ("aqi_crit", t.aqi_crit),
+        ("aqi_warn", thresholds.aqi_warn),
+        ("aqi_crit", thresholds.aqi_crit),
     )?;
-    for (id, sensor) in &t.sensors {
+    for (id, sensor) in &thresholds.sensors {
         check_below(
             &format!("thresholds.sensors.{id}"),
             ("warn", sensor.warn),

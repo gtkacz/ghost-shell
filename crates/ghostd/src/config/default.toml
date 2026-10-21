@@ -38,9 +38,9 @@ opacity = 16
 # Opacity of the scanline overlay from 0 (off) to 100.
 opacity = 15
 
-# Load, temperature and air quality turn warn or crit once they rise to the limit; battery
-# turns warn or crit once it falls to it. Each warn/crit pair must be ordered, with crit below
-# warn for the battery.
+# Load and temperature turn warn or crit once they reach the limit, and air quality once it goes
+# above it; battery turns warn or crit once it falls to it. Each warn/crit pair must be ordered,
+# with crit below warn for the battery.
 [thresholds]
 load_warn = 75
 load_crit = 90
