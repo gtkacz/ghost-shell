@@ -592,7 +592,16 @@ The remaining 1 frame/s is the data panels repainting with each sample. The held
 | `alert_stripe_period_s = 3.2` | 2.00 |
 
 - The defaults vary from launch to launch between about 1 and 2 frames/s, with or without this change. When the daemon's 1 Hz data tick lands in the same vsync as the wall-second boundary, the two share a frame.
-- A step that isn't whole seconds keeps the 15 fps frame clock running while the alert is held. That is about 15 wakeups a second, though Qt still renders only on steps. CPU wasn't measured for this case.
+- A step that isn't whole seconds keeps the 15 fps frame clock running while the alert is held. That is about 15 wakeups a second, though Qt still renders only on steps.
+
+**Doubled stripe speed (the user's own config: period 0.8, step 0.5)** against the defaults. Installed shell at `596648d` in a headless KWin (2560×1440, scale 1), fake daemon on a private bus, default V1 with the dead drive's alert held. Counted over 42 s starting 25 s after start, two runs each, alternating. Load average 1.1–1.7:
+
+| Setting | Frames/s | Shell CPU |
+|---|---|---|
+| Defaults (1.6, 1.0) | 1.98, 2.02 | 0.72 %, 0.67 % |
+| Period 0.8, step 0.5 | 3.00, 2.67 | 0.85 %, 0.75 % |
+
+- Twice-as-fast held stripes cost about 0.1 % of a core and 1 frame/s more than the defaults. The daemon's cost doesn't depend on these settings.
 
 ### Plan 2a: media widget
 
