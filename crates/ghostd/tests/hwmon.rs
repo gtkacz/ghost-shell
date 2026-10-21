@@ -374,6 +374,78 @@ fn dimms_are_numbered_by_device_path_not_hwmon_index() {
     );
 }
 
+fn write_dimm_on_bus(fake: &FakeRoot, hwmon_index: u32, bus: u32, millidegrees: &str) {
+    write_chip(
+        fake,
+        hwmon_index,
+        "spd5118",
+        &[("temp1_input", millidegrees)],
+    );
+    fake.link_dir(
+        &format!("{}/device", chip_dir(hwmon_index)),
+        &format!("sys/devices/pci0000:00/0000:00:14.0/i2c-{bus}/{bus}-0050"),
+    );
+}
+
+fn temp_readings(fake: &FakeRoot) -> Vec<Reading> {
+    collector(fake).sample().temps
+}
+
+#[test]
+fn dimms_on_i2c_buses_are_numbered_numerically_not_lexically() {
+    let fake = FakeRoot::new();
+    write_dimm_on_bus(&fake, 7, 10, "30000");
+    write_dimm_on_bus(&fake, 8, 2, "32000");
+
+    assert_eq!(
+        temp_readings(&fake),
+        vec![
+            reading("spd5118/2", "DIMM 2", Some(30.0)),
+            reading("spd5118/1", "DIMM 1", Some(32.0)),
+        ]
+    );
+}
+
+#[test]
+fn chips_without_a_device_link_are_numbered_by_hwmon_index_numerically() {
+    let fake = FakeRoot::new();
+    write_chip(&fake, 10, "spd5118", &[("temp1_input", "30000")]);
+    write_chip(&fake, 2, "spd5118", &[("temp1_input", "32000")]);
+
+    assert_eq!(
+        temp_readings(&fake),
+        vec![
+            reading("spd5118/1", "DIMM 1", Some(32.0)),
+            reading("spd5118/2", "DIMM 2", Some(30.0)),
+        ]
+    );
+}
+
+#[test]
+fn pci_addresses_keep_their_hexadecimal_order() {
+    let fake = FakeRoot::new();
+    for (hwmon_index, pci_address, tctl) in [(3, "0a:00.0", "60000"), (4, "09:00.0", "50000")] {
+        write_chip(
+            &fake,
+            hwmon_index,
+            "k10temp",
+            &[("temp1_label", "Tctl"), ("temp1_input", tctl)],
+        );
+        fake.link_dir(
+            &format!("{}/device", chip_dir(hwmon_index)),
+            &format!("sys/devices/pci0000:00/0000:{pci_address}"),
+        );
+    }
+
+    let ids: Vec<String> = temp_readings(&fake)
+        .into_iter()
+        .map(|reading| reading.id)
+        .collect();
+
+    // Bus 0x09 comes before 0x0a, though read as decimal runs "0a" would sort ahead of "09".
+    assert_eq!(ids, ["k10temp#2/Tctl", "k10temp/Tctl"]);
+}
+
 #[test]
 fn listed_fan_stays_listed_and_new_spinning_fan_joins_on_rescan() {
     let fake = FakeRoot::new();

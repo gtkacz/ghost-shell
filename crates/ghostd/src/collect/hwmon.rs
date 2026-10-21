@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
 
 use ghost_proto::{Reading, SensorSnapshot};
 
@@ -238,7 +240,8 @@ impl<'a> Scan<'a> {
             .into_values()
             .flat_map(|mut group| {
                 // hwmonN follows probe order; the device path is fixed by where the hardware sits.
-                group.sort();
+                // The sort is stable, so paths that tie fall back to hwmon index order.
+                group.sort_by(|(a, _), (b, _)| cmp_path_counters(a, b));
                 group
                     .into_iter()
                     .enumerate()
@@ -352,6 +355,32 @@ fn identify(
             labels::known_label(&chip.name, sensor_name).map(str::to_owned),
         )),
     }
+}
+
+/// Orders paths component by component, comparing the decimal counter that ends a component
+/// (`i2c-10`, `hwmon10`) as a number, so bus 2 comes before bus 10.
+///
+/// Digits elsewhere stay lexical: a PCI address such as `0000:0a:00.0` is hexadecimal and
+/// fixed-width, which plain text order already ranks correctly but a numeric reading would not.
+fn cmp_path_counters(a: &Path, b: &Path) -> Ordering {
+    a.components()
+        .map(|component| component_key(component.as_os_str().as_bytes()))
+        .cmp(
+            b.components()
+                .map(|component| component_key(component.as_os_str().as_bytes())),
+        )
+}
+
+/// The component without its trailing digits, then those digits as a length-first key. Comparing
+/// length after dropping leading zeros orders numbers without parsing, so no counter can overflow.
+fn component_key(component: &[u8]) -> (&[u8], (usize, &[u8])) {
+    let digits_start = component
+        .iter()
+        .rposition(|byte| !byte.is_ascii_digit())
+        .map_or(0, |last_other| last_other + 1);
+    let (stem, digits) = component.split_at(digits_start);
+    let significant = &digits[digits.iter().take_while(|digit| **digit == b'0').count()..];
+    (stem, (significant.len(), significant))
 }
 
 fn parse_input(file: &str) -> Option<Input> {
