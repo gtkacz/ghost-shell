@@ -37,9 +37,7 @@ Item {
     readonly property real areaTop: layout ? snap(Theme.d(layout.margin + barBandPx)) : 0
     readonly property real areaBottom: layout ? snap(Theme.d(designHeight - layout.margin)) : 0
     readonly property real stripHeight: snap(Theme.d(tabStripPx))
-    // Logical pixels, whole ones as the input region takes them, covering every tab strip; the rest of
-    // the view passes clicks through to the desktop.
-    readonly property var inputRects: rects.filter(place => place.tabs).map(place => {
+    readonly property var stripRects: rects.filter(place => place.tabs).map(place => {
         const top = snap(Theme.d(place.y));
         const left = Math.floor(snap(Theme.d(place.x)));
         const right = Math.ceil(snap(Theme.d(place.x + place.w)));
@@ -50,12 +48,38 @@ Item {
             height: Math.ceil(top + stripHeight) - Math.floor(top)
         };
     })
+    // The widgets' ClickAreas, which hand themselves to the view they sit in.
+    property var clickAreas: []
+    // Logical pixels, whole ones as the input region takes them, covering every tab strip and every
+    // ClickArea that is visible and enabled; the rest of the view passes clicks through to the desktop.
+    // The view fills the window from its origin, so window rects are view rects.
+    readonly property var inputRects: stripRects.concat(clickAreas.filter(area => area && area.claimsInput).map(area => wholePixels(area.windowRect)))
 
     property var warnedLayout: null
 
     // Edges rather than sizes are snapped, so neighbours keep their gutter exactly.
     function snap(logical) {
         return Math.round(logical * pixelRatio) / pixelRatio;
+    }
+
+    // Outward, so the region covers every pixel the area does.
+    function wholePixels(rect) {
+        const left = Math.floor(rect.x);
+        const top = Math.floor(rect.y);
+        return {
+            x: left,
+            y: top,
+            width: Math.ceil(rect.x + rect.width) - left,
+            height: Math.ceil(rect.y + rect.height) - top
+        };
+    }
+
+    function claimInput(area) {
+        clickAreas = clickAreas.concat([area]);
+    }
+
+    function releaseInput(area) {
+        clickAreas = clickAreas.filter(claimed => claimed !== area);
     }
 
     // Once per layout, not on every recomputation of it.
