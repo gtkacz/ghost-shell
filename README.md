@@ -604,7 +604,8 @@ V1 with the media widget and the user's music playing. Release daemon, read-only
 | `spectrum_fps = 30` | 2.43 % | 1.80 % | 0.63 % |
 | Media placeholder instead | 0.90 % | 0.42 % | 0.48 % |
 
-- **Frame rates:** 15 frames/s at the default, 30 at `spectrum_fps = 30`, and 0 while paused. Paused, the widget releases the spectrum and its clock hold.
+- **Frame rates:** 15 frames/s at the default, 30 at `spectrum_fps = 30`, and 0 while paused. On a pause the widget releases the spectrum at once.
+- **The bars fall when playback pauses.** From full height they take 21 frames to go dark, about 1.4 s at 15 fps and 0.7 s at 30, and then the widget releases its clock hold: 0 clock frames and 0 rendered frames afterwards. Measured in a headless KWin with a fake player.
 - **The spectrum is drawn by one shader** (`SegBars`), not ≈ 300 rectangles.
 - **The daemon still analyses audio at 30 Hz** when the shell draws at 15. Feeding at 15 Hz would win back about 0.16 %.
 
