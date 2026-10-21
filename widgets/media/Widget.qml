@@ -7,7 +7,7 @@ import "media.mjs" as Media
 
 // The player: its art, track, a spectrum of what the default output plays, the progress and the controls, in three
 // styles: a stack with the art on top (V1), a headerless strip (V2) and a compact row for the MONITOR band. Paused,
-// the spectrum goes dark; stopped or gone, the last track played is shown dimmed. That track is remembered across
+// the spectrum falls to dark; stopped or gone, the last track played is shown dimmed. That track is remembered across
 // restarts in $XDG_STATE_HOME/ghost-shell/media.json.
 Panel {
     id: root
@@ -118,10 +118,15 @@ Panel {
 
     readonly property bool hasSpectrum: style !== compactStyle
     readonly property int spectrumFps: Theme.spectrumFps
+    readonly property bool spectrumShown: hasSpectrum && visible
     // The spec's "only while playing and visible"; the rate is appearance.spectrum_fps.
-    readonly property bool spectrumLive: hasSpectrum && visible && playing
+    readonly property bool spectrumLive: spectrumShown && playing
     readonly property var spectrumTopic: Data.topic("audio.spectrum")
-    readonly property var levels: spectrumLive && spectrumTopic.live && spectrumTopic.value ? spectrumTopic.value.bands.map(band => band / bandMax) : darkLevels
+    // The bands the bars fall through after the music stops, 0..255, or none when they are not falling. The topic is
+    // released at once, and the daemon stops capturing, so the fall runs on the shell's copy of the last bands.
+    property var fallBands: []
+    readonly property bool falling: fallBands.length > 0
+    readonly property var levels: spectrumLive && spectrumTopic.live && spectrumTopic.value ? spectrumTopic.value.bands.map(band => band / bandMax) : falling ? fallBands.map(band => band / bandMax) : darkLevels
 
     readonly property string statePath: {
         const stateHome = Quickshell.env("XDG_STATE_HOME") || "";
@@ -220,7 +225,42 @@ Panel {
             Data.release("audio.spectrum");
         }
         holdsSpectrum = wanted;
-        holdClockAt(wanted ? spectrumFps : 0);
+        holdSpectrumClock();
+    }
+
+    // Called a turn after spectrumLive changes, never from its handler: that handler runs while `view` is still being
+    // worked out (spectrumLive follows playing, which follows view), and dropping the last clock hold there lets
+    // FrameClock re-read the second, which nowMs and so `view` depend on. Qt then reports a binding loop for `view`.
+    function holdLiveSpectrum() {
+        holdSpectrum(spectrumLive);
+    }
+
+    // The clock runs for the live spectrum and for its fall. A fall that starts or ends beside a live spectrum asks
+    // for the rate already held, so the one hold carries over and the clock never stops between the two.
+    function holdSpectrumClock() {
+        holdClockAt(holdsSpectrum || falling ? spectrumFps : 0);
+    }
+
+    // The bars fall from the bands they showed when playback stopped, unless they showed none lit.
+    function startFall() {
+        const shown = spectrumTopic.live && spectrumTopic.value ? spectrumTopic.value.bands : [];
+        if (!Media.isDark(shown)) {
+            fallBands = Array.from(shown);
+        }
+    }
+
+    function stepFall() {
+        const next = Media.fallStep(fallBands);
+        if (Media.isDark(next)) {
+            endFall();
+        } else {
+            fallBands = next;
+        }
+    }
+
+    function endFall() {
+        fallBands = [];
+        holdSpectrumClock();
     }
 
     // A changed appearance.spectrum_fps moves the hold to the other interval and leaves the subscription alone.
@@ -417,12 +457,22 @@ Panel {
     padding: header ? Theme.d(paddingPx) : 0
 
     onVisibleChanged: holdSeconds(visible)
-    onSpectrumLiveChanged: holdSpectrum(spectrumLive)
-    onSpectrumFpsChanged: {
-        if (holdsSpectrum) {
-            holdClockAt(spectrumFps);
+    onSpectrumLiveChanged: {
+        if (spectrumLive) {
+            fallBands = [];
+        } else if (spectrumShown) {
+            startFall();
+        }
+        Qt.callLater(holdLiveSpectrum);
+    }
+    // A fall ends when the bars are hidden. A live spectrum that is hidden stops through its own spectrumLive change, but a
+    // paused one has no change of its own to end the fall on.
+    onSpectrumShownChanged: {
+        if (!spectrumShown) {
+            endFall();
         }
     }
+    onSpectrumFpsChanged: holdSpectrumClock()
     onPlayingChanged: Qt.callLater(noteActive)
     onPlayerStateChanged: rememberIfNew()
     // The pick can move to another playing player without playing changing, so every new pick is noted as well. A
@@ -447,6 +497,7 @@ Panel {
     }
     Component.onDestruction: {
         holdSeconds(false);
+        endFall();
         holdSpectrum(false);
     }
 
@@ -465,6 +516,15 @@ Panel {
             }
         }
         onSaveFailed: error => console.warn("media: cannot write " + path + ": " + FileViewError.toString(error))
+    }
+
+    Connections {
+        target: FrameClock
+        enabled: root.falling
+
+        function onFrameChanged() {
+            root.stepFall();
+        }
     }
 
     // MprisPlayer works the position out only when asked, by this signal.

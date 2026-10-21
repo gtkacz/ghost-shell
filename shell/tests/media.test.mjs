@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ago } from '../kit/GhostKit/lib/format.mjs';
 import {
-  pickPlayer, mediaView, rememberTrack, parseRemembered, progress, mmss, agoText, allowedArtUrl, shortStatus,
+  pickPlayer, mediaView, rememberTrack, parseRemembered, progress, mmss, agoText, allowedArtUrl, shortStatus, fallStep, isDark,
 } from '../../widgets/media/media.mjs';
 
 const MINUTE_MS = 60000;
@@ -141,4 +141,47 @@ test('a line whose chip says the state shows only the age of the remembered trac
   assert.equal(shortStatus(mediaView(null, { title: 'Derezzed', atMs: 0 }, 0)), 'LAST PLAYED NOW');
   assert.equal(shortStatus(mediaView(null, null, 0)), 'STOPPED');
   assert.equal(shortStatus(mediaView({ playbackState: 'paused', trackTitle: 'T', position: 1, length: 2 }, null, 0)), 'PAUSED');
+});
+
+const BANDS = 32;
+const BAND_MAX = 255;
+// About what the daemon's analyzer takes to fall from full scale to dark at its own rate.
+const MAX_FALL_STEPS = 25;
+
+test('a fall step drops each band to the floor of 0.8 of its value', () => {
+  assert.deepEqual(fallStep([255, 100, 6, 5, 1, 0]), [204, 80, 4, 4, 0, 0]);
+});
+
+test('a fall step matches the analyzer for every byte', () => {
+  const every = Array.from({ length: BAND_MAX + 1 }, (_, band) => band);
+  assert.deepEqual(fallStep(every), every.map(band => Math.floor((band * 4) / 5)));
+});
+
+test('a fall step leaves its input alone', () => {
+  const bands = [255, 10];
+  fallStep(bands);
+  assert.deepEqual(bands, [255, 10]);
+});
+
+test('a band that is not a positive number falls to dark, and a huge one is capped', () => {
+  assert.deepEqual(fallStep([NaN, -3, undefined, Infinity, 1e300]), [0, 0, 0, 204, 204]);
+});
+
+test('all bands at zero is dark and done', () => {
+  const dark = new Array(BANDS).fill(0);
+  assert.equal(isDark(dark), true);
+  assert.equal(isDark([0, 0, 1]), false);
+  assert.equal(isDark([]), true);
+  assert.deepEqual(fallStep(dark), dark);
+});
+
+test('full scale reaches dark in a bounded number of steps', () => {
+  let bands = new Array(BANDS).fill(BAND_MAX);
+  let steps = 0;
+  while (!isDark(bands)) {
+    bands = fallStep(bands);
+    steps += 1;
+    assert.ok(steps <= MAX_FALL_STEPS, 'still falling after ' + steps + ' steps');
+  }
+  assert.ok(steps > 1);
 });

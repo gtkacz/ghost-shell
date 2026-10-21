@@ -162,6 +162,25 @@ export function progress(positionS, lengthS) {
   return Math.min(1, Math.max(0, positionS / lengthS));
 }
 
+// A band keeps this share of its value from one frame to the next: the fall of the daemon's analyzer (analyzer.rs,
+// FALL), so the bars move the same while they play and after they pause.
+const FALL = 0.8;
+// The analyzer's bands are bytes, so a larger value is a malformed frame; capping it keeps the fall short.
+const BAND_MAX = 255;
+
+function fallen(band) {
+  return band > 0 ? Math.floor(Math.min(band, BAND_MAX) * FALL) : 0;
+}
+
+// The bands one frame after `bands`, once nothing feeds them any more. A band that is not a positive number is dark.
+export function fallStep(bands) {
+  return bands.map(fallen);
+}
+
+export function isDark(bands) {
+  return !bands.some(band => band > 0);
+}
+
 export function mmss(seconds) {
   if (!Number.isFinite(seconds)) {
     return MISSING_TIME;
