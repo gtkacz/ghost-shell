@@ -6,10 +6,8 @@ use std::future::pending;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use ghost_proto::{DesktopSnapshot, ViewAction, topics};
-use tokio::sync::watch;
 use tracing::warn;
-use zbus::message::Header;
-use zbus::names::{BusName, OwnedUniqueName};
+use zbus::fdo::{NameOwnerChangedStream, RequestNameFlags};
 use zbus::proxy::CacheProperties;
 use zbus::{Connection, connection, fdo, interface};
 
@@ -18,6 +16,7 @@ use super::shortcuts::{self, Registration};
 use crate::server::{Feed, Publisher};
 
 const BUS_NAME: &str = "org.ghostshell.Ghostd";
+const KWIN: &str = "org.kde.KWin";
 const OBJECT_PATH: &str = "/org/ghostshell/Desktop";
 const OUTPUT_SEPARATOR: char = ',';
 /// The names `Activate` takes, which are also the ids the shortcuts are registered under, so a
@@ -69,8 +68,6 @@ impl DesktopState {
 #[derive(Clone)]
 pub struct DesktopService {
     state: Arc<Mutex<DesktopState>>,
-    /// The bus connection that sent the last report; changed only while `state` is locked.
-    reporter: Arc<watch::Sender<Option<OwnedUniqueName>>>,
     publisher: Publisher,
 }
 
@@ -78,7 +75,6 @@ impl DesktopService {
     pub fn new(publisher: Publisher) -> Self {
         Self {
             state: Arc::default(),
-            reporter: Arc::new(watch::Sender::new(None)),
             publisher,
         }
     }
@@ -91,19 +87,10 @@ impl DesktopService {
         }
     }
 
-    /// Goes back to no covered outputs and no focus if `reporter` sent the last report. The
-    /// action count stays, since clients compare against it.
-    fn forget(&self, reporter: &OwnedUniqueName) {
-        self.update(|state| {
-            let was_last = self.reporter.send_if_modified(|last| {
-                let is_reporter = last.as_ref() == Some(reporter);
-                if is_reporter {
-                    *last = None;
-                }
-                is_reporter
-            });
-            was_last && state.report(Vec::new(), false)
-        });
+    /// Goes back to no covered outputs and no focus. The action count stays, since clients compare
+    /// against it.
+    fn reset(&self) {
+        self.update(|state| state.report(Vec::new(), false));
     }
 }
 
@@ -113,24 +100,12 @@ impl DesktopService {
 impl DesktopService {
     /// `covered_outputs` holds output names joined by `,`, and `""` means none.
     // A string rather than `as`, because KWin's `callDBus` sends a script's array as `av`.
-    fn report(&self, #[zbus(header)] header: Header<'_>, covered_outputs: &str, active: bool) {
+    fn report(&self, covered_outputs: &str, active: bool) {
         let covered_outputs = covered_outputs
             .split(OUTPUT_SEPARATOR)
             .map(str::to_owned)
             .collect();
-        self.update(|state| {
-            // A peer-to-peer caller has no name, so it cannot be watched.
-            if let Some(sender) = header.sender() {
-                self.reporter.send_if_modified(|last| {
-                    let is_new = last.as_deref() != Some(sender);
-                    if is_new {
-                        *last = Some(sender.to_owned().into());
-                    }
-                    is_new
-                });
-            }
-            state.report(covered_outputs, active)
-        });
+        self.update(|state| state.report(covered_outputs, active));
     }
 
     /// Asks for the `monitor` or `swap` view, which happens only while the desktop has focus.
@@ -166,9 +141,9 @@ pub fn feed_on(bus: connection::Builder<'static>, registration: Registration) ->
             .publish(topics::DESKTOP, &DesktopSnapshot::default());
         let desktop = DesktopService::new(context.publisher);
         // Kept until the daemon stops, since the service is served only while its connection lives.
-        let connection = serve(bus, desktop.clone()).await;
-        match &connection {
-            Ok(connection) => {
+        let mut served = serve(bus, desktop.clone()).await;
+        match &mut served {
+            Ok((connection, kwin_owners)) => {
                 tokio::join!(
                     shortcuts::run(
                         connection.clone(),
@@ -176,7 +151,7 @@ pub fn feed_on(bus: connection::Builder<'static>, registration: Registration) ->
                         desktop.clone(),
                         registration
                     ),
-                    forget_departed_reporters(connection, &desktop),
+                    reset_when_kwin_leaves(kwin_owners, &desktop),
                 );
             }
             Err(error) => warn!(
@@ -188,73 +163,37 @@ pub fn feed_on(bus: connection::Builder<'static>, registration: Registration) ->
     })
 }
 
+/// Serves `desktop` and takes the bus name, returning KWin's owner changes too.
 async fn serve(
     bus: connection::Builder<'static>,
     desktop: DesktopService,
-) -> zbus::Result<Connection> {
-    bus
-        // A second ghostd must leave the desktop to the one that already serves it.
-        .allow_name_replacements(false)
-        .replace_existing_names(false)
-        .name(BUS_NAME)
-        .serve_at(OBJECT_PATH, desktop)
-        .build()
-        .await
-}
-
-/// Resets the desktop when the connection that sent the last report leaves the bus, as when KWin
-/// exits, so that a report nobody will update cannot keep the shortcuts on.
-async fn forget_departed_reporters(conn: &Connection, desktop: &DesktopService) {
-    if let Err(error) = watch_reporters(conn, desktop).await {
-        warn!(%error, "cannot watch the desktop's reporter; its last report stands until the next");
-    }
-}
-
-async fn watch_reporters(conn: &Connection, desktop: &DesktopService) -> zbus::Result<()> {
-    let bus = fdo::DBusProxy::builder(conn)
+) -> zbus::Result<(Connection, NameOwnerChangedStream)> {
+    let connection = bus.serve_at(OBJECT_PATH, desktop).build().await?;
+    // Watched before the name is taken, since no report can arrive before that, so no KWin exit
+    // after a report can be missed.
+    let kwin_owners = fdo::DBusProxy::builder(&connection)
         .cache_properties(CacheProperties::No)
         .build()
+        .await?
+        .receive_name_owner_changed_with_args(&[(0, KWIN)])
         .await?;
-    let mut reporters = desktop.reporter.subscribe();
-    loop {
-        let reporter = reporters.borrow_and_update().clone();
-        let departed = async {
-            match &reporter {
-                Some(reporter) => until_departed(&bus, reporter).await,
-                None => pending().await,
-            }
-        };
-        tokio::select! {
-            departed = departed => {
-                departed?;
-                if let Some(reporter) = &reporter {
-                    desktop.forget(reporter);
-                }
-            }
-            changed = reporters.changed() => {
-                if changed.is_err() {
-                    return Ok(());
-                }
-            }
-        }
-    }
+    // A second ghostd must leave the desktop to the one that already serves it.
+    connection
+        .request_name_with_flags(BUS_NAME, RequestNameFlags::DO_NOT_QUEUE)
+        .await?;
+    Ok((connection, kwin_owners))
 }
 
-/// Resolves once `reporter` has left the bus.
-async fn until_departed(bus: &fdo::DBusProxy<'_>, reporter: &OwnedUniqueName) -> zbus::Result<()> {
-    let mut owner_changes = bus
-        .receive_name_owner_changed_with_args(&[(0, reporter.as_str())])
-        .await?;
-    // It may have left before the match above was in place, and a unique name is never reused.
-    if !bus
-        .name_has_owner(BusName::Unique(reporter.as_ref().clone()))
-        .await?
-    {
-        return Ok(());
+/// Resets the desktop whenever KWin leaves the bus. Its desktop script reports over KWin's own
+/// connection, so once KWin is gone nobody is left to correct the last report; a caller that
+/// reports once and disconnects, like `busctl`, must not count as gone.
+async fn reset_when_kwin_leaves(
+    kwin_owners: &mut NameOwnerChangedStream,
+    desktop: &DesktopService,
+) {
+    while let Some(change) = next(kwin_owners).await {
+        if change.args().is_ok_and(|args| args.new_owner().is_none()) {
+            desktop.reset();
+        }
     }
-    // A unique name changes owner only by leaving.
-    if next(&mut owner_changes).await.is_none() {
-        pending::<()>().await;
-    }
-    Ok(())
 }

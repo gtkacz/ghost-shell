@@ -17,6 +17,7 @@ use zbus::{Connection, Guid, connection, fdo};
 const OBJECT_PATH: &str = "/org/ghostshell/Desktop";
 const INTERFACE: &str = "org.ghostshell.Desktop1";
 const WAIT: Duration = Duration::from_secs(5);
+const KWIN: &str = "org.kde.KWin";
 
 type Published = mpsc::UnboundedReceiver<(String, Value)>;
 
@@ -166,10 +167,10 @@ async fn dbus_report_of_an_empty_string_covers_no_output() {
 }
 
 #[tokio::test]
-async fn the_desktop_resets_when_its_reporter_leaves_the_bus() {
+async fn the_desktop_resets_when_kwin_leaves_the_bus() {
     let bus = PrivateBus::start();
     let mut desktop = RunningDesktop::start(&bus, Registration::default()).await;
-    let kwin = bus.connect().await;
+    let kwin = bus.builder().name(KWIN).build().await.unwrap();
     call_desktop(&kwin, "Report", &("DP-1", true)).await;
     desktop.next_snapshot().await;
     call_desktop(&kwin, "Activate", &("monitor",)).await;
@@ -190,24 +191,25 @@ async fn the_desktop_resets_when_its_reporter_leaves_the_bus() {
 }
 
 #[tokio::test]
-async fn only_the_last_reporter_leaving_resets_the_desktop() {
+async fn a_one_shot_reporter_leaving_does_not_reset_the_desktop() {
     let bus = PrivateBus::start();
     let mut desktop = RunningDesktop::start(&bus, Registration::default()).await;
-    let old = bus.connect().await;
-    call_desktop(&old, "Report", &("DP-1", true)).await;
+    // As `busctl --user call … Report sb "" true` does: report, then disconnect.
+    let reporter = bus.connect().await;
+    call_desktop(&reporter, "Report", &("", true)).await;
     desktop.next_snapshot().await;
-    let new = bus.connect().await;
-    call_desktop(&new, "Report", &("HDMI-A-1", true)).await;
-    desktop.next_snapshot().await;
+    reporter.close().await.unwrap();
 
-    old.close().await.unwrap();
-    call_desktop(&new, "Report", &("HDMI-A-1", false)).await;
+    let caller = bus.connect().await;
+    call_desktop(&caller, "Activate", &("monitor",)).await;
 
     assert_eq!(
         desktop.next_snapshot().await,
         DesktopSnapshot {
-            covered_outputs: outputs(&["HDMI-A-1"]),
-            ..DesktopSnapshot::default()
+            covered_outputs: Vec::new(),
+            active: true,
+            action: Some(ViewAction::Monitor),
+            action_seq: 1,
         }
     );
 }

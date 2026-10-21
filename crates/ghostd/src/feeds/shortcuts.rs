@@ -101,29 +101,38 @@ impl Registration {
             return;
         }
         let released = timeout(RELEASE_TIMEOUT, async {
-            self.release_on(&Connection::session().await?).await
+            match Connection::session().await {
+                Ok(conn) => self.release_on(&conn).await,
+                Err(error) => warn!(%error, "cannot release the view shortcuts"),
+            }
         })
         .await;
-        match released {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => warn!(%error, "cannot release the view shortcuts"),
-            Err(_elapsed) => warn!(
+        if released.is_err() {
+            warn!(
                 "KGlobalAccel did not answer within {RELEASE_TIMEOUT:?}; the view shortcuts stay \
                  grabbed"
-            ),
+            );
         }
     }
 
-    /// As [`Self::release`], over `conn` and without a time limit.
-    pub async fn release_on(&self, conn: &Connection) -> zbus::Result<()> {
+    /// As [`Self::release`], over `conn` and without a time limit. Each action is released even
+    /// when the other one fails.
+    pub async fn release_on(&self, conn: &Connection) {
         if !self.is_marked() {
-            return Ok(());
+            return;
         }
-        let kglobalaccel = kglobalaccel(conn).await?;
+        let kglobalaccel = match kglobalaccel(conn).await {
+            Ok(kglobalaccel) => kglobalaccel,
+            Err(error) => {
+                warn!(%error, "cannot release the view shortcuts");
+                return;
+            }
+        };
         for action_id in [MONITOR_ID, SWAP_ID] {
-            kglobalaccel.set_inactive(&action_id).await?;
+            if let Err(error) = kglobalaccel.set_inactive(&action_id).await {
+                warn!(%error, "cannot release the {} shortcut", action_id[1]);
+            }
         }
-        Ok(())
     }
 }
 

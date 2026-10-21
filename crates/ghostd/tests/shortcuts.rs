@@ -5,7 +5,7 @@ use ghost_proto::ViewAction;
 use ghostd::feeds::shortcuts::Registration;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use zbus::{Connection, interface};
+use zbus::{Connection, fdo, interface};
 
 const KGLOBALACCEL: &str = "org.kde.kglobalaccel";
 const KGLOBALACCEL_PATH: &str = "/kglobalaccel";
@@ -49,7 +49,8 @@ enum Call {
     SetInactive(Vec<String>),
 }
 
-/// Records what it is asked for, grants every key and reports no other holder.
+/// Records what it is asked for, grants every key and reports no other holder. It refuses to
+/// release `monitor`, so that a failure there can be shown not to skip `swap`.
 struct FakeKGlobalAccel(mpsc::UnboundedSender<Call>);
 
 #[interface(name = "org.kde.KGlobalAccel")]
@@ -88,8 +89,13 @@ impl FakeKGlobalAccel {
     }
 
     #[zbus(name = "setInactive")]
-    fn set_inactive(&self, action_id: Vec<String>) {
+    fn set_inactive(&self, action_id: Vec<String>) -> fdo::Result<()> {
+        let refused = action_id[1] == "monitor";
         self.0.send(Call::SetInactive(action_id)).unwrap();
+        if refused {
+            return Err(fdo::Error::Failed("refused".to_owned()));
+        }
+        Ok(())
     }
 }
 
@@ -261,7 +267,7 @@ async fn a_clean_stop_releases_only_shortcuts_this_daemon_registered() {
     let (_kglobalaccel, mut calls) = start_kglobalaccel(&bus).await;
     let stopping = bus.connect().await;
     // Like a second ghostd that never got the bus name: it must leave the shortcuts alone.
-    Registration::default().release_on(&stopping).await.unwrap();
+    Registration::default().release_on(&stopping).await;
 
     let ours = Registration::default();
     let _desktop = RunningDesktop::start(&bus, ours.clone()).await;
@@ -269,7 +275,7 @@ async fn a_clean_stop_releases_only_shortcuts_this_daemon_registered() {
         next_calls(&mut calls, CALLS_PER_REGISTRATION).await,
         registration(META_M, META_SHIFT_M)
     );
-    ours.release_on(&stopping).await.unwrap();
+    ours.release_on(&stopping).await;
 
     assert_eq!(
         next_calls(&mut calls, 2).await,
