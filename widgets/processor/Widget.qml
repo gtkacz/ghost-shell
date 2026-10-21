@@ -29,6 +29,10 @@ Panel {
     readonly property var sensors: Data.topics.sensors || null
     readonly property bool live: Data.connected && !Data.stale
     readonly property var ccds: cpu ? cpu.ccds : []
+    // The daemon reports 0 MHz without cpufreq and an empty thread list when it has no CPU data;
+    // neither is a reading, so both stay missing instead of showing as zero.
+    readonly property var loadPct: cpu && cpu.threads.length > 0 ? cpu.load : null
+    readonly property var freqMhz: cpu && cpu.freq_mhz > 0 ? cpu.freq_mhz : null
 
     function readingValue(label) {
         const found = Fmt.readingByLabel(sensors, label);
@@ -151,8 +155,8 @@ Panel {
         Kv {
             width: readings.cellWidth
             key: "LOAD"
-            value: Fmt.pct(root.cpu ? root.cpu.load : null)
-            valueColor: root.tone(root.cpu ? root.cpu.load : null, Theme.hi)
+            value: Fmt.pct(root.loadPct)
+            valueColor: root.tone(root.loadPct, Theme.hi)
         }
 
         Kv {
@@ -165,8 +169,8 @@ Panel {
         Kv {
             width: readings.cellWidth
             key: "FREQ"
-            value: Fmt.ghz(root.cpu ? root.cpu.freq_mhz : null)
-            valueColor: root.tone(root.cpu ? root.cpu.freq_mhz : null, Theme.hi)
+            value: Fmt.ghz(root.freqMhz)
+            valueColor: root.tone(root.freqMhz, Theme.hi)
         }
 
         Kv {
