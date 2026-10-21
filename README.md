@@ -107,7 +107,18 @@ RTX 4080 SUPER, driver 615.78.08. Two runs of 40 reads each, at 1 s spacing:
 - About 0.61 ms of each read is `fan_speed`. Reading the fan less often is the obvious lever if that's ever needed.
 - NVML init adds **+25.7 MiB RSS** to the daemon, about 20 MiB of it anonymous memory.
 
+#### Drives (`collect/disk.rs`)
+
+Five drives: three NVMe, one of them dead, plus two SATA. Thirteen loop devices and zram are filtered out. 1 s spacing:
+
+| Sample | CPU |
+|---|---|
+| Ordinary (reads `mountinfo` + `diskstats`) | ≈ 165 µs (max 221 µs) |
+| Rescan of `/sys/block` + `statvfs` (every 60 samples) | ≈ 365 µs |
+
+**≈ 0.02 % of a core.** `statvfs` on a hung FUSE or network mount would block the sample. The Kingston drive's NTFS partition is mounted through FUSE (`fuseblk`).
+
 #### Not yet measured
 
 - CPU (`collect/cpu.rs`): `/proc/stat` plus 32 `scaling_cur_freq` reads per sample.
-- Drives, and the daemon and shell as a whole. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
+- The daemon and shell as a whole. The acceptance run at the end of plan 1 measures the combined total against the budgets above.
