@@ -30,7 +30,7 @@ const USAGE: &str = "usage: ghostd run [--socket PATH] [--config PATH] [--widget
 const DEFAULT_TICK_MS: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 const RUNTIME_DIR_ENV: &str = "XDG_RUNTIME_DIR";
 const SOCKET_FILE: &str = "ghostd.sock";
-const TOP_PROCESSES: usize = 5;
+const TOP_PROCESSES: usize = 6;
 const PROBE_INTERVAL: Duration = Duration::from_secs(1);
 // A collector stuck in a blocking read must not keep a stopped daemon from exiting.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(1);
