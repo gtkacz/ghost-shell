@@ -654,6 +654,25 @@ V1 with the media widget and the user's music playing. Release daemon, read-only
 - Wide graphs no longer cost about 300 MiB and most of a second to create, so V2 and MONITOR can carry them.
 - A graph draws at most 384 columns and 264 rows. Past 384 columns it shows only the newest history. A slot taller than 264 rows draws the bottom 264 and leaves the top empty, with values scaled to the rows drawn. Each limit warns once.
 
+### Plan 2a acceptance: the budget states (2026-10-21, HEAD `0bfec08`)
+
+The installed binaries: `~/.local/bin/ghostd` with its INMET provider and Open-Meteo running for real, and the installed shell. Each state ran in a headless KWin (2560×1440, `QT_SCALE_FACTOR=1.15`) against a daemon of its own, so the user's desktop was never interrupted. 60 s per window from t = 26 s, frames counted with C21's settle. Load average 0.4–1.5. The live covered state was read from the user's own services:
+
+| State | Shell + daemon | Frames/s | Shell RSS | Budget |
+|---|---|---|---|---|
+| Animating: V1 with the user's settings (600 s attention, 0.01 s step) | 1.59 %, 1.51 % | 15.92 | 244 MiB | ≤ 2 % ✓ |
+| V1 held (default settings), for comparison | 0.93 %, 0.92 % | 2.99 | 244 MiB | — |
+| Still: MONITOR, default settings, nothing playing | 0.76 %, 0.76 % | 2.95 | 228 MiB | ≤ 1 % ✓ |
+| MONITOR with the user's settings | 1.33 %, 1.35 % | 15.93 | 228 MiB | — |
+| Covered: `measure-covered.sh 60` | 0.05 % | 0 frames | — | 0 frames, ≤ 0.5 % ✓ |
+| Covered: the live services | 0.07 % | — | 300 MiB | ≤ 0.5 % ✓ |
+| Playing (15 fps, and the user's 30) | not measured yet: no player played during the window | | | ≤ 2 % |
+
+- The daemon reads 0.48–0.53 % of a core in every visible state and 0.00 % covered. The INMET provider reads 0.00 % at 7.5 MB.
+- Held views render 3 frames/s rather than 2. The data tick, the stripe step and the clock's second don't always share a frame.
+- The user's MONITOR animates because an INMET alert issued for later in the day shows in the weather widget, and the user's 10-minute attention window and scrolling stripes keep it moving.
+- **RSS is over budget on the live display.** Headless, the shell and daemon together are about 283 MiB. Live, the shell is 300 MiB (peak 336 MiB) and the daemon 37 MiB, about 337 MiB together, against ≤ 300 MB. About 94 MiB of the live shell is NVIDIA's driver: `/dev/nvidiactl` 55 MiB, `libnvidia-gpucomp` 28 MiB, `libnvidia-eglcore` 11 MiB. Under investigation.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
