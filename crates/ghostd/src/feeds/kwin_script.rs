@@ -26,14 +26,16 @@ const CALL_TIMEOUT: Duration = Duration::from_millis(500);
     default_path = "/Scripting"
 )]
 trait KWinScripting {
-    #[zbus(name = "isScriptLoaded")]
+    // no_autostart: a KWin that exits after the NameHasOwner check must not be started by our call.
+    #[zbus(name = "isScriptLoaded", no_autostart)]
     fn is_script_loaded(&self, plugin_name: &str) -> zbus::Result<bool>;
 
-    #[zbus(name = "unloadScript")]
+    #[zbus(name = "unloadScript", no_autostart)]
     fn unload_script(&self, plugin_name: &str) -> zbus::Result<bool>;
 
-    /// Runs the scripts that are loaded but not running.
-    #[zbus(name = "start")]
+    /// Loads every script enabled in kwinrc's `[Plugins]` that isn't loaded, unloads disabled ones,
+    /// and runs what's loaded; this is what brings an unloaded but enabled script back.
+    #[zbus(name = "start", no_autostart)]
     fn start(&self) -> zbus::Result<()>;
 }
 
