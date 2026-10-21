@@ -448,6 +448,21 @@ The gallery at 2560×1440 against `ghostd run --fake`, 30 s per state, the shell
 
 The blink period stays 1.00 s in both (999.4 ms and 999.0 ms measured), because every motion follows `FrameClock.elapsedMs` rather than the tick count.
 
+### Plan 2a: view switching (CRT print transition)
+
+The real shell on DP-1 (scale 1.15) against a fake daemon on a private bus, with the test config's placeholder views. `QSG_RENDER_TIMING=1`; shell CPU over the 1.5 s from each action; load average ≈ 0.3–0.7:
+
+| Action | Frames | Shell CPU | Print ends |
+|---|---|---|---|
+| None (idle) | 0 | 0.2 ms | — |
+| v1 → monitor (640 ms) | 34 | 27.4 ms | +654 ms |
+| monitor → v1 (640 ms) | 26 | 20.4 ms | +653 ms |
+| v1 → v2 swap (380 ms) | 32, plus 3 scramble frames after | 27.4 ms | ≈ +404 ms |
+
+- Shell RSS 178 MiB. After each print only the incoming view's widgets exist.
+- With real, narrow widgets one print costs ≈ 70–80 ms of shell CPU above idle.
+- **A heavy incoming view delays the print by its creation time.** With the Graphics widget in a half-width slot, the first frame came at +808 ms, the shell spent 0.9 s of CPU and RSS reached 517 MiB. The cause is the block graph's one-rectangle-per-cell design, which a shader-based graph would replace.
+
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
