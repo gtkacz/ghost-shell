@@ -1,8 +1,10 @@
 mod config;
+mod layout;
 mod msg;
 mod snapshot;
 
 pub use config::*;
+pub use layout::*;
 pub use msg::*;
 pub use snapshot::*;
 

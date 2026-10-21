@@ -1,6 +1,7 @@
 mod load;
 mod watch;
 
+pub(crate) use load::is_hex_colour;
 pub use load::{ConfigError, default_path, load_path, load_str, load_str_with_user};
 pub use watch::{WatchHandle, spawn_watcher};
 

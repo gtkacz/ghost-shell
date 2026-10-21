@@ -71,6 +71,8 @@ version = "0.1.0"
 dependencies = [
  "ghost-proto",
  "notify",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tokio",

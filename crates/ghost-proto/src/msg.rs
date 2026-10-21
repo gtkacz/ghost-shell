@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ResolvedConfig;
+use crate::{ResolvedConfig, ResolvedLayout};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WireError {
@@ -53,6 +53,9 @@ pub enum ServerMsg {
     },
     Config {
         data: ResolvedConfig,
+    },
+    Layout {
+        data: ResolvedLayout,
     },
     ConfigError {
         message: String,

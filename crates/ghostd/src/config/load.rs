@@ -113,7 +113,7 @@ fn validate_appearance(appearance: &Appearance) -> Result<(), ConfigError> {
     Ok(())
 }
 
-fn is_hex_colour(value: &str) -> bool {
+pub(crate) fn is_hex_colour(value: &str) -> bool {
     value.strip_prefix('#').is_some_and(|digits| {
         digits.len() == COLOUR_HEX_DIGITS && digits.bytes().all(|b| b.is_ascii_hexdigit())
     })
