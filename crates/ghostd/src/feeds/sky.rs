@@ -122,7 +122,7 @@ fn sun_event_s(lat: f64, lon: f64, midnight_s: i64, rising: bool) -> Option<i64>
 
 // Series in T, the Julian centuries after J2000, lowest power first. Each group is a column of
 // NOAA's solar calculator ("General Solar Position Calculations", after Meeus, Astronomical
-// Algorithms, ch. 25), named in the group's first line.
+// Algorithms, chs. 22, 25 and 28), named in the group's first line.
 
 // NOAA's "Geom Mean Long Sun" and "Geom Mean Anom Sun" in degrees, and "Eccent Earth Orbit".
 const MEAN_LONGITUDE_DEG: [f64; 3] = [280.46646, 36000.76983, 0.0003032];
