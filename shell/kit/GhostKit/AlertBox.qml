@@ -85,8 +85,10 @@ Item {
         holdsClock = wanted;
     }
 
-    implicitWidth: Theme.d(edgePx + 2 * sidePaddingPx) + (hasChip ? chip.width + gap : 0) + messageText.implicitWidth
-        + (hasTrailing ? gap + trailingText.implicitWidth : 0)
+    // Rounded up: a box at exactly its implicit width gives the message its measured width less a floating-point
+    // error, which is enough for the text to elide its last characters.
+    implicitWidth: Math.ceil(Theme.d(edgePx + 2 * sidePaddingPx) + (hasChip ? chip.width + gap : 0) + messageText.implicitWidth
+        + (hasTrailing ? gap + trailingText.implicitWidth : 0))
     implicitHeight: Theme.d(chipLinePx + 2 * chipBorderPx + 2 * verticalPaddingPx)
 
     onAnimatingChanged: holdClock(animating)

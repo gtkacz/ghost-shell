@@ -434,9 +434,7 @@ Panel {
                     // The hero has the room for the source, as in the mockup.
                     AlertBox {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        // Rounded up because the text is given exactly its measured width less a rounding error, which
-                        // is enough for it to elide its last characters.
-                        width: Math.min(Math.ceil(implicitWidth), root.width)
+                        width: Math.min(implicitWidth, root.width)
                         level: root.alertLevel
                         chipKey: "alert"
                         text: Fmt.alertLine(root.topAlert, root.alertSource)
