@@ -604,6 +604,7 @@ The remaining 1 frame/s is the data panels repainting with each sample. The held
 
 - Twice-as-fast held stripes cost about 0.1 % of a core and 1 frame/s more than the defaults.
 - Stripes that keep scrolling cost about 0.5 % of a core more than the defaults, the same as a blinking alert, and pass the 1 % idle budget while an alert shows on the visible desktop. Covered, it costs nothing.
+- With block graphs drawn by one shader (installed `67dbc8f`, same method, two runs each): defaults 2.02 frames/s at 0.30 % and 0.27 %; held stripes that keep scrolling 14.93 frames/s at 0.87 % and 1.05 %, about at the 1 % budget.
 - The daemon's cost doesn't depend on these settings.
 
 ### Plan 2a: media widget
