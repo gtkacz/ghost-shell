@@ -15,13 +15,12 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ghost_proto::{ResolvedConfig, SkySnapshot, topics};
+use ghost_proto::{SkySnapshot, topics};
 use nix::libc;
 use tokio::time::{Instant, sleep_until};
 use tracing::warn;
 
-use super::weather::WallClock;
-use super::{unix_now_s, wanted};
+use super::{Place, WallClock, place_in, unix_now_s, wanted};
 use crate::server::{Demand, Feed, FeedContext, Publisher};
 
 const RECOMPUTE_EVERY: Duration = Duration::from_secs(60);
@@ -36,7 +35,7 @@ const PRINCIPAL_PHASE_SPAN: f64 = 1.0 / SYNODIC_MONTH_DAYS;
 const SUNRISE_ZENITH_DEG: f64 = 90.833;
 /// 2000-01-01 12:00 UTC, the epoch of NOAA's Julian centuries, in seconds since the Unix epoch.
 const J2000_S: i64 = 946_728_000;
-const JULIAN_CENTURY_S: f64 = 36_525.0 * 86_400.0;
+const JULIAN_CENTURY_S: f64 = 36_525.0 * SECONDS_PER_DAY as f64;
 const MINUTES_TO_NOON: f64 = 720.0;
 /// The sun crosses 15° of longitude an hour.
 const MINUTES_PER_DEGREE: f64 = 4.0;
@@ -121,27 +120,64 @@ fn sun_event_s(lat: f64, lon: f64, midnight_s: i64, rising: bool) -> Option<i64>
     Some(midnight_s + (event * 60.0).round() as i64)
 }
 
+// Series in T, the Julian centuries after J2000, lowest power first. Each group is a column of
+// NOAA's solar calculator ("General Solar Position Calculations", after Meeus, Astronomical
+// Algorithms, ch. 25), named in the group's first line.
+
+// NOAA's "Geom Mean Long Sun" and "Geom Mean Anom Sun" in degrees, and "Eccent Earth Orbit".
+const MEAN_LONGITUDE_DEG: [f64; 3] = [280.46646, 36000.76983, 0.0003032];
+const MEAN_ANOMALY_DEG: [f64; 3] = [357.52911, 35999.05029, -0.0001537];
+const ECCENTRICITY: [f64; 3] = [0.016708634, -0.000042037, -0.0000001267];
+
+// NOAA's "Sun Eq of Ctr" in degrees: the coefficients of sin M, sin 2M and sin 3M, where M is the
+// mean anomaly.
+const CENTER_SIN_M_DEG: [f64; 3] = [1.914602, -0.004817, -0.000014];
+const CENTER_SIN_2M_DEG: [f64; 2] = [0.019993, -0.000101];
+const CENTER_SIN_3M_DEG: [f64; 1] = [0.000289];
+
+// NOAA's "Sun App Long" in degrees: the true longitude less the aberration and a nutation that
+// follows the longitude of the moon's ascending node.
+const LUNAR_NODE_DEG: [f64; 2] = [125.04, -1934.136];
+const ABERRATION_DEG: f64 = 0.00569;
+const NUTATION_LONGITUDE_DEG: f64 = 0.00478;
+
+// NOAA's "Mean Obliq Ecliptic", 23 degrees 26 minutes plus the arcseconds of the series, and its
+// "Obliq Corr" for the nutation in obliquity, in degrees.
+const MEAN_OBLIQUITY_BASE_DEG: f64 = 23.0 + 26.0 / 60.0;
+const MEAN_OBLIQUITY_ARCSEC: [f64; 4] = [21.448, -46.815, -0.00059, 0.001813];
+const ARCSECONDS_PER_DEGREE: f64 = 3600.0;
+const NUTATION_OBLIQUITY_DEG: f64 = 0.00256;
+
 struct Sun {
     /// In radians.
     declination: f64,
     equation_of_time_min: f64,
 }
 
-/// The sun `t` Julian centuries after J2000, from the series in NOAA's "General Solar Position
-/// Calculations", whose coefficients are written out as published.
+/// The polynomial with `coefficients`, lowest power first, at `t`.
+fn series(coefficients: &[f64], t: f64) -> f64 {
+    coefficients
+        .iter()
+        .rev()
+        .fold(0.0, |sum, &coefficient| sum * t + coefficient)
+}
+
+/// The sun `t` Julian centuries after J2000.
 fn sun_at(t: f64) -> Sun {
-    let mean_longitude_deg = 280.46646 + t * (36000.76983 + t * 0.0003032);
-    let mean_anomaly = (357.52911 + t * (35999.05029 - t * 0.0001537)).to_radians();
-    let eccentricity = 0.016708634 - t * (0.000042037 + t * 0.0000001267);
-    let center_deg = mean_anomaly.sin() * (1.914602 - t * (0.004817 + t * 0.000014))
-        + (2.0 * mean_anomaly).sin() * (0.019993 - t * 0.000101)
-        + (3.0 * mean_anomaly).sin() * 0.000289;
-    let moon_node = (125.04 - 1934.136 * t).to_radians();
-    let apparent_longitude =
-        (mean_longitude_deg + center_deg - 0.00569 - 0.00478 * moon_node.sin()).to_radians();
+    let mean_longitude_deg = series(&MEAN_LONGITUDE_DEG, t);
+    let mean_anomaly = series(&MEAN_ANOMALY_DEG, t).to_radians();
+    let eccentricity = series(&ECCENTRICITY, t);
+    let center_deg = mean_anomaly.sin() * series(&CENTER_SIN_M_DEG, t)
+        + (2.0 * mean_anomaly).sin() * series(&CENTER_SIN_2M_DEG, t)
+        + (3.0 * mean_anomaly).sin() * series(&CENTER_SIN_3M_DEG, t);
+    let lunar_node = series(&LUNAR_NODE_DEG, t).to_radians();
+    let apparent_longitude = (mean_longitude_deg + center_deg
+        - ABERRATION_DEG
+        - NUTATION_LONGITUDE_DEG * lunar_node.sin())
+    .to_radians();
     let mean_obliquity_deg =
-        23.0 + (26.0 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60.0) / 60.0;
-    let obliquity = (mean_obliquity_deg + 0.00256 * moon_node.cos()).to_radians();
+        MEAN_OBLIQUITY_BASE_DEG + series(&MEAN_OBLIQUITY_ARCSEC, t) / ARCSECONDS_PER_DEGREE;
+    let obliquity = (mean_obliquity_deg + NUTATION_OBLIQUITY_DEG * lunar_node.cos()).to_radians();
     let declination = (obliquity.sin() * apparent_longitude.sin()).asin();
 
     let mean_longitude = mean_longitude_deg.to_radians();
@@ -232,6 +268,9 @@ async fn run(clock: WallClock, mut context: FeedContext) {
                 if moved_to != place {
                     place = moved_to;
                     publish(&context.publisher, place, &clock);
+                    // What was just published is as fresh as a scheduled value; without this, a
+                    // place that starts the recomputing would be published again at once.
+                    due = Some(Instant::now() + RECOMPUTE_EVERY);
                 }
             }
             Ok(()) = context.demand.changed() => {}
@@ -257,19 +296,6 @@ async fn sleep_until_due(due: Option<Instant>) {
 
 fn publish(publisher: &Publisher, place: Option<Place>, clock: &WallClock) {
     publisher.publish(topics::SKY, &snapshot(place, clock() as i64));
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Place {
-    lat: f64,
-    lon: f64,
-}
-
-fn place_in(config: &ResolvedConfig) -> Option<Place> {
-    Some(Place {
-        lat: config.location.lat?,
-        lon: config.location.lon?,
-    })
 }
 
 /// The sky at `place` at `now_s`, with the sun times of the machine's calendar day.
@@ -331,8 +357,32 @@ mod tests {
     #[test]
     fn london_midsummer() {
         let (rise, set) = sun_times(51.4769, -0.0005, (2026, 6, 21)).unwrap();
-        assert_close(rise, utc(2026, 6, 21, 3, 43), 120);
-        assert_close(set, utc(2026, 6, 21, 20, 21), 120);
+        assert_close(rise, utc(2026, 6, 21, 3, 43), TOLERANCE_S);
+        assert_close(set, utc(2026, 6, 21, 20, 21), TOLERANCE_S);
+    }
+
+    #[test]
+    fn the_sun_series_keeps_its_values_a_century_either_side_of_j2000() {
+        // Values the series gave when it was first written out, so that restructuring it cannot
+        // move them.
+        let expected = [
+            (-1.0, -0.40318881799272654, -3.1871988207907505),
+            (0.0, -0.40199323813732096, -3.3012588023605938),
+            (1.0, -0.4007953093145778, -3.4147188767587267),
+        ];
+        for (centuries, declination, equation_of_time_min) in expected {
+            let sun = sun_at(centuries);
+            assert!(
+                (sun.declination - declination).abs() < 1e-9,
+                "declination at {centuries}: {}",
+                sun.declination
+            );
+            assert!(
+                (sun.equation_of_time_min - equation_of_time_min).abs() < 1e-9,
+                "equation of time at {centuries}: {}",
+                sun.equation_of_time_min
+            );
+        }
     }
 
     #[test]

@@ -130,7 +130,7 @@ pub struct PerfSnapshot {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct WeatherSnapshot {
     pub available: bool,
-    /// The last good forecast is over 30 min old, whether fetches failed or the machine slept.
+    /// The last good forecast is older than two forecast cadences (failed fetches or a suspend).
     pub stale: bool,
     /// When the forecast was fetched, in seconds since the Unix epoch.
     pub updated_s: u64,

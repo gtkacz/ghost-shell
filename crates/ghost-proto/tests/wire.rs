@@ -152,6 +152,7 @@ fn weather_snapshot_wire_form() {
         )
     );
 }
+
 #[test]
 fn sky_snapshot_wire_form() {
     let snapshot = SkySnapshot {

@@ -9,11 +9,31 @@ pub mod weather;
 
 use std::future::{pending, poll_fn};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_core::Stream;
+use ghost_proto::ResolvedConfig;
 
 use crate::server::Demand;
+
+/// The wall clock in seconds since the Unix epoch, passed in so that tests can move it on its own.
+pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
+
+/// A place on Earth, in degrees, north and east being positive.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Place {
+    lat: f64,
+    lon: f64,
+}
+
+/// The place at `location.{lat, lon}`, or `None` unless both are set.
+fn place_in(config: &ResolvedConfig) -> Option<Place> {
+    Some(Place {
+        lat: config.location.lat?,
+        lon: config.location.lon?,
+    })
+}
 
 /// Whether some UI client subscribes to `topic` now.
 pub fn wanted(demand: &Demand, topic: &str) -> bool {

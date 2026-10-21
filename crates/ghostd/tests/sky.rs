@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -17,7 +18,15 @@ const SECOND: Duration = Duration::from_secs(1);
 const MINUTE: Duration = Duration::from_secs(60);
 const HOUR: Duration = Duration::from_secs(3600);
 const DAY: Duration = Duration::from_secs(24 * 3600);
-const SYNODIC_MONTH_S: f64 = 29.530_588_853 * 86_400.0;
+const SYNODIC_MONTH_DAYS: f64 = 29.530_588_853;
+const SECONDS_PER_DAY: f64 = 86_400.0;
+const SYNODIC_MONTH_S: f64 = SYNODIC_MONTH_DAYS * SECONDS_PER_DAY;
+/// Rio lies 3.5 degrees of longitude east of São Paulo, which is 14 minutes of sun time, and its
+/// latitude moves the sunrise a little more.
+const RIO_SUNRISE_LEAD_S: Range<i64> = 5 * 60..30 * 60;
+const PHASE_TOLERANCE: f32 = 0.001;
+/// Two days on, the sun rises within a couple of minutes of the same time.
+const SUNRISE_DRIFT_TOLERANCE_S: u64 = 5 * 60;
 
 /// Wall-clock seconds that follow the paused tokio clock from `START_S`, moved on by however much
 /// the wall clock was jumped on its own.
@@ -59,11 +68,16 @@ struct Running {
 
 impl Running {
     fn start(place: Option<(f64, f64)>) -> Self {
+        Self::start_wanting(place, &[])
+    }
+
+    fn start_wanting(place: Option<(f64, f64)>, wanted: &[&str]) -> Self {
         let clock = Arc::new(FakeWallClock {
             start: Instant::now(),
             jumped_s: AtomicU64::new(0),
         });
-        let (demand, demand_rx) = watch::channel(BTreeSet::new());
+        let (demand, demand_rx) =
+            watch::channel(wanted.iter().map(|&topic| topic.to_owned()).collect());
         let (config, config_rx) = watch::channel(config_at(place));
         let (sent, published) = mpsc::unbounded_channel();
         let context = FeedContext {
@@ -173,10 +187,9 @@ async fn a_location_change_recomputes_at_once_wanted_or_not() {
     sky.move_to(Some(RIO));
     let in_rio = sky.next().await;
     assert_eq!(moved_at.elapsed(), Duration::ZERO);
-    // Rio lies 3.5 degrees of longitude east, so its sun rises about 14 minutes earlier.
     let earlier_s = in_sao_paulo.sunrise_s.unwrap() as i64 - in_rio.sunrise_s.unwrap() as i64;
     assert!(
-        (5 * 60..30 * 60).contains(&earlier_s),
+        RIO_SUNRISE_LEAD_S.contains(&earlier_s),
         "Rio's sunrise is {earlier_s} s earlier"
     );
 
@@ -203,13 +216,40 @@ async fn after_a_suspend_the_next_wake_reads_the_wall_clock() {
     let moon_moved = after.moon_phase - before.moon_phase;
     let expected = phase_gained_in(2 * DAY);
     assert!(
-        (moon_moved - expected).abs() < 0.001,
+        (moon_moved - expected).abs() < PHASE_TOLERANCE,
         "the phase moved {moon_moved}, not {expected}"
     );
-    // The date was read again too: two days on, the sun rises about two minutes off the same time.
+    // The date was read again too, so the sunrise is the one two days on.
     let rise_shift_s = after.sunrise_s.unwrap().abs_diff(before.sunrise_s.unwrap());
     assert!(
-        rise_shift_s.abs_diff(2 * DAY.as_secs()) < 5 * 60,
+        rise_shift_s.abs_diff(2 * DAY.as_secs()) < SUNRISE_DRIFT_TOLERANCE_S,
         "the sunrise moved {rise_shift_s} s"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_place_set_while_wanted_is_published_once_then_every_minute() {
+    let mut sky = Running::start_wanting(None, &[topics::SKY]);
+    assert_eq!(sky.next().await, SkySnapshot::default());
+    sky.expect_nothing_before(Instant::now() + 5 * MINUTE).await;
+
+    let placed_at = Instant::now();
+    sky.move_to(Some(SAO_PAULO));
+    assert!(sky.next().await.available);
+    assert_eq!(placed_at.elapsed(), Duration::ZERO);
+    sky.next().await;
+
+    assert_eq!(placed_at.elapsed(), MINUTE);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_feed_that_starts_wanted_publishes_once_then_every_minute() {
+    let started_at = Instant::now();
+    let mut sky = Running::start_wanting(Some(SAO_PAULO), &[topics::SKY]);
+    assert!(sky.next().await.available);
+    assert_eq!(started_at.elapsed(), Duration::ZERO);
+
+    sky.next().await;
+
+    assert_eq!(started_at.elapsed(), MINUTE);
 }
