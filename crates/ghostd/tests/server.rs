@@ -26,6 +26,8 @@ const QUIET_WINDOW: Duration = Duration::from_millis(600);
 // Half the first restart delay, so a supervisor that restarts without waiting is caught while
 // scheduler jitter is not.
 const MIN_RESTART_GAP: Duration = Duration::from_millis(500);
+// Three grace periods of two seconds do not fit in WAIT; one does.
+const STUBBORN_PROVIDERS: usize = 3;
 const HANDSHAKE_ERROR: &str = "expected hello or provide with proto 1";
 const SOCKET_FILE: &str = "ghostd.sock";
 const CONFIG_DIR: &str = "config";
@@ -595,10 +597,19 @@ async fn supervised_provider_restarts() {
     );
 }
 
-/// A provider that leaves `sleep` running in the background and waits on it, as an `sh -c "prog"`
+/// A provider that waits on a `sleep` it leaves running in the background, as an `sh -c "prog"`
 /// wrapper does. Both hold the write end of a FIFO, so the returned reader reaches end of file
 /// only once the shell and the sleep are all gone. `preamble` is run by the shell first.
 async fn provider_with_a_child(preamble: &str) -> (providers::Supervisor, pipe::Receiver, TempDir) {
+    provider_that_starts_a_child(preamble, "wait", false).await
+}
+
+/// As [`provider_with_a_child`], with `after_start` as the shell's last command.
+async fn provider_that_starts_a_child(
+    preamble: &str,
+    after_start: &str,
+    restart: bool,
+) -> (providers::Supervisor, pipe::Receiver, TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let starts = dir.path().join("starts");
     let held = dir.path().join("held");
@@ -613,7 +624,8 @@ async fn provider_with_a_child(preamble: &str) -> (providers::Supervisor, pipe::
     .lines();
     let lifeline = pipe::OpenOptions::new().open_receiver(&held).unwrap();
     // The sleep is forked before the start is announced, so it exists whenever the test acts.
-    let script = format!(r#"{preamble}exec 3>"$1"; sleep 1000 & echo started > "$0"; wait"#);
+    let script =
+        format!(r#"{preamble}exec 3>"$1"; sleep 1000 & echo started > "$0"; {after_start}"#);
     let spec = ProviderSpec {
         name: "wrapper".into(),
         exec: vec![
@@ -623,7 +635,7 @@ async fn provider_with_a_child(preamble: &str) -> (providers::Supervisor, pipe::
             starts.to_str().unwrap().into(),
             held.to_str().unwrap().into(),
         ],
-        restart: false,
+        restart,
     };
     let supervisor = providers::supervise(&[spec], &dir.path().join(SOCKET_FILE));
     next_start(&mut started).await;
@@ -656,6 +668,52 @@ async fn a_provider_that_ignores_sigterm_is_killed_after_the_grace_period() {
         .expect("the stop never finished");
 
     expect_every_process_gone(&mut lifeline).await;
+}
+
+#[tokio::test]
+async fn a_provider_that_exits_on_its_own_does_not_leave_its_children_behind() {
+    // It exits at once and is restarted after a second, so the children of its first run are
+    // gone by the time the reader sees end of file only if the supervisor cleaned them up.
+    let (supervisor, mut lifeline, _dir) = provider_that_starts_a_child("", "exit 0", true).await;
+
+    expect_every_process_gone(&mut lifeline).await;
+
+    drop(supervisor);
+}
+
+#[tokio::test]
+async fn providers_that_ignore_sigterm_are_stopped_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let starts = dir.path().join("starts");
+    mkfifo(&starts, Mode::S_IRWXU).unwrap();
+    let mut started = BufReader::new(
+        pipe::OpenOptions::new()
+            .read_write(true)
+            .open_receiver(&starts)
+            .unwrap(),
+    )
+    .lines();
+    let stubborn = |index: usize| ProviderSpec {
+        name: format!("stubborn-{index}"),
+        exec: vec![
+            "sh".into(),
+            "-c".into(),
+            r#"trap '' TERM; echo started > "$0"; sleep 1000 & wait"#.into(),
+            starts.to_str().unwrap().into(),
+        ],
+        restart: false,
+    };
+    let specs: Vec<ProviderSpec> = (0..STUBBORN_PROVIDERS).map(stubborn).collect();
+    let mut supervisor = providers::supervise(&specs, &dir.path().join(SOCKET_FILE));
+    for _ in &specs {
+        next_start(&mut started).await;
+    }
+
+    // Each one holds out for the whole grace period, so stopping them one after another would
+    // take longer than WAIT.
+    timeout(WAIT, supervisor.reconcile(&[]))
+        .await
+        .expect("the providers were stopped one after another");
 }
 
 #[tokio::test]

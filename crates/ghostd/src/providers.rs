@@ -23,6 +23,8 @@ const RESTART_DELAY_GROWTH: u32 = 2;
 const HEALTHY_RUN: Duration = Duration::from_secs(30);
 // How long a provider being stopped may take to exit after SIGTERM before its group is killed.
 const STOP_GRACE: Duration = Duration::from_secs(2);
+// How long to wait for a provider to be gone after SIGKILL before giving up on reaping it.
+const REAP_LIMIT: Duration = Duration::from_secs(1);
 
 /// Keeps the configured providers running; dropping it kills them and everything they started.
 pub struct Supervisor {
@@ -65,19 +67,26 @@ impl Supervisor {
     /// ones, restarts those whose spec changed, and leaves the rest, backoff included, alone.
     ///
     /// A provider is stopped with SIGTERM to its whole process group, then SIGKILL once
-    /// `STOP_GRACE` has passed, and this returns only after the provider has exited.
+    /// `STOP_GRACE` has passed, and this returns once the provider has exited, or `REAP_LIMIT`
+    /// after the SIGKILL if a stuck process has not. All the stops run at once.
     pub async fn reconcile(&mut self, specs: &[ProviderSpec]) {
         let running: Vec<&ProviderSpec> = self.running.values().map(|run| &run.spec).collect();
         let plan = plan(&running, specs);
+        // Every stop is requested before any is awaited, so providers that hold out for the whole
+        // grace period delay this by one period between them, not one each.
+        let mut stopping = Vec::new();
         for name in plan.stop {
             if let Some(stopped) = self.running.remove(&name) {
                 // A task that already finished has dropped its receiver, and has nothing to stop.
                 let _ = stopped.stop.send(());
-                // Awaited so a replacement never runs, or holds topics, alongside the process it
-                // replaces.
-                let _exited = stopped.task.await;
-                info!(provider = %name, "provider stopped");
+                stopping.push((name, stopped.task));
             }
+        }
+        for (name, task) in stopping {
+            // Awaited so a replacement never runs, or holds topics, alongside the process it
+            // replaces.
+            let _exited = task.await;
+            info!(provider = %name, "provider stopped");
         }
         for spec in plan.start {
             self.start(spec.clone());
@@ -183,9 +192,12 @@ async fn run_once(
                 Ok(status) => warn!(provider = %spec.name, %status, "provider exited"),
                 Err(error) => warn!(provider = %spec.name, %error, "lost track of provider"),
             }
-            // A provider that left on its own may have handed its work to a background program,
-            // as `sh -c "prog &"` does, and that program stays.
-            group.release();
+            // Whatever the provider left running would keep its topics and connection after a
+            // restart has started another copy, and nothing else will ever stop it. The leader is
+            // reaped, but its group id stays taken while any member lives, so this reaches exactly
+            // those leftovers. SIGKILL straight away, because without the leader nothing is
+            // left to report that they have exited.
+            group.kill();
             RunEnd::Exited
         }
         _ = stop_requested => {
@@ -198,7 +210,8 @@ async fn run_once(
 /// The process group a provider leads, which holds the provider and whatever it started.
 ///
 /// Dropping it kills the group, so a task that is aborted takes the provider's children down with
-/// it; [`ProcessGroup::release`] hands the group back once nothing is left to stop.
+/// it. Once the group has been killed on purpose it lets go, so that the drop does not signal an
+/// id that may have been handed to something else by then.
 struct ProcessGroup(Option<Pid>);
 
 impl ProcessGroup {
@@ -212,7 +225,9 @@ impl ProcessGroup {
         )
     }
 
-    fn release(&mut self) {
+    /// Kills whatever is left in the group, once, and lets go of it.
+    fn kill(&mut self) {
+        self.signal(Signal::SIGKILL);
         self.0 = None;
     }
 
@@ -233,11 +248,14 @@ impl ProcessGroup {
         // Only the leader is waited for, but the kill below follows either way, so a child that
         // outlived it does not outlive the stop.
         let _ = timeout(STOP_GRACE, child.wait()).await;
-        self.signal(Signal::SIGKILL);
-        if let Err(error) = child.kill().await {
-            warn!(%error, "lost track of a stopped provider");
+        self.kill();
+        // Bounded, because a process stuck in uninterruptible sleep outlasts SIGKILL, and
+        // waiting for it would hold up every config and widget change behind this stop.
+        match timeout(REAP_LIMIT, child.kill()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => warn!(%error, "lost track of a stopped provider"),
+            Err(_) => warn!("a stopped provider has not exited after SIGKILL"),
         }
-        self.release();
     }
 }
 
