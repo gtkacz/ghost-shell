@@ -26,7 +26,6 @@ use feed::{ProblemReporter, Reloader, follow_config};
 use sampling::{Collectors, sample_forever};
 use session::accept_forever;
 use state::State;
-use widget_watch::WidgetWatch;
 
 use crate::providers::Supervisor;
 use crate::sampler::Sampler;
@@ -116,14 +115,11 @@ pub async fn serve(listener: UnixListener, hub: Hub) {
     }
     reloader.report();
     let shared = reloader.shared();
-    // Watching before the first accept means no client can change a widget unseen.
-    let mut widgets = WidgetWatch::new();
-    widgets.watch(reloader.widget_dirs()).await;
 
     tokio::join!(
         accept_forever(listener, shared.clone()),
         sample_forever(shared, collectors, tick_ms, config.subscribe()),
-        follow_config(reloader, config, widgets),
+        follow_config(reloader, config),
     );
 }
 

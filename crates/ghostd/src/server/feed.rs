@@ -97,6 +97,7 @@ impl ConfigFeed {
 pub(super) struct Reloader {
     shared: Shared,
     widget_dirs: WidgetDirs,
+    widgets: WidgetWatch,
     providers: Supervisor,
     config: ResolvedConfig,
     dirs: Vec<PathBuf>,
@@ -106,7 +107,8 @@ pub(super) struct Reloader {
 }
 
 impl Reloader {
-    /// Resolves the first layout and builds the state every UI client is greeted from.
+    /// Starts watching the widget dirs, then resolves the first layout and builds the state every
+    /// UI client is greeted from.
     pub(super) async fn start(
         config: ResolvedConfig,
         widget_dirs: WidgetDirs,
@@ -116,6 +118,11 @@ impl Reloader {
         step_ms: u32,
     ) -> Self {
         let dirs = widget_dirs(&config);
+        let mut widgets = WidgetWatch::new();
+        // Watched before discovery, so a change made while the widgets are being read is reported
+        // and rescanned instead of falling between the two. A dir that does not exist yet is the
+        // exception: it is only picked up by the next config reload.
+        widgets.watch(dirs.clone()).await;
         let layout = resolve_layout(dirs.clone(), &config.layout).await;
         let layout_errors = layout.errors.clone();
         let shared = Shared::new(State::new(
@@ -127,6 +134,7 @@ impl Reloader {
         Self {
             shared,
             widget_dirs,
+            widgets,
             providers,
             config,
             dirs,
@@ -140,13 +148,11 @@ impl Reloader {
         self.shared.clone()
     }
 
-    /// The widget search dirs of the config in effect.
-    pub(super) fn widget_dirs(&self) -> Vec<PathBuf> {
-        self.dirs.clone()
-    }
-
     async fn apply(&mut self, config: ResolvedConfig) {
         self.dirs = (self.widget_dirs)(&config);
+        // Rebuilt on every reload, because the dir list may have changed or a missing dir may have
+        // been created since, and before discovery for the same reason as at start.
+        self.widgets.watch(self.dirs.clone()).await;
         let layout = resolve_layout(self.dirs.clone(), &config.layout).await;
         self.config_error = None;
         self.layout_errors = layout.errors.clone();
@@ -251,27 +257,20 @@ async fn resolve_layout(dirs: Vec<PathBuf>, layout: &LayoutConfig) -> ResolvedLa
     })
 }
 
-pub(super) async fn follow_config(
-    mut reloader: Reloader,
-    mut feed: ConfigFeed,
-    mut widgets: WidgetWatch,
-) {
+pub(super) async fn follow_config(mut reloader: Reloader, mut feed: ConfigFeed) {
     loop {
         tokio::select! {
             Ok(()) = feed.updates.changed() => {
                 let config = feed.updates.borrow_and_update().clone();
                 info!("config reloaded");
                 reloader.apply(config).await;
-                // Rebuilt on every reload: the dir list may have changed, or a missing dir may
-                // have been created since.
-                widgets.watch(reloader.widget_dirs()).await;
             }
             Some(error) = feed.errors.recv() => {
                 warn!(%error, "config not applied; keeping the last good one");
                 reloader.refuse(error);
             }
-            () = widgets.changed() => {
-                widgets.settle().await;
+            () = reloader.widgets.changed() => {
+                reloader.widgets.settle().await;
                 info!("widgets changed");
                 reloader.rescan_widgets().await;
             }
