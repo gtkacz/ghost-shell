@@ -12,6 +12,8 @@ font = "Kode Mono"
 font_cjk = "Noto Sans CJK JP"
 # How Japanese accents are drawn: "kanji", "katakana", "mixed" or "off".
 japanese = "mixed"
+# Show the small Japanese chip (アラート, クリティカル) in boxed alerts; their colour already gives the level.
+alert_chips = true
 # How opaque panels are, from 0 (see-through) to 100 (solid).
 panel_fill = 55
 

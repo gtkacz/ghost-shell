@@ -35,7 +35,8 @@ Item {
     property string trailing
     // "warn" or "crit".
     property string level: "warn"
-    // A Theme.chip() key; the chip is hidden when the key has no chip in the current Japanese mode.
+    // A Theme.chip() key; the chip is hidden when the key has no chip in the current Japanese mode, or when the
+    // user turned alert chips off.
     property string chipKey
     // Whether the alert's own source is live, such as Data.topic(name).live.
     property bool sourceLive: true
@@ -167,7 +168,8 @@ Item {
             id: chip
 
             anchors.verticalCenter: parent.verticalCenter
-            key: root.chipKey
+            // An empty key is how a Chip reads as absent, so hasChip, the text's anchor and implicitWidth follow.
+            key: Theme.alertChips ? root.chipKey : ""
             color: root.levelColor
             borderColor: root.levelColor
         }

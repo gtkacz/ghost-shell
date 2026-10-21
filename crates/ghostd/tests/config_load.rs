@@ -29,6 +29,29 @@ fn partial_override_merges() {
 }
 
 #[test]
+fn alert_chips_default_to_shown() {
+    assert!(load_str_with_user("", "u").unwrap().appearance.alert_chips);
+}
+
+#[test]
+fn alert_chips_can_be_turned_off() {
+    let c = load_str_with_user("[appearance]\nalert_chips = false\n", "u").unwrap();
+    assert!(!c.appearance.alert_chips);
+}
+
+#[test]
+fn a_non_bool_alert_chips_points_at_its_line_and_the_report_quotes_the_key() {
+    let error = load_str_with_user("[appearance]\nalert_chips = \"no\"\n", "u").unwrap_err();
+
+    assert_eq!(
+        error.message,
+        "line 2, column 15: invalid type: string \"no\", expected a boolean"
+    );
+    let detail = error.detail.as_deref().expect("a TOML error has a report");
+    assert!(detail.contains("2 | alert_chips = \"no\""));
+}
+
+#[test]
 fn brand_can_be_turned_off_and_renamed() {
     let c = load_str_with_user("[bar.brand]\nenabled = false\ntext = \"TKZ//07\"\n", "u").unwrap();
     assert!(!c.bar.brand.enabled);

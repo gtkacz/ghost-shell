@@ -14,6 +14,7 @@ Singleton {
             font: "Kode Mono",
             font_cjk: "Noto Sans CJK JP",
             japanese: "mixed",
+            alert_chips: true,
             panel_fill: 55,
             colors: {
                 ground: "#0a0f11",
@@ -80,6 +81,8 @@ Singleton {
     readonly property string font: appearance.font
     readonly property string fontCjk: appearance.font_cjk
     readonly property string japanese: appearance.japanese
+    // Absent from the config of a daemon older than this key, which must not read as "off".
+    readonly property bool alertChips: appearance.alert_chips !== false
 
     readonly property real loadWarn: thresholds.load_warn / percent
     readonly property real loadCrit: thresholds.load_crit / percent
