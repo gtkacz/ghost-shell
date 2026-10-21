@@ -26,15 +26,15 @@ impl History {
 
     pub fn push(&mut self, key: &str, v: f32) {
         let len = self.len;
-        let buffer = self
-            .series
-            .entry(key.to_owned())
-            .or_insert_with(|| VecDeque::with_capacity(len));
-        // Evict before pushing so a full buffer never grows past its allocation.
-        if buffer.len() >= len {
-            buffer.pop_front();
+        // Pushing happens every tick for every series, and only the first push of a series needs
+        // an owned key.
+        if let Some(buffer) = self.series.get_mut(key) {
+            push_bounded(buffer, len, v);
+            return;
         }
-        buffer.push_back(v);
+        let mut buffer = VecDeque::with_capacity(len);
+        push_bounded(&mut buffer, len, v);
+        self.series.insert(key.to_owned(), buffer);
     }
 
     /// Every series, oldest sample first.
@@ -53,6 +53,14 @@ impl History {
             buffer.drain(..excess);
         }
     }
+}
+
+fn push_bounded(buffer: &mut VecDeque<f32>, len: usize, v: f32) {
+    // Evict before pushing so a full buffer never grows past its allocation.
+    if buffer.len() >= len {
+        buffer.pop_front();
+    }
+    buffer.push_back(v);
 }
 
 #[cfg(test)]
@@ -88,6 +96,18 @@ mod tests {
         history.push("load", 5.0);
 
         assert_eq!(history.series()["load"], [2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn series_fill_and_evict_independently() {
+        let mut history = History::new(2);
+
+        for (key, value) in [("a", 1.0), ("b", 10.0), ("a", 2.0), ("a", 3.0), ("b", 20.0)] {
+            history.push(key, value);
+        }
+
+        assert_eq!(history.series()["a"], [2.0, 3.0]);
+        assert_eq!(history.series()["b"], [10.0, 20.0]);
     }
 
     fn tick(ms: u32) -> NonZeroU32 {
