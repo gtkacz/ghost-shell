@@ -70,6 +70,8 @@ test('alerts go stale once they are older than three provider cadences', () => {
   assert.equal(alertsStale(updated, 1000 + ALERTS_STALE_AFTER_S + 1), true);
 });
 
+test('alerts go stale after half an hour, a value to keep until the user confirms it', () => assert.equal(ALERTS_STALE_AFTER_S, 1800));
+
 test('alerts with no update time cannot be shown as fresh', () => {
   assert.equal(alertsStale(null, 1000), true);
   assert.equal(alertsStale({}, 1000), true);

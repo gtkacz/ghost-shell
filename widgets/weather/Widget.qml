@@ -24,6 +24,8 @@ Panel {
     readonly property real conditionGapPx: 2
     // Letter spacing in em.
     readonly property real conditionTracking: 0.12
+    readonly property int conditionLines: 2
+    readonly property string conditionCapText: "THUNDERSTORM"
     readonly property real stackGapPx: 6
     readonly property real detailPx: 9
     readonly property real aqiGapPx: 8
@@ -73,7 +75,9 @@ Panel {
     readonly property bool hasAlert: topAlert !== null
     readonly property string alertKey: hasAlert ? String(topAlert.id) : ""
     readonly property string alertLevel: hasAlert ? topAlert.level : "warn"
-    readonly property string alertText: hasAlert ? Fmt.alertLine(topAlert, alertsValue.source) : ""
+    // The source is left out: a config names one provider, the chip and the level colour already say "alert",
+    // and the mockup's band shows the title alone. The room goes to the severity, which sits at the end.
+    readonly property string alertText: hasAlert ? Fmt.alertLine(topAlert, "") : ""
     readonly property string alertCountdown: hasAlert ? Fmt.countdown(nowMs, topAlert.start_s * millisPerSecond, topAlert.end_s * millisPerSecond) : ""
     // A provider that stopped publishing leaves its last alert up, so the alert dims once the provider is
     // gone or its data too old to trust.
@@ -162,6 +166,20 @@ Panel {
                 }
             }
 
+            TextMetrics {
+                id: conditionCap
+
+                font: conditionLabel.font
+                text: root.conditionCapText
+            }
+
+            TextMetrics {
+                id: conditionWanted
+
+                font: conditionLabel.font
+                text: root.conditionText
+            }
+
             Column {
                 id: conditionColumn
 
@@ -173,9 +191,17 @@ Panel {
                 spacing: Theme.d(root.conditionGapPx)
 
                 Text {
+                    id: conditionLabel
+
+                    // The mockup's own condition is the widest the column is given, so that a longer one wraps instead
+                    // of widening this column and starving the alert and detail lines beside it.
+                    width: Math.min(conditionWanted.advanceWidth, conditionCap.advanceWidth)
                     text: root.conditionText
                     // The condition is the daemon's word for a weather code, which AutoText would render as markup.
                     textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: root.conditionLines
+                    elide: Text.ElideRight
                     color: root.weatherLive ? Theme.hi : Theme.dim
                     font {
                         family: Theme.font
