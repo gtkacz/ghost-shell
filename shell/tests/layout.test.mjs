@@ -24,14 +24,14 @@ const DEFAULT_V1_FOR_TEST = {
       children: [
         {
           direction: 'column',
-          size: 300,
+          size: 346,
           children: [
             { size: null, default: 0, tabs: [tab('uplink', 'UPLINK'), tab('silicon', 'SILICON'), tab('process-tree', 'TREE')] },
             slot('network', 109, { style: 'scope' }),
           ],
         },
         slot('storage'),
-        slot('sensors', 184),
+        slot('sensors', 160),
       ],
     },
   ],
@@ -79,7 +79,7 @@ const DEFAULT_MONITOR_FOR_TEST = {
   ],
 };
 
-// Task 8 measured the network scope's natural height in the shell (108.65 at u 1.739).
+// The network scope's natural height, measured in the shell (108.65 at u 1.739).
 const NETWORK_SCOPE_HEIGHT = 109;
 
 const pick = (rects, widget) => {
@@ -110,7 +110,7 @@ test('a zero gutter butts siblings together', () => {
 test('default v1 geometry', () => {
   const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
   assert.deepEqual(pick(r, 'processor'), { x: 12, y: 42, w: 300, h: 250 });
-  assert.equal(pick(r, 'storage').h, 666 - 300 - 184 - 24);
+  assert.equal(pick(r, 'storage').h, 666 - 346 - 160 - 24);
 });
 
 test('default v1 flex columns fill the space between the fixed ones', () => {
@@ -126,7 +126,7 @@ test('default v1 flex columns fill the space between the fixed ones', () => {
 test('v1 scope column', () => {
   const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
   assert.equal(pick(r, 'network').h, NETWORK_SCOPE_HEIGHT);
-  assert.equal(r.find((x) => x.tabs).h, 300 - 12 - NETWORK_SCOPE_HEIGHT);
+  assert.equal(r.find((x) => x.tabs).h, 346 - 12 - NETWORK_SCOPE_HEIGHT);
 });
 
 test('default v2 geometry', () => {

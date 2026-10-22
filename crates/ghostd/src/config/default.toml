@@ -226,7 +226,7 @@ size = 300
 
 [[layout.views.v1.children.children]]
 direction = "column"
-size = 300
+size = 346
 
 [[layout.views.v1.children.children.children]]
 default = 0
@@ -246,7 +246,7 @@ widget = "storage"
 
 [[layout.views.v1.children.children]]
 widget = "sensors"
-size = 184
+size = 160
 
 # The second main view: a clock band over a tab strip, with the media player as a strip below.
 [layout.views.v2]

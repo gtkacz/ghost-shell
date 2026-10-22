@@ -511,7 +511,7 @@ fn default_v1() -> LayoutNode {
                 vec![
                     split(
                         Column,
-                        Some(300.0),
+                        Some(346.0),
                         vec![
                             LayoutNode::Tabs {
                                 tabs: vec![
@@ -526,7 +526,7 @@ fn default_v1() -> LayoutNode {
                         ],
                     ),
                     slot("storage", None),
-                    slot("sensors", Some(184.0)),
+                    slot("sensors", Some(160.0)),
                 ],
             ),
         ],
