@@ -140,7 +140,7 @@ Everything stays teal-grey until it needs the user. Default thresholds: loads �
 - **Digits that change** (clocks, rates, percentages, countdowns) must never shift. Monospace fonts like Kode Mono handle this natively. With a proportional font set in config, each digit sits in a fixed-width `1ch` cell. **Known issue:** with Chakra Petch, a leading narrow digit (the "1" in `19:04`) got too much margin; use real tabular figures or metric-aware centring.
 - **Clocks:** the big bold display font with the seconds as a teal superscript. **No extra scanline or row texture on the clock**; the user rejected both thick and thin variants. Only the global faint scanlines apply.
 - **Japanese:** setting `kanji | katakana | mixed | off`, default **mixed**: kanji on panel labels (演算, 描画, 記憶, 記録, 温度, 通信, 衛星, 回路, 系譜, 時刻, 気象, 音声, 通知…) and katakana on small status chips (アラート, クリティカル, ライブ, オンライン, プレイ…).
-- **Text scramble:** used **only the first time a text is written**: panel labels at startup, a newly arrived notification, a new track title. **Never** on numbers, the clock, or values that update.
+- **Text scramble:** a text scrambles on its **first write in each showing of its widget**: a tab switch, a view switch, a style or settings change, and the greeting's reveal each make a new showing. This covers labels and values alike, numbers and the clock included. An uncover is not a new showing. Within a showing, later changes never scramble. The uplink globe's endpoint labels stay plain (user decision, 2026-10-22).
 - **Icons:** drawn vector icons only. **Never use Unicode glyphs as icons** (→ ▲ ⇄ × ↕). **Every arrow-type icon is a chevron**: traffic up/down, the main-view swap, scroll hints, previous/next track.
   - Chevrons are small and fairly flat: about 6.8 wide by 3 tall in a 12-unit box, drawn at 0.8 em with a 1.6-unit square-capped stroke (as in the reference mockup).
   - Play and pause stay as the standard triangle and bars.
@@ -165,7 +165,7 @@ Everything stays teal-grey until it needs the user. Default thresholds: loads �
 ## 6. The desktop dashboard
 
 - It **is** the desktop: it lives on the desktop/background layer, windows draw over it, and the user sees it on an empty screen, after Show Desktop, and after the greeting.
-- **Interactive parts:** notification search and scroll, media controls, view tabs, the process tree.
+- **Interactive parts:** notification search and scroll, media controls, view tabs, the process tree, where placed.
 - **[call]** When it's fully covered by windows, it **stops rendering** and the daemon drops to what the bar needs.
 
 ### 6.1 Views
@@ -189,14 +189,14 @@ All values at mockup scale: 12 px margins and gutters, a 30 px bar on top.
     - Time hero, 262 high: 118 px clock, then a `DAY · DATE · UPTIME · SÃO PAULO UTC−3` line, a weather line, and the INMET alert box.
     - Below it, Media (290 wide, album art stacked) and Notifications (stretches) side by side.
   - Right column (300):
-    - **Uplink scope**, 300 high: tabs `UPLINK | SILICON | TREE`, a traffic block graph, up/down/ping, and a VPN line. **It shows endpoint labels at its small size.**
-    - Storage (stretches).
-    - Sensors 184.
+    - **Uplink block**, 332 high (layout B; user decision, 2026-10-22): tabs `UPLINK | SILICON` (211) above a headerless Network scope (109) with a traffic block graph, up/down/ping and a VPN line, 12 apart. **The globe shows endpoint labels at its small size.**
+    - Storage (stretches; about 152).
+    - Sensors 158.
 - **V2:**
   - Left column: the same as V1.
   - Centre:
     - Time band, 150 high: 74 px clock, date/uptime, weather and the alert box.
-    - **Centrepiece** (stretches): tabs `UPLINK (default) | SILICON | PROCESS TREE`.
+    - **Centrepiece** (stretches): tabs `UPLINK (default) | SILICON` (user decision, 2026-10-22).
     - Media strip, 120 high.
   - Right column: Notifications 290, Network 164 (traffic + links: LAN, OpenVPN, Tailscale), Storage (stretches).
 - **MONITOR:**
@@ -209,8 +209,9 @@ All values at mockup scale: 12 px margins and gutters, a 30 px bar on top.
     - disk I/O (mirrored the same way);
     - thermals (CPU, GPU and NVMe as three stacked strips).
   - **[call]** History length: 5 min by default, configurable.
-  - Right rail: Process tree (stretches) and Sensors 184.
+  - Right rail (340): Storage 188 (five drives plus R/W) above Sensors (stretches) (user decision, 2026-10-22).
   - **[call]** No notifications in monitor mode; it's about the machine.
+  - The user's floating Plasma panel overlaps the bottom of MONITOR's last row. It is left as is (user decision, 2026-10-22).
 - With **bar layout B** (§8), every view loses ~60 px of height to the dock and must re-flow without clipping.
 
 ### 6.3 Panel contents
@@ -225,7 +226,7 @@ All values at mockup scale: 12 px margins and gutters, a 30 px bar on top.
 | Network | traffic block graph, up/down rates, ping, links (LAN + each VPN with state) |
 | Uplink | dotted globe with **accurate geography**, home marker in São Paulo, **arcs to the endpoints of live connections** with moving packets and hostname labels; endpoint location from an **offline** GeoIP database **[call]** |
 | Silicon | schematic of the real package: CCD0 and CCD1, each with 8 core tiles (two segmented thread bars each), the L3 strip with the V-Cache hatch on CCD0, Infinity Fabric links with packets whose speed follows load, and I/O-die blocks (DDR5 usage, PCIe ×16 to the GPU with GPU load, NVMe throughput, iGPU). Tile outlines go warn/crit with load. The header adds the CPU package power and an approximate system draw (`SYS ≈` CPU package + GPU board power). |
-| Process tree | pscircle-style radial tree of the real process table (kernel threads collapsed into one node), dots sized by RSS and coloured by CPU. **Must be traversable: nodes collapse and expand.** |
+| Process tree | pscircle-style radial tree of the real process table (kernel threads collapsed into one node), dots sized by RSS and coloured by CPU. **Must be traversable: nodes collapse and expand.** An available widget that no default view places (user decision, 2026-10-22). |
 | Media | MPRIS: art (the player's art URL, including `https` covers such as Spotify's, loaded once per track through Qt's cache; user decision, 2026-10-21), title, artist, segmented spectrum, segmented progress, previous / play-pause / next. **Idle states:** *paused* keeps the track and progress, shows a PAUSED chip, and the spectrum bars fall from their last values at the spectrum's own fall rate (each frame a band keeps 0.8 of its value) until all cells are unlit, then stay dark with no motion (user decision, 2026-10-21); *stopped or no player* shows the last track dimmed with `STOPPED · LAST PLAYED 12M AGO`, and play resumes it or opens the player. **Audio rows**, always visible: `OUT` (default output device, segmented volume, mute) and `IN` (default input device, live mic level, mute). While any app records, `IN` reads LIVE in warn and a boxed alert says `MIC LIVE · <APP> IS RECORDING`. |
 | Notifications | searchable (live filter), scrollable history: app, message, age; warn/crit rows get a coloured left edge; new items scramble in |
 | Weather | temperature, condition, high/low, humidity, wind, rain chance, 6-hour forecast, **sunrise, sunset, moon phase and illumination, air quality (US AQI)**, INMET alert box with countdown |
@@ -405,7 +406,7 @@ The user plans to open-source ghost-shell, so **every component must be pluggabl
     - **slots:** one widget plus its settings;
     - **tabs:** a tabbed container of slots. Each tab shows the widget's name or a `title` override, the default tab is configurable, and only the active tab's widget is loaded.
 
-    For example, the UPLINK / SILICON / PROCESS TREE centrepiece is a `tabs` node of three separate widgets, so any widget can be put in a tab, and those three can be placed on their own.
+    For example, the UPLINK / SILICON centrepiece is a `tabs` node of two separate widgets, so any widget can be put in a tab, and those two can be placed on their own. The process tree is a widget too, and can be added as a third tab or a slot of its own.
   - **[call]** New node types (e.g. a grid) can be added later without breaking existing configs. Third-party containers aren't part of the API yet.
   - The bar is a layout too: left, centre and right lists of bar widgets (§8).
   - The defaults reproduce the layouts in §6 and §8. The same widget can appear in several slots and several views.
@@ -471,7 +472,7 @@ These are measurable targets; the user only said "highly performant".
   - Data panels repaint only when their data changes.
   - The builder chooses how to get there (a frame-paced render loop, separate surfaces for the animated regions, or similar), **before** building panels, because it's expensive to change later.
 - **Desktop visible, default view animating:** shell + daemon ≤ 2 % of one CPU core combined (averaged over 60 s) and ≤ 300 MB RSS combined, each resident page counted once: `Rss` in `/proc/<pid>/smaps_rollup`, since VmRSS counts NVIDIA's `/dev/nvidiactl` mappings twice (user decision, 2026-10-21).
-- **Desktop visible, nothing animating** (e.g. the SILICON tab with no alerts): ≤ 1 %.
+- **Desktop visible, nothing animating** (e.g. MONITOR with no alerts): ≤ 1 %. SILICON animates its packets (plan [call] 4, from the mockup), so it is measured against the 2 % budget above. MONITOR is accepted up to 1.25 % (user decision, 2026-10-22), and measured 0.80 % once the process tree left it.
 - **Covered by windows:** zero dashboard frames, ≤ 0.5 %, and the daemon collects only what the bar shows.
 - **Heavy drawing** lives in native scene-graph nodes or shaders.
 - **No forks, shell scripts or busy polling in steady state.**
