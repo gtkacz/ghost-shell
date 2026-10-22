@@ -55,6 +55,7 @@ Item {
 
         anchors.fill: parent
         slot: root.node.tabs[root.current]
+        firstWriteScope: FirstWrite.hostScope(root.view, root.node.path)
         headerReserve: strip.width
 
         // Once per widget: one without a shown Panel header leaves the strip nowhere but over its body.

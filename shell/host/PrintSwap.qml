@@ -41,7 +41,12 @@ Item {
     readonly property real sweepHeight: shown ? shown.areaBottom - shown.areaTop : 0
     readonly property real edge: sweepTop + ViewsLib.revealRows(step, ViewsLib.PRINT_STEPS, Math.round(sweepHeight * pixelRatio)) / pixelRatio
 
+    // A view replacing a shown one is a new showing of it. The view an uncover creates this item on is
+    // not, and its binding settles before anything is shown.
     function follow() {
+        if (shown) {
+            FirstWrite.showView(view);
+        }
         if (shown && !printing && Views.durationMs > 0) {
             beginPrint();
             return;

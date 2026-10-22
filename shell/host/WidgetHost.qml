@@ -11,6 +11,9 @@ Item {
     // Logical pixels at the right end of the widget's header line that a tabs node's strip covers;
     // 0 outside a tabs node.
     property real headerReserve: 0
+    // The view and place the slot is shown at, from FirstWrite.hostScope(), under which the widget's
+    // ScrambleTexts remember their first writes.
+    required property string firstWriteScope
 
     readonly property string widgetId: slot ? slot.widget : ""
     property string failure: ""
@@ -27,6 +30,7 @@ Item {
         if (!slot) {
             return;
         }
+        FirstWrite.showSlot(firstWriteScope, slot);
         if (slot.error) {
             failure = slot.error;
             return;

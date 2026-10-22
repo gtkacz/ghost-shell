@@ -100,6 +100,7 @@ Item {
 
                 WidgetHost {
                     slot: cell.modelData
+                    firstWriteScope: FirstWrite.hostScope(root.viewName, cell.modelData.path)
                 }
             }
 

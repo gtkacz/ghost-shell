@@ -1,9 +1,11 @@
 import QtQuick
 import "lib/scramble.mjs" as ScrambleLib
+import "lib/firstwrite.mjs" as FirstWriteLib
 
 // A Text that scrambles into place the first time it is written and is a plain Text afterwards. The
-// first write belongs to the key rather than to the item, so a view that is rebuilt does not scramble
-// again. Every step lands on a FrameClock tick, so it adds no frames of its own.
+// first write belongs to the key, scoped by the host showing the widget, rather than to the item, so a
+// view that is rebuilt does not scramble again but a widget shown anew does. Every step lands on a
+// FrameClock tick, so it adds no frames of its own.
 Text {
     id: root
 
@@ -12,6 +14,17 @@ Text {
     // Names the write. Empty means the text this item first shows, so later text changes show directly;
     // a key that changes, as a track's does, scrambles again if FirstWrite has not seen it.
     property string scrambleKey
+
+    // Widgets do not know their host, so the scope is found up the tree: the nearest WidgetHost's, or
+    // none outside one.
+    function hostScope() {
+        for (let item = parent; item; item = item.parent) {
+            if (item.firstWriteScope !== undefined) {
+                return item.firstWriteScope;
+            }
+        }
+        return "";
+    }
 
     function considerKey() {
         if (!visible) {
@@ -27,7 +40,7 @@ Text {
         run.decidedKey = key;
         // Ends a scramble still running for the previous key, which hands the text back to its binding.
         run.stop();
-        if (text !== "" && FirstWrite.claim(key)) {
+        if (text !== "" && FirstWrite.claim(FirstWriteLib.scopedKey(hostScope(), key))) {
             run.begin(text);
         }
     }
