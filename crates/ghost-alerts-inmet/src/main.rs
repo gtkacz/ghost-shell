@@ -29,6 +29,9 @@ const FETCH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const FIRST_RETRY: Duration = Duration::from_secs(60);
 const RETRY_GROWTH: u32 = 2;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
+// The monotonic clock and the socket's read timeout both stop during a suspend and nothing reports
+// the resume, so a wait looks at the wall clock at least this often, as ghostd's weather feed does.
+const WALL_CLOCK_CHECK: Duration = Duration::from_secs(60);
 // INMET's firewall resets connections that send curl's default User-Agent, so every request names
 // itself, as ghostd's own requests do.
 const USER_AGENT: &str = concat!("ghost-shell/", env!("CARGO_PKG_VERSION"));
@@ -200,17 +203,16 @@ fn unix_now_s() -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
-/// Sleeps for `period` while watching the connection, which ghostd writes to only to end it:
-/// a provider it refused, or whose daemon is gone, would otherwise go on fetching for nobody.
+/// Sleeps for `period` of wall-clock time while watching the connection, which ghostd writes to
+/// only to end it: a provider it refused, or whose daemon is gone, would otherwise go on fetching
+/// for nobody.
 fn wait(daemon: &mut UnixStream, period: Duration) -> Result<(), Ended> {
-    let deadline = Instant::now() + period;
+    let began = SystemTime::now();
     let mut buffer = [0; ERROR_BUFFER_BYTES];
-    loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Ok(());
-        }
-        daemon.set_read_timeout(Some(left)).map_err(Ended::Read)?;
+    while let Some(timeout) = read_timeout(began, period, SystemTime::now()) {
+        daemon
+            .set_read_timeout(Some(timeout))
+            .map_err(Ended::Read)?;
         match daemon.read(&mut buffer) {
             Ok(0) => return Err(Ended::Closed),
             Ok(read) => {
@@ -221,6 +223,16 @@ fn wait(daemon: &mut UnixStream, period: Duration) -> Result<(), Ended> {
             Err(error) => return Err(Ended::Read(error)),
         }
     }
+    Ok(())
+}
+
+/// How long the next read may block, at most [`WALL_CLOCK_CHECK`], or `None` once `now` is
+/// `period` past `began`. A clock set back before `began` ends the wait too, as it would otherwise
+/// hold the next fetch back by as much as it moved.
+fn read_timeout(began: SystemTime, period: Duration, now: SystemTime) -> Option<Duration> {
+    let elapsed = now.duration_since(began).ok()?;
+    let left = period.saturating_sub(elapsed);
+    (!left.is_zero()).then(|| left.min(WALL_CLOCK_CHECK))
 }
 
 fn is_timeout_or_interrupt(error: &io::Error) -> bool {
@@ -228,4 +240,50 @@ fn is_timeout_or_interrupt(error: &io::Error) -> bool {
         error.kind(),
         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 2026-10-21 18:00 in São Paulo.
+    const BEGAN_S: u64 = 1_792_616_400;
+    const NIGHT: Duration = Duration::from_secs(8 * 60 * 60);
+    const HALF_A_MINUTE: Duration = Duration::from_secs(30);
+
+    fn began() -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(BEGAN_S)
+    }
+
+    #[test]
+    fn a_wait_whose_deadline_has_passed_fetches_now() {
+        // A night's suspend, which the monotonic clock and the read timeout never saw.
+        assert_eq!(read_timeout(began(), FETCH_INTERVAL, began() + NIGHT), None);
+        assert_eq!(
+            read_timeout(began(), FETCH_INTERVAL, began() + FETCH_INTERVAL),
+            None
+        );
+    }
+
+    #[test]
+    fn no_read_waits_longer_than_the_wall_clock_check() {
+        assert_eq!(
+            read_timeout(began(), FETCH_INTERVAL, began()),
+            Some(WALL_CLOCK_CHECK)
+        );
+        let near_the_end = began() + FETCH_INTERVAL - HALF_A_MINUTE;
+        assert_eq!(
+            read_timeout(began(), FETCH_INTERVAL, near_the_end),
+            Some(HALF_A_MINUTE)
+        );
+        assert_eq!(
+            read_timeout(began(), CLAIM_SETTLE, began()),
+            Some(CLAIM_SETTLE)
+        );
+    }
+
+    #[test]
+    fn a_clock_set_back_before_the_wait_began_fetches_now() {
+        assert_eq!(read_timeout(began(), FETCH_INTERVAL, began() - NIGHT), None);
+    }
 }
