@@ -338,3 +338,20 @@ pub enum LinkState {
     Connecting,
     Down,
 }
+
+/// Each drive's wear and power-on hours, from the SMART data UDisks2 last cached, so reading them
+/// never wakes a drive. Empty while UDisks2 is absent.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DiskHealth {
+    pub drives: Vec<DriveHealth>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriveHealth {
+    /// The drive's serial, which a `disks` drive id ends with, after its last `#`.
+    pub serial: String,
+    /// How much of its rated endurance an NVMe drive has used; past 100 once it is exceeded.
+    /// Always `None` for ATA drives.
+    pub wear_pct: Option<u8>,
+    pub power_on_hours: Option<u32>,
+}

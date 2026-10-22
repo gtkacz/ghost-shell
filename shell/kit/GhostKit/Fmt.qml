@@ -92,6 +92,10 @@ Singleton {
         return Labels.readingByLabel(snapshot, label);
     }
 
+    function serialOf(driveId) {
+        return Labels.serialOf(driveId);
+    }
+
     function levelAbove(value, warnAt, critAt) {
         return Segments.levelAbove(value, warnAt, critAt);
     }

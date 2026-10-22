@@ -1,8 +1,8 @@
 import QtQuick
 import GhostKit
 
-// Every drive: a live one with its mounts, temperature and used space, a dead one as a crit alert, an
-// unmounted one as a dim line, and the read and write rates of them all. Rows that don't fit are
+// Every drive: a live one with its mounts, temperature, used space, wear and power-on hours, a dead one as a
+// crit alert, an unmounted one as a dim line, and the read and write rates of them all. Rows that don't fit are
 // dropped whole, the least important first.
 Panel {
     id: root
@@ -30,6 +30,15 @@ Panel {
     property var settings
 
     readonly property var disks: Data.topic("disks").value
+    readonly property var health: Data.topic("disks.health").value
+    // disks.health names drives by serial alone, which is how a drive id ends.
+    readonly property var healthBySerial: {
+        const bySerial = {};
+        for (const drive of health ? health.drives : []) {
+            bySerial[drive.serial] = drive;
+        }
+        return bySerial;
+    }
     readonly property bool live: Data.connected && !Data.stale
     readonly property var drives: disks ? disks.drives.filter(drive => settings.show_unmounted || drive.state !== "unmounted") : []
     readonly property real lineHeight: Math.ceil(line.height)
@@ -44,6 +53,17 @@ Panel {
         default:
             return lineHeight;
         }
+    }
+
+    // "W 3% · 12345 H", or "" while neither is known. Only live rows show it: UDisks2 still answers from its
+    // cache for a controller sysfs reports dead.
+    function healthText(drive) {
+        const known = healthBySerial[Fmt.serialOf(drive.id)];
+        if (!known || (!Number.isFinite(known.wear_pct) && !Number.isFinite(known.power_on_hours))) {
+            return "";
+        }
+        const hours = Number.isFinite(known.power_on_hours) ? known.power_on_hours : "--";
+        return "W " + Fmt.pct(known.wear_pct) + " · " + hours + " H";
     }
 
     function total(key) {
@@ -85,6 +105,16 @@ Panel {
 
         font: line.font
         text: Fmt.pct(Theme.percent)
+    }
+
+    // The longest wear text of the rows shown, so every meter and percentage ends at the same x.
+    TextMetrics {
+        id: healthSpan
+
+        readonly property real column: text ? advanceWidth + root.inlineGap : 0
+
+        font: line.font
+        text: list.liveRows.map(row => root.healthText(row.drive)).reduce((longest, candidate) => candidate.length > longest.length ? candidate : longest, "")
     }
 
     // Never shown, so it never runs the frame clock: it gives the alert row's height before any
@@ -198,7 +228,7 @@ Panel {
                     anchors {
                         left: parent.left
                         right: parent.right
-                        rightMargin: percentSpan.advanceWidth + root.inlineGap
+                        rightMargin: percentSpan.advanceWidth + root.inlineGap + healthSpan.column
                         verticalCenter: livePercent.verticalCenter
                     }
                     value: Number.isFinite(liveRow.drive.used_pct) ? liveRow.drive.used_pct / Theme.percent : null
@@ -211,6 +241,7 @@ Panel {
 
                     anchors {
                         right: parent.right
+                        rightMargin: healthSpan.column
                         top: liveName.bottom
                         topMargin: Theme.d(root.lineGapPx)
                     }
@@ -218,6 +249,17 @@ Panel {
                     pixelSize: Theme.d(root.textPx)
                     weight: Font.Medium
                     color: root.tone(liveRow.drive.used_pct, Theme.hi)
+                }
+
+                Text {
+                    anchors {
+                        right: parent.right
+                        baseline: livePercent.baseline
+                    }
+                    text: root.healthText(liveRow.drive)
+                    textFormat: Text.PlainText
+                    color: Theme.dim
+                    font: line.font
                 }
             }
         }

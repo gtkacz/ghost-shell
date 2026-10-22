@@ -1,6 +1,7 @@
 //! Built-in topics published from async tasks, each started once by `serve`.
 
 pub mod desktop;
+pub mod health;
 pub mod host;
 pub mod http;
 mod kwin_script;
@@ -14,6 +15,7 @@ pub mod weather;
 use std::future::{pending, poll_fn};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_core::Stream;
@@ -79,4 +81,10 @@ pub(crate) fn unix_now_s() -> u64 {
 /// The next item of `stream`, or `None` once it has ended.
 pub(crate) async fn next<S: Stream + Unpin>(stream: &mut S) -> Option<S::Item> {
     poll_fn(|context| Pin::new(&mut *stream).poll_next(context)).await
+}
+
+/// Drops every item `stream` has already queued.
+pub(crate) fn drain<S: Stream + Unpin>(stream: &mut S) {
+    let mut context = Context::from_waker(Waker::noop());
+    while let Poll::Ready(Some(_)) = Pin::new(&mut *stream).poll_next(&mut context) {}
 }

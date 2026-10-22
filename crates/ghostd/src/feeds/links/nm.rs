@@ -3,10 +3,7 @@
 
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
-use std::pin::Pin;
-use std::task::{Context, Poll, Waker};
 
-use futures_core::Stream;
 use ghost_proto::{LanLink, LinkState, VpnLink};
 use tracing::debug;
 use zbus::fdo::NameOwnerChangedStream;
@@ -15,7 +12,7 @@ use zbus::{
     Connection, MatchRule, MessageStream, OwnedObjectPath, OwnedVariant, fdo, message, proxy,
 };
 
-use crate::feeds::next;
+use crate::feeds::{drain, next};
 
 const NM: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";
@@ -200,11 +197,6 @@ impl Changes {
             }
         }
     }
-}
-
-fn drain<S: Stream + Unpin>(stream: &mut S) {
-    let mut context = Context::from_waker(Waker::noop());
-    while let Poll::Ready(Some(_)) = Pin::new(&mut *stream).poll_next(&mut context) {}
 }
 
 fn touches_links(message: &zbus::Message) -> bool {

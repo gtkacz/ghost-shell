@@ -1,6 +1,7 @@
 const CPU_VENDOR_PREFIX = /^(AMD |Intel\(R\) Core\(TM\) )/i;
 const CPU_CORE_COUNT_SUFFIX = /\s+\d+-Core Processor$/i;
 const GPU_VENDOR_PREFIX = /^(NVIDIA GeForce |AMD Radeon )/i;
+const DRIVE_ID_SEPARATOR = '#';
 
 // The shell starts before the daemon, so a model or name may not have arrived yet.
 function textOrEmpty(value) {
@@ -18,6 +19,12 @@ export function gpuNameShort(name) {
 // The die without the extra L3 is the one that clocks higher, hence FREQ.
 export function ccdTitle(ccd) {
   return 'CCD' + ccd.id + ' · ' + (ccd.vcache ? 'V-CACHE' : 'FREQ');
+}
+
+// The daemon's drive id is "{model}#{serial}", and disks.health names drives by serial alone.
+export function serialOf(driveId) {
+  const id = textOrEmpty(driveId);
+  return id.slice(id.lastIndexOf(DRIVE_ID_SEPARATOR) + 1);
 }
 
 // Ids name this machine's chips, so widgets look readings up by the daemon's labels, which a user

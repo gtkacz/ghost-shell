@@ -438,9 +438,9 @@ enum NvmeTemp {
     Reads(Wave),
 }
 
-struct FakeDrive {
+pub(super) struct FakeDrive {
     model: &'static str,
-    serial: &'static str,
+    pub(super) serial: &'static str,
     kernel_name: &'static str,
     state: DriveState,
     mounts: &'static [&'static str],
@@ -449,7 +449,7 @@ struct FakeDrive {
 }
 
 // Listed root first, then live, dead and unmounted drives, the order the real collector reports.
-const DRIVES: [FakeDrive; 5] = [
+pub(super) const DRIVES: [FakeDrive; 5] = [
     FakeDrive {
         model: "XPG GAMMIX S70 BLADE",
         serial: "2N4829FAKE01",

@@ -302,6 +302,7 @@ fn host_feeds() -> Vec<Feed> {
         feeds::sky::feed(),
         feeds::spectrum::feed(),
         feeds::links::feed(),
+        feeds::health::feed(),
     ]
 }
 

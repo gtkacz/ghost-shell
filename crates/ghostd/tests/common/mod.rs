@@ -6,6 +6,7 @@ pub mod disk;
 pub mod nm;
 pub mod server;
 pub mod tailscale;
+pub mod udisks;
 
 use std::fs;
 use std::os::unix::fs::symlink;

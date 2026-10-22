@@ -2,13 +2,14 @@ use std::future::pending;
 use std::time::Duration;
 
 use ghost_proto::{
-    AlertLevel, HostSnapshot, LanLink, LinkState, LinksSnapshot, RainPeak, SkySnapshot,
-    SpectrumSnapshot, TailscaleLink, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour,
-    WeatherSnapshot, topics,
+    AlertLevel, DiskHealth, DriveHealth, HostSnapshot, LanLink, LinkState, LinksSnapshot, RainPeak,
+    SkySnapshot, SpectrumSnapshot, TailscaleLink, VpnLink, WeatherAlert, WeatherAlerts,
+    WeatherHour, WeatherSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
 use super::Wave;
+use super::sampled::DRIVES;
 use crate::feeds::spectrum::{BANDS, FRAMES_PER_S};
 use crate::feeds::weather::condition;
 use crate::feeds::{unix_now_s, until_unwanted, until_wanted};
@@ -16,7 +17,15 @@ use crate::server::Feed;
 
 /// The fake feeds, one per feed topic, plus `weather.alerts` in place of the alerts provider.
 pub fn feeds() -> Vec<Feed> {
-    vec![host(), weather(), sky(), spectrum(), alerts(), links()]
+    vec![
+        host(),
+        weather(),
+        sky(),
+        spectrum(),
+        alerts(),
+        links(),
+        disks_health(),
+    ]
 }
 
 const HOSTNAME: &str = "tkacz-workstation";
@@ -251,5 +260,40 @@ fn mockup_links() -> LinksSnapshot {
             state: LinkState::Up,
         }),
         ping_ms: Some(PING_MS),
+    }
+}
+
+/// Wear and power-on hours of each fake drive, in [`DRIVES`] order, as fx/udisks2-drives.json read
+/// the live ones. UDisks2 still reports the dead WD from an older cache (fx C5), so the shell must
+/// leave it out itself; ATA drives report no wear.
+const DRIVE_HEALTH: [(Option<u8>, Option<u32>); DRIVES.len()] = [
+    (Some(1), Some(2_908)),
+    (Some(37), Some(17_773)),
+    (Some(1), Some(12_354)),
+    (None, Some(33_429)),
+    (None, Some(24_408)),
+];
+
+/// The drives' health, published once.
+fn disks_health() -> Feed {
+    Feed::new(topics::DISKS_HEALTH, |context| async move {
+        context
+            .publisher
+            .publish(topics::DISKS_HEALTH, &fake_disk_health());
+        pending::<()>().await;
+    })
+}
+
+fn fake_disk_health() -> DiskHealth {
+    DiskHealth {
+        drives: DRIVES
+            .iter()
+            .zip(DRIVE_HEALTH)
+            .map(|(drive, (wear_pct, power_on_hours))| DriveHealth {
+                serial: drive.serial.to_owned(),
+                wear_pct,
+                power_on_hours,
+            })
+            .collect(),
     }
 }

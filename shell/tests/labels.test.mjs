@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cpuModelShort, gpuNameShort, ccdTitle, readingByLabel } from '../kit/GhostKit/lib/labels.mjs';
+import { cpuModelShort, gpuNameShort, ccdTitle, readingByLabel, serialOf } from '../kit/GhostKit/lib/labels.mjs';
 
 test('short names', () => {
   assert.equal(cpuModelShort('AMD Ryzen 9 9950X3D 16-Core Processor'), 'RYZEN 9 9950X3D');
@@ -54,4 +54,10 @@ test('readingByLabel is null for an unknown label or a missing snapshot', () => 
   assert.equal(readingByLabel(SNAPSHOT, 'nope'), null);
   assert.equal(readingByLabel(null, 'CPU FAN'), null);
   assert.equal(readingByLabel({}, 'CPU FAN'), null);
+});
+
+test('serial of a drive id', () => assert.equal(serialOf('XPG GAMMIX S70 BLADE#2O412LA45EG7'), '2O412LA45EG7'));
+
+test('serialOf splits at the last #, since a model may contain one', () => {
+  assert.equal(serialOf('ACME #1 SSD#SN-42'), 'SN-42');
 });

@@ -29,13 +29,28 @@ pub mod topics {
     pub const SKY: &str = "sky";
     pub const SPECTRUM: &str = "audio.spectrum";
     pub const NET_LINKS: &str = "net.links";
+    pub const DISKS_HEALTH: &str = "disks.health";
     /// Published by an alerts provider, so it is well known without being built in.
     pub const WEATHER_ALERTS: &str = "weather.alerts";
 
     // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
-    pub const BUILTIN: [&str; 15] = [
-        CPU, MEM, SENSORS, GPU, DISKS, PERF, HOST, DESKTOP, WEATHER, SKY, SPECTRUM, PROCS,
-        PROCS_TREE, NET_LINKS, NET,
+    pub const BUILTIN: [&str; 16] = [
+        CPU,
+        MEM,
+        SENSORS,
+        GPU,
+        DISKS,
+        PERF,
+        HOST,
+        DESKTOP,
+        WEATHER,
+        SKY,
+        SPECTRUM,
+        PROCS,
+        PROCS_TREE,
+        NET_LINKS,
+        NET,
+        DISKS_HEALTH,
     ];
 }
 
