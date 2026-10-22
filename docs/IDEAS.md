@@ -7,3 +7,5 @@
 - Calendar
 - Climate icons e.g. "overcast"
 - Volume controller on the media widget's OUT/IN meters (drag or scroll to set the level) instead of the whole row toggling mute
+- Network speed test
+- Trash icon/Clear trash
