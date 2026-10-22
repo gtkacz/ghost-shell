@@ -1041,7 +1041,7 @@ git commit -m "feat(alerts): add the inmet weather alert provider"
       - `skyLine` in `dim`, followed by `AQI <n>` coloured by `levelAbove(aqi, aqiWarn, aqiCrit)`;
       - only the most urgent alert is shown **[call]**;
     - right: six hour cells (a segmented rain column 14 high with 2 px cells and 1 px gaps, the temperature, the hour label).
-    - It renders **nothing** (no panel) while `weather.available` is false (spec §13: weather stays hidden until a location is set). Values are `dim` while `stale`.
+    - It renders **nothing** (no panel) while `weather.available` is false and no alert is active (spec §13: weather stays hidden until a location is set; ruling R51 keeps alerts visible without a forecast). Values are `dim` while `stale`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1100,7 +1100,7 @@ git commit -m "feat(widgets): add the weather widget with alerts, forecast, sun,
   - **`hero`** (V1, frameless: `framed: false`; mockup `.timehero`), a centred column with 14 px gaps:
     1. `HH:MM` at 118 px bold in `hi` (tracking −.02 em), with the seconds at 34 px in `signal`, top-aligned 10 px to the right;
     2. the date line: 11 px, tracking .26 em, `dim`, 18 px gaps: `TUE  DATE 21.10.26  UPTIME 02:14:07  SÃO PAULO UTC−3`. Labels are `dim` and values are `text`. The city comes from `location.city` uppercased, and its segment is omitted when the city is empty.
-    3. if `weather` is set and `weather.available`: the weather line (26 px temperature, the condition, then `hiLo` and `HUM` in `dim`) and an `AlertBox` for `activeAlerts[0]` with its countdown.
+    3. if `weather` is set: the weather line while `weather.available` (26 px temperature, the condition, then `hiLo` and `HUM` in `dim`), and an `AlertBox` for `activeAlerts[0]` with its countdown whenever alerts are configured and active, forecast or not (ruling R51).
   - **`band`** (V2, headerless; mockup `.timeband`): 74 px / 24 px digits on the left. On the right: the date line without the city, the weather line with `detailLine`, and the alert box.
   - **`compact`** (the MONITOR band, headerless; mockup `.band-clock`): 44 px / 16 px digits over a `Kv` row of DATE, DAY and UPTIME. It never shows weather.
   - Everything updates on `FrameClock.epochSecond`. Uptime is `epochSecond − host.boot_time_s`, shown as `--` until `host` arrives.
