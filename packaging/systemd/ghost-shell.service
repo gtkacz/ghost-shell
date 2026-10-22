@@ -6,6 +6,9 @@ PartOf=graphical-session.target
 
 [Service]
 Environment=QML_IMPORT_PATH=%h/.local/share/ghost-shell/shell/kit
+# Qt sizes the texture atlas to the window (4096x2048 at 2560x1440) and fills it with the album art alone; measured with art showing, 512x512 cuts VRAM from 156 to 92 MiB and RSS by 4-10 MiB.
+Environment=QSG_ATLAS_WIDTH=512
+Environment=QSG_ATLAS_HEIGHT=512
 ExecStart=/usr/bin/qs -p %h/.local/share/ghost-shell/shell
 Restart=on-failure
 
