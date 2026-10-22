@@ -77,7 +77,7 @@ Panel {
     readonly property var spanS: metric === cpuMetric && graphLoader.item ? Lanes.spanSeconds(graphLoader.item.columnCount, Data.stepMs) : null
     // A line wider than the label block, such as a three-digit span or a network value in megabytes, shrinks to end
     // where the graph begins: it may use the block's right padding, as the mockup's unwrapped text does, but never
-    // the graph.
+    // the graph. Past Lanes.MIN_FIT_SCALE it stops shrinking and drops its trailing parts whole instead.
     readonly property real fitWidth: Theme.d(labelWidthPx - labelSidePx)
     readonly property font valueFont: Qt.font({
         family: Theme.font,
@@ -90,8 +90,20 @@ Panel {
         letterSpacing: Theme.d(subPx) * subTracking
     })
 
-    function fitScale(lineWidth) {
-        return lineWidth > fitWidth ? fitWidth / lineWidth : 1;
+    // How many of the sub's parts show. Every part shows until they are measured.
+    property real subShown: Infinity
+    readonly property real valueGlyphWidth: Theme.d(valuePx * glyphEm)
+    // The network value's down and up parts; the up part drops first.
+    readonly property int netShown: isNet ? Lanes.fittingParts([valueGlyphWidth + netDownMetrics.advanceWidth, valueGlyphWidth + netUpMetrics.advanceWidth], fitWidth) : 0
+
+    // The parts are measured rather than read from the row, which counts nothing for a part it hides.
+    function fitSub() {
+        const widths = [];
+        for (let i = 0; i < subRepeater.count; i++) {
+            const part = subRepeater.itemAt(i);
+            widths.push(part ? part.fullWidth : 0);
+        }
+        subShown = Lanes.fittingParts(widths, fitWidth);
     }
 
     function last(series) {
@@ -170,6 +182,23 @@ Panel {
     header: false
     padding: 0
 
+    onFitWidthChanged: Qt.callLater(fitSub)
+
+    TextMetrics {
+        id: netDownMetrics
+
+        font: root.valueFont
+        text: root.isNet ? root.value.down : ""
+    }
+
+    // With the space before its chevron.
+    TextMetrics {
+        id: netUpMetrics
+
+        font: root.valueFont
+        text: root.isNet ? " " + root.value.up : ""
+    }
+
     Column {
         id: labelBlock
 
@@ -183,7 +212,7 @@ Panel {
 
         Row {
             transformOrigin: Item.Left
-            scale: root.fitScale(implicitWidth)
+            scale: Lanes.fitScale(implicitWidth, root.fitWidth)
             spacing: Theme.d(root.nameGapPx)
 
             ScrambleText {
@@ -227,7 +256,7 @@ Panel {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: !root.isNet
                 transformOrigin: Item.Left
-                scale: root.fitScale(implicitWidth)
+                scale: Lanes.fitScale(implicitWidth, root.fitWidth)
                 text: root.valueText
                 pixelSize: Theme.d(root.valuePx)
                 sourceLive: root.valueLive
@@ -238,10 +267,11 @@ Panel {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: root.isNet
                 transformOrigin: Item.Left
-                scale: root.fitScale(implicitWidth)
+                scale: Lanes.fitScale(implicitWidth, root.fitWidth)
 
                 Glyph {
                     anchors.verticalCenter: parent.verticalCenter
+                    visible: root.netShown >= 1
                     name: "chevron-down"
                     size: Theme.d(root.valuePx * root.glyphEm)
                     color: downDigits.color
@@ -250,18 +280,21 @@ Panel {
                 Digits {
                     id: downDigits
 
+                    visible: root.netShown >= 1
                     text: root.isNet ? root.value.down : ""
                     pixelSize: Theme.d(root.valuePx)
                     sourceLive: root.valueLive
                 }
 
                 Text {
+                    visible: root.netShown >= 2
                     text: " "
                     font: root.valueFont
                 }
 
                 Glyph {
                     anchors.verticalCenter: parent.verticalCenter
+                    visible: root.netShown >= 2
                     name: "chevron-up"
                     size: Theme.d(root.valuePx * root.glyphEm)
                     color: upDigits.color
@@ -270,6 +303,7 @@ Panel {
                 Digits {
                     id: upDigits
 
+                    visible: root.netShown >= 2
                     text: root.isNet ? root.value.up : ""
                     pixelSize: Theme.d(root.valuePx)
                     sourceLive: root.valueLive
@@ -279,16 +313,38 @@ Panel {
 
         InlineRow {
             transformOrigin: Item.Left
-            scale: root.fitScale(implicitWidth)
+            scale: Lanes.fitScale(implicitWidth, root.fitWidth)
 
             Repeater {
+                id: subRepeater
+
                 model: root.subParts
+                onItemAdded: Qt.callLater(root.fitSub)
 
                 InlineRow {
                     id: part
 
                     required property var modelData
                     required property int index
+                    readonly property string glyphGap: modelData.glyph !== "" ? " " : ""
+                    readonly property real fullWidth: (index > 0 ? separatorMetrics.advanceWidth : 0) + (modelData.glyph !== "" ? Theme.d(root.subPx * root.glyphEm) : 0) + wordMetrics.advanceWidth
+
+                    visible: index < root.subShown
+                    onFullWidthChanged: Qt.callLater(root.fitSub)
+
+                    TextMetrics {
+                        id: separatorMetrics
+
+                        font: root.subFont
+                        text: " · "
+                    }
+
+                    TextMetrics {
+                        id: wordMetrics
+
+                        font: root.subFont
+                        text: part.glyphGap + part.modelData.text
+                    }
 
                     ScrambleText {
                         visible: part.index > 0
@@ -308,7 +364,7 @@ Panel {
                     }
 
                     ScrambleText {
-                        text: (part.modelData.glyph !== "" ? " " : "") + part.modelData.text
+                        text: part.glyphGap + part.modelData.text
                         textFormat: Text.PlainText
                         color: Theme.dim
                         font: root.subFont

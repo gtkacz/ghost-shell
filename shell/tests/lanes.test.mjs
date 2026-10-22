@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as format from '../kit/GhostKit/lib/format.mjs';
-import { LANES, laneText, vpnUpCount, spanSeconds, subParts } from '../../widgets/telemetry-lane/lanes.mjs';
+import { LANES, laneText, vpnUpCount, spanSeconds, subParts, fitScale, fittingParts, MIN_FIT_SCALE } from '../../widgets/telemetry-lane/lanes.mjs';
 
 const { laneValue, laneSub } = laneText(format);
 
@@ -112,4 +112,27 @@ test('every lane has the mockup name and tag key', () => {
       ['therm', 'THERMALS', 'sens'],
     ],
   );
+});
+
+test('a line that fits keeps its size, and a wider one shrinks to end where the graph begins', () => {
+  assert.equal(fitScale(100, 120), 1);
+  assert.equal(fitScale(120, 120), 1);
+  assert.ok(Math.abs(fitScale(120 / 0.89, 120) - 0.89) < 1e-9);
+});
+
+test('a line never shrinks below the floor', () => {
+  assert.equal(MIN_FIT_SCALE, 0.8);
+  assert.equal(fitScale(150, 120), 0.8);
+  assert.equal(fitScale(400, 120), 0.8);
+});
+
+test('every part shows while the line fits at the floor', () => {
+  assert.equal(fittingParts([60, 40, 50], 120), 3);
+  assert.equal(fittingParts([], 120), 0);
+});
+
+test('past the floor the trailing parts drop whole, never the ones before them', () => {
+  assert.equal(fittingParts([60, 40, 60], 120), 2);
+  assert.equal(fittingParts([60, 100, 10], 120), 1);
+  assert.equal(fittingParts([200, 10], 120), 0);
 });

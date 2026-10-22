@@ -25,6 +25,11 @@ export const DISK_FLOOR_BPS = 20_000_000;
 export const THERM_LO_C = 20;
 export const THERM_HI_C = 100;
 
+// The least a line of the label block shrinks to fit: at 0.8 the sub is still readable and the value still the
+// block's dominant line, and below about 0.75 the sub would fall under the tag's size and stop reading as one block
+// (user-confirmed 2026-10-22).
+export const MIN_FIT_SCALE = 0.8;
+
 // As the kit's formatters print a missing value.
 export const MISSING = '--';
 const SEPARATOR = ' · ';
@@ -118,4 +123,25 @@ export function laneText(fmt) {
   }
 
   return { laneValue, laneSub };
+}
+
+// The scale a line lineWidth wide draws at to end by fitWidth, where the graph begins, and never below MIN_FIT_SCALE.
+export function fitScale(lineWidth, fitWidth) {
+  return lineWidth > fitWidth ? Math.max(MIN_FIT_SCALE, fitWidth / lineWidth) : 1;
+}
+
+// How many of a line's parts, by width and in order, show: a line too wide even at MIN_FIT_SCALE drops its trailing
+// parts whole, since a glyph is never cut and the line never reaches into the graph.
+export function fittingParts(widths, fitWidth) {
+  const room = fitWidth / MIN_FIT_SCALE;
+  let used = 0;
+  let shown = 0;
+  for (const width of widths) {
+    if (used + width > room) {
+      break;
+    }
+    used += width;
+    shown += 1;
+  }
+  return shown;
 }
