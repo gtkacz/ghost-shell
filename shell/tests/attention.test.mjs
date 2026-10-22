@@ -5,6 +5,7 @@ import {
   attentionLeftMs,
   heldStripePhase,
   hideAlert,
+  rearmAttention,
   showAlert,
   spendAttention,
   spendExhausted,
@@ -454,4 +455,17 @@ test('only a step of whole seconds can ride the seconds clock', () => {
   for (const stepMs of [1, 250, 500, 1500, 1600, 2500]) {
     assert.equal(stepsOnWholeSeconds(stepMs), false, `${stepMs} ms`);
   }
+});
+
+test('rearm forgets spent alerts that no box shows', () => {
+  const seen = new Map([
+    ['spent', { spentMs: Infinity, showing: 0, sinceMs: 0 }],
+    ['partly', { spentMs: 3 * SECOND_MS, showing: 0, sinceMs: 0 }],
+    ['shown', { spentMs: Infinity, showing: 1, sinceMs: T0 }],
+  ]);
+  rearmAttention(seen);
+  assert.equal(seen.has('spent'), false);
+  assert.equal(seen.has('partly'), false);
+  assert.equal(attentionLeftMs(seen, 'spent', T0, WINDOW_MS), WINDOW_MS);
+  assert.deepEqual(seen.get('shown'), { spentMs: Infinity, showing: 1, sinceMs: T0 });
 });

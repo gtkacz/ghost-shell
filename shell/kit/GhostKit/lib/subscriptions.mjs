@@ -1,8 +1,8 @@
 const TOPIC_NAME = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 const MAX_TOPIC_LENGTH = 64;
 // Kept even while covered: desktop says whether the dashboard is covered, and the daemon takes the
-// client subscribed to perf as the shell whose CPU it reports.
-const ALWAYS_SUBSCRIBED = Object.freeze(['desktop', 'perf']);
+// client subscribed to perf as the shell whose CPU it reports. session keeps the greeting armed while covered.
+const ALWAYS_SUBSCRIBED = Object.freeze(['desktop', 'perf', 'session']);
 
 export function isValidTopic(name) {
   return typeof name === 'string' && name.length <= MAX_TOPIC_LENGTH && TOPIC_NAME.test(name);

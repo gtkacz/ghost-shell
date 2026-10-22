@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isValidTopic, requiresOf, subscriptionFor } from '../kit/GhostKit/lib/subscriptions.mjs';
 
-test('visible subscribes to every slot, wanted topics, desktop and perf', () => assert.deepEqual(subscriptionFor({ requires: ['mem', 'cpu', 'cpu'], wanted: ['audio.spectrum'], covered: false, barRequires: [] }), ['audio.spectrum', 'cpu', 'desktop', 'mem', 'perf']));
-test('covered keeps only desktop, perf and the bar', () => assert.deepEqual(subscriptionFor({ requires: ['cpu'], wanted: ['audio.spectrum'], covered: true, barRequires: ['weather'] }), ['desktop', 'perf', 'weather']));
+test('visible subscribes to every slot, wanted topics, desktop, perf and session', () => assert.deepEqual(subscriptionFor({ requires: ['mem', 'cpu', 'cpu'], wanted: ['audio.spectrum'], covered: false, barRequires: [] }), ['audio.spectrum', 'cpu', 'desktop', 'mem', 'perf', 'session']));
+test('covered keeps only desktop, perf, session and the bar', () => assert.deepEqual(subscriptionFor({ requires: ['cpu'], wanted: ['audio.spectrum'], covered: true, barRequires: ['weather'] }), ['desktop', 'perf', 'session', 'weather']));
 test('requires span every view and tab', () => assert.deepEqual(requiresOf({ views: { v1: { requires: ['cpu'], widget: 'processor' }, v3: { tabs: [{ requires: ['gpu'] }, { requires: ['mem', 'gpu'] }] } } }), ['cpu', 'gpu', 'mem']));
 
 test('requires reach the slots of nested splits', () => {

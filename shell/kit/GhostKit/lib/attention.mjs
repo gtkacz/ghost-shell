@@ -78,6 +78,16 @@ export function spendExhausted(seen, clockMs, windowMs) {
   }
 }
 
+// The greeting's reveal is a new showing for every alert, so each blinks for its window again. Records of boxes that
+// are showing stay, because their hide has yet to commit the time they spent.
+export function rearmAttention(seen) {
+  for (const [key, record] of seen) {
+    if (record.showing === 0) {
+      seen.delete(key);
+    }
+  }
+}
+
 const MS_PER_SECOND = 1000;
 
 // A held alert's stripes jump once per step instead of scrolling, which keeps the scroll's average speed (one tile
