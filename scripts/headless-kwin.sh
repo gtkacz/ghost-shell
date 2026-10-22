@@ -13,11 +13,35 @@ env -i HOME="$root" PATH=/usr/bin:/bin XDG_RUNTIME_DIR="$root/run" XDG_CONFIG_HO
     dbus-run-session --config-file="$repo/scripts/private-bus.conf" -- \
     sh -c 'echo $$ > "$0/kwin.pid"; exec kwin_wayland --virtual --no-lockscreen --socket "$1" --width 2560 --height 1440' \
     "$root" "ghost-sbx-$name" > "$root/kwin.log" 2>&1 &
+session_pid=$!
 for _ in $(seq 50); do
     [[ -S $root/run/ghost-sbx-$name ]] && break
     sleep 0.1
 done
+if [[ ! -S $root/run/ghost-sbx-$name ]]; then
+    echo "no socket; kwin.log follows" >&2
+    cat -- "$root/kwin.log" >&2 || true
+    # The session writes KWin's pid as it starts, so a session still alive gets a moment to write it.
+    for _ in $(seq 50); do
+        [[ -s $root/kwin.pid ]] || ! kill -0 "$session_pid" 2> /dev/null && break
+        sleep 0.1
+    done
+    if [[ -s $root/kwin.pid ]]; then
+        kill "$(< "$root/kwin.pid")" 2> /dev/null || true
+    fi
+    # The sandbox goes only once the session has ended, since KWin writes there until then; a later run
+    # under the same name would otherwise be handed this one's leftovers.
+    for _ in $(seq 50); do
+        kill -0 "$session_pid" 2> /dev/null || break
+        sleep 0.1
+    done
+    if kill -0 "$session_pid" 2> /dev/null; then
+        echo "KWin's session $session_pid did not stop; $root is left in place" >&2
+    else
+        rm -r -- "$root"
+    fi
+    exit 1
+fi
 pid=$(cat "$root/kwin.pid")
-[[ -S $root/run/ghost-sbx-$name ]] || { echo "no socket; see $root/kwin.log" >&2; kill "$pid"; exit 1; }
 echo "WAYLAND_DISPLAY=$root/run/ghost-sbx-$name"
 echo "pid=$pid"

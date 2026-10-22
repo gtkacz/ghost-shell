@@ -171,6 +171,10 @@ cargo build -q --release -p ghostd --manifest-path "$repo/Cargo.toml"
 
 run_dir=$(mktemp -d -t ghost-covered.XXXXXX)
 socket=$run_dir/ghostd.sock
+# The daemon's spectrum and the shell's audio rows would otherwise read the user's own PipeWire graph,
+# and their streams would be part of what is measured.
+mkdir -- "$run_dir/pipewire"
+export PIPEWIRE_REMOTE=/nonexistent PIPEWIRE_RUNTIME_DIR=$run_dir/pipewire
 # The defaults have no location and no providers, so no weather or sky feed runs.
 config=$run_dir/config.toml
 "$daemon" default-config > "$config"
