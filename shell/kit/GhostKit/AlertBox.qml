@@ -241,13 +241,15 @@ Item {
     // The blink is a uniform of this alert's own layer. Stepping an item's opacity instead makes Qt
     // rebuild every batch in the window (measured: about 2 600 elements uploaded four times a second),
     // and a layer whose content blinks renders each step one frame late, adding frames.
+    // Held still, the content needs no layer: a live layer redraws its texture in a frame of its own after any
+    // change inside it, so a countdown that ticks every second would cost two frames a second.
     Item {
         anchors {
             fill: parent
             leftMargin: edge.width + Theme.d(root.sidePaddingPx)
             rightMargin: Theme.d(root.sidePaddingPx)
         }
-        layer.enabled: true
+        layer.enabled: root.holdsClock
         layer.effect: ShaderEffect {
             property real level: root.contentOpacity
 
