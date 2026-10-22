@@ -38,7 +38,7 @@ Each state ran in a headless KWin at the user's geometry (2560×1440, scale 1.15
 - Covering and uncovering logs `dashboard covered` and `dashboard visible` as the user works and uses Meta+D.
 - The spectrum falls when playback pauses (R45). Quitting the player gives `STOPPED · LAST PLAYED`, and Play reopens it.
 - A `pw-record` recording turns IN to `LIVE` with a moving level and shows `MIC LIVE · PW-RECORD IS RECORDING`. Both go when it stops. No capture stream was left behind, and the journal shows no PipeWire error.
-- The OUT and IN rows toggle their device's mute anywhere on the row (`7b1d303`), which was verified headless. The user found that only the value was clickable before that fix; their retry on the live desktop is pending.
+- The OUT and IN rows toggle their device's mute anywhere on the row (`7b1d303`). The user confirmed it on the live desktop by clicking the label, the device name and the meter. Before that fix only the value was clickable. The user finds click-to-mute on the volume meter counterintuitive and wants the meters to become volume controls in a later polish pass (`docs/IDEAS.md`).
 
 ## Deviations, each a ruling in the Plan 2a ledger
 
