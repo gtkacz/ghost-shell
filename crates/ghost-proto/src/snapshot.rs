@@ -385,3 +385,24 @@ pub enum BatteryKind {
     Headset,
     Other,
 }
+
+/// Where the live connections lead, located offline, for the uplink globe: at most 8 endpoints,
+/// the busiest first.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct UplinkSnapshot {
+    pub endpoints: Vec<Endpoint>,
+    /// Every endpoint before the cut to 8, the ones with no known place included.
+    pub total: u32,
+    /// The city database's licence notice, `""` while none is loaded.
+    pub attribution: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Endpoint {
+    /// The organisation, a configured label, the owning process or `TAILNET:<HOST>`.
+    pub label: String,
+    pub lat: f32,
+    pub lon: f32,
+    pub sockets: u32,
+    pub tailnet: bool,
+}

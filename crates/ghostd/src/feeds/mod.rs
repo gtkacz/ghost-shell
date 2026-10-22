@@ -11,6 +11,7 @@ pub mod shortcuts;
 pub mod sky;
 pub mod spectrum;
 pub mod tailscale;
+pub mod uplink;
 pub mod weather;
 
 use std::future::{pending, poll_fn};

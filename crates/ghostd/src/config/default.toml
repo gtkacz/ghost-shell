@@ -155,6 +155,19 @@ popup_timeout_s = 6
 # reports. Empty turns the ping off.
 ping = "1.1.1.1"
 
+[uplink]
+# Where scripts/fetch-geoip.sh puts the DB-IP City and ASN Lite databases; empty means
+# $XDG_DATA_HOME/ghost-shell/geoip. Read when the globe is first shown. Without a city database
+# the globe falls back to /usr/share/GeoIP/GeoLite2-City.mmdb, and without any it shows no
+# endpoints.
+geoip_dir = ""
+
+# Endpoint labels, keyed by organisation name (any case) or "AS<number>". A value is shown as
+# is, except "process", which shows the local process that owns the connection. For example:
+# "AS16509" = "AWS"
+# "Akamai International B.V." = "process"
+[uplink.labels]
+
 # The dashboard is a tree of nodes, one tree per named view.
 #   Split: lays out children in a "row" or a "column".
 #   Slot:  shows one widget; `settings` is passed to it.

@@ -21,6 +21,7 @@ pub struct ResolvedConfig {
     pub shortcuts: Shortcuts,
     pub notifications: Notifications,
     pub network: Network,
+    pub uplink: Uplink,
     pub layout: LayoutConfig,
     pub widgets: Widgets,
     pub providers: Vec<ProviderSpec>,
@@ -338,6 +339,16 @@ impl Default for Network {
             ping: "1.1.1.1".into(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Uplink {
+    /// Where the GeoIP databases are, `""` meaning `$XDG_DATA_HOME/ghost-shell/geoip`.
+    pub geoip_dir: String,
+    /// Endpoint labels keyed by organisation name (any case) or `AS<number>`: fixed text, or
+    /// `"process"` for the local process that owns the socket.
+    pub labels: BTreeMap<String, String>,
 }
 
 /// Sizes are in design pixels; a node without `size` shares the leftover space equally.

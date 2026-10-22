@@ -711,3 +711,26 @@ fn network_ping_must_be_an_ipv4_address_or_empty() {
         assert_eq!(c.network.ping, host);
     }
 }
+
+#[test]
+fn uplink_labels_reject_empty_values() {
+    assert!(
+        load_str_with_user("[uplink.labels]\n\"AS1\"=''", "u")
+            .unwrap_err()
+            .to_string()
+            .contains("uplink.labels")
+    );
+    assert!(
+        load_str_with_user("[uplink.labels]\n''='AWS'", "u")
+            .unwrap_err()
+            .to_string()
+            .contains("uplink.labels")
+    );
+    let c = load_str_with_user(
+        "[uplink.labels]\n\"AS16509\"='AWS'\n\"Akamai\"='process'",
+        "u",
+    )
+    .unwrap();
+    assert_eq!(c.uplink.labels["AS16509"], "AWS");
+    assert_eq!(c.uplink.geoip_dir, "");
+}

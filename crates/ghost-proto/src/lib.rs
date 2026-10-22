@@ -31,11 +31,12 @@ pub mod topics {
     pub const NET_LINKS: &str = "net.links";
     pub const DISKS_HEALTH: &str = "disks.health";
     pub const BATTERIES: &str = "batteries";
+    pub const UPLINK: &str = "uplink";
     /// Published by an alerts provider, so it is well known without being built in.
     pub const WEATHER_ALERTS: &str = "weather.alerts";
 
     // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
-    pub const BUILTIN: [&str; 17] = [
+    pub const BUILTIN: [&str; 18] = [
         CPU,
         MEM,
         SENSORS,
@@ -53,6 +54,7 @@ pub mod topics {
         NET,
         DISKS_HEALTH,
         BATTERIES,
+        UPLINK,
     ];
 }
 

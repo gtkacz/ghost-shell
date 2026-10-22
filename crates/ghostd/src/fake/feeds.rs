@@ -2,9 +2,9 @@ use std::future::pending;
 use std::time::Duration;
 
 use ghost_proto::{
-    AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, HostSnapshot, LanLink,
-    LinkState, LinksSnapshot, RainPeak, SkySnapshot, SpectrumSnapshot, TailscaleLink, VpnLink,
-    WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, topics,
+    AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, Endpoint, HostSnapshot,
+    LanLink, LinkState, LinksSnapshot, RainPeak, SkySnapshot, SpectrumSnapshot, TailscaleLink,
+    UplinkSnapshot, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -26,6 +26,7 @@ pub fn feeds() -> Vec<Feed> {
         links(),
         disks_health(),
         batteries(),
+        uplink(),
     ]
 }
 
@@ -335,5 +336,44 @@ fn fake_batteries() -> Batteries {
                 charging: true,
             },
         ],
+    }
+}
+
+/// The mockup's `PEERS`: label, latitude, longitude. The mockup gives no socket counts, so they
+/// fall one per endpoint down the list, which keeps its order.
+const UPLINK_PEERS: [(&str, f32, f32); 6] = [
+    ("GITHUB.COM", 39.04, -77.49),
+    ("SPOTIFY", 59.33, 18.07),
+    ("STEAM", 47.61, -122.33),
+    ("DISCORD", 50.11, 8.68),
+    ("API.ANTHROPIC.COM", 37.77, -122.42),
+    ("TAILNET:PHONE", -22.9, -43.2),
+];
+const UPLINK_ATTRIBUTION: &str = "IP GEOLOCATION BY DB-IP";
+
+/// The mockup's globe endpoints, published once.
+fn uplink() -> Feed {
+    Feed::new(topics::UPLINK, |context| async move {
+        context.publisher.publish(topics::UPLINK, &mockup_uplink());
+        pending::<()>().await;
+    })
+}
+
+fn mockup_uplink() -> UplinkSnapshot {
+    let endpoints: Vec<Endpoint> = UPLINK_PEERS
+        .iter()
+        .zip((1..=UPLINK_PEERS.len() as u32).rev())
+        .map(|(&(label, lat, lon), sockets)| Endpoint {
+            label: label.to_owned(),
+            lat,
+            lon,
+            sockets,
+            tailnet: label.starts_with("TAILNET:"),
+        })
+        .collect();
+    UplinkSnapshot {
+        total: endpoints.len() as u32,
+        endpoints,
+        attribution: UPLINK_ATTRIBUTION.to_owned(),
     }
 }

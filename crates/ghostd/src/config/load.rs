@@ -7,7 +7,7 @@ use std::{env, fs, io};
 
 use ghost_proto::{
     Alerts, Appearance, Dashboard, I18n, LayoutConfig, LayoutNode, Location, Network, ProviderSpec,
-    ResolvedConfig, Shortcuts, Thresholds,
+    ResolvedConfig, Shortcuts, Thresholds, Uplink,
 };
 
 use crate::keyseq;
@@ -131,6 +131,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_alerts_language(&config.location.alerts, &config.i18n)?;
     validate_shortcuts(&config.shortcuts)?;
     validate_network(&config.network)?;
+    validate_uplink(&config.uplink)?;
     validate_providers(&config.providers)
 }
 
@@ -485,6 +486,21 @@ fn validate_network(network: &Network) -> Result<(), ConfigError> {
         "network.ping",
         format!("{:?} is not an IPv4 address", network.ping),
     ))
+}
+
+fn validate_uplink(uplink: &Uplink) -> Result<(), ConfigError> {
+    for (key, value) in &uplink.labels {
+        if key.is_empty() {
+            return Err(invalid("uplink.labels", "a key must not be empty"));
+        }
+        if value.is_empty() {
+            return Err(invalid(
+                format!("uplink.labels.{key:?}"),
+                "must not be empty",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_providers(providers: &[ProviderSpec]) -> Result<(), ConfigError> {

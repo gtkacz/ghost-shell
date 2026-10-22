@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 futures-core.workspace = true
 ghost-proto = { path = "../ghost-proto" }
+maxminddb = { workspace = true, features = ["mmap"] }
 nix = { workspace = true, features = ["feature", "fs", "hostname", "signal", "socket"] }
 notify.workspace = true
 nvml-wrapper.workspace = true
