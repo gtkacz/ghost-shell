@@ -3,4 +3,4 @@ name = "Sensors"
 version = "0.1.0"
 api = 1
 kinds = ["panel"]
-requires = ["sensors"]
+requires = ["sensors", "batteries"]

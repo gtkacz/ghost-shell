@@ -100,6 +100,10 @@ Singleton {
         return Segments.levelAbove(value, warnAt, critAt);
     }
 
+    function levelLow(value, warnAt, critAt) {
+        return Segments.levelLow(value, warnAt, critAt);
+    }
+
     function activeAlerts(alerts, nowS) {
         return Weather.activeAlerts(alerts, nowS);
     }

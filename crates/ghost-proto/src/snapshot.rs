@@ -355,3 +355,33 @@ pub struct DriveHealth {
     pub wear_pct: Option<u8>,
     pub power_on_hours: Option<u32>,
 }
+
+/// Device batteries: UPower's peripherals, then the phones KDE Connect reaches. Empty while
+/// neither service reports any.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Batteries {
+    pub devices: Vec<Battery>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Battery {
+    /// UPower's `NativePath`, or `kdeconnect:<device id>`; the key of `[batteries] labels`.
+    pub id: String,
+    /// The configured label, or else the device's model or name, uppercased.
+    pub label: String,
+    pub kind: BatteryKind,
+    /// `None` while the device has not reported a charge.
+    pub pct: Option<f32>,
+    pub charging: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BatteryKind {
+    Controller,
+    Phone,
+    Mouse,
+    Keyboard,
+    Headset,
+    Other,
+}

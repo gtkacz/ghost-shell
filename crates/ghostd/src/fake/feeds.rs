@@ -2,9 +2,9 @@ use std::future::pending;
 use std::time::Duration;
 
 use ghost_proto::{
-    AlertLevel, DiskHealth, DriveHealth, HostSnapshot, LanLink, LinkState, LinksSnapshot, RainPeak,
-    SkySnapshot, SpectrumSnapshot, TailscaleLink, VpnLink, WeatherAlert, WeatherAlerts,
-    WeatherHour, WeatherSnapshot, topics,
+    AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, HostSnapshot, LanLink,
+    LinkState, LinksSnapshot, RainPeak, SkySnapshot, SpectrumSnapshot, TailscaleLink, VpnLink,
+    WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -25,6 +25,7 @@ pub fn feeds() -> Vec<Feed> {
         alerts(),
         links(),
         disks_health(),
+        batteries(),
     ]
 }
 
@@ -284,6 +285,24 @@ fn disks_health() -> Feed {
     })
 }
 
+const CONTROLLER_ID: &str = "ps-controller-battery-aa:bb:cc:dd:ee:ff";
+const CONTROLLER_LABEL: &str = "DUALSENSE";
+const CONTROLLER_PCT: f32 = 80.0;
+const PHONE_ID: &str = "kdeconnect:0123456789abcdef0123456789abcdef";
+const PHONE_LABEL: &str = "PHONE";
+// Under the default battery warning, so the fake shows a warn row.
+const PHONE_PCT: f32 = 15.0;
+
+/// A controller and a charging phone, published once.
+fn batteries() -> Feed {
+    Feed::new(topics::BATTERIES, |context| async move {
+        context
+            .publisher
+            .publish(topics::BATTERIES, &fake_batteries());
+        pending::<()>().await;
+    })
+}
+
 fn fake_disk_health() -> DiskHealth {
     DiskHealth {
         drives: DRIVES
@@ -295,5 +314,26 @@ fn fake_disk_health() -> DiskHealth {
                 power_on_hours,
             })
             .collect(),
+    }
+}
+
+fn fake_batteries() -> Batteries {
+    Batteries {
+        devices: vec![
+            Battery {
+                id: CONTROLLER_ID.to_owned(),
+                label: CONTROLLER_LABEL.to_owned(),
+                kind: BatteryKind::Controller,
+                pct: Some(CONTROLLER_PCT),
+                charging: false,
+            },
+            Battery {
+                id: PHONE_ID.to_owned(),
+                label: PHONE_LABEL.to_owned(),
+                kind: BatteryKind::Phone,
+                pct: Some(PHONE_PCT),
+                charging: true,
+            },
+        ],
     }
 }

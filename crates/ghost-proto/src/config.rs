@@ -12,6 +12,7 @@ pub struct ResolvedConfig {
     pub display: DisplayConfig,
     pub sensors: Labels,
     pub disks: Labels,
+    pub batteries: Labels,
     pub dashboard: Dashboard,
     pub bar: BarConfig,
     pub greeting: Greeting,
@@ -182,7 +183,7 @@ pub struct DisplayConfig {
     pub model: String,
 }
 
-/// Custom names keyed by the device's stable id (sensor id, drive serial).
+/// Custom names keyed by the device's stable id (sensor id, drive serial, battery id).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Labels {

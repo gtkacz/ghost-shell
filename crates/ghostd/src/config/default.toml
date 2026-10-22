@@ -84,6 +84,11 @@ model = ""
 # "<serial>" = "Games"
 [disks.labels]
 
+# Custom names for device batteries, keyed by UPower's native path or "kdeconnect:<device id>",
+# for example:
+# "ps-controller-battery-<mac>" = "DUALSENSE"
+[batteries.labels]
+
 [dashboard]
 # The views the swap shortcut cycles through, in order, and the one shown at start. Every name
 # must be defined under [layout.views], and default_view must be one of main_views.

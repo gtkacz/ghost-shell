@@ -2,11 +2,14 @@
 #![allow(dead_code)]
 
 pub mod bus;
+pub mod calls;
 pub mod disk;
+pub mod kdeconnect;
 pub mod nm;
 pub mod server;
 pub mod tailscale;
 pub mod udisks;
+pub mod upower;
 
 use std::fs;
 use std::os::unix::fs::symlink;
