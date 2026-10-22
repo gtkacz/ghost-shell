@@ -325,6 +325,32 @@ fn a_wrapped_counter_still_reads_positive() {
 }
 
 #[test]
+fn a_counter_reset_is_not_read_as_a_wrap() {
+    let fake = fake_9950x3d();
+    write_package_zone(&fake, 10_000_000);
+
+    let package_w = package_w_between(&fake, 0);
+
+    assert_eq!(package_w, None);
+}
+
+#[test]
+fn package_power_reads_normally_again_after_a_reset() {
+    let fake = fake_9950x3d();
+    write_package_zone(&fake, 10_000_000);
+    let mut cpu = CpuCollector::new(&fake.root()).unwrap();
+    cpu.sample_after(ONE_SECOND);
+    set_energy(&fake, 0);
+    let reset = cpu.sample_after(ONE_SECOND);
+
+    set_energy(&fake, 45_000_000);
+    let recovered = cpu.sample_after(ONE_SECOND);
+
+    assert_eq!(reset.package_w, None);
+    assert_eq!(recovered.package_w, Some(WATTS_FOR_45_MILLION_UJ));
+}
+
+#[test]
 fn a_counter_beyond_its_own_range_hides_package_power() {
     let fake = fake_9950x3d();
     write_package_zone(&fake, WRAP_RANGE_UJ + 1);

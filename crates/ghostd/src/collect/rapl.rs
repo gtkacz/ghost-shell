@@ -10,6 +10,9 @@ const PACKAGE_ZONE_NAME: &str = "package-0";
 const ZONE_NAME: &str = "name";
 const ENERGY_COUNTER: &str = "energy_uj";
 const COUNTER_RANGE: &str = "max_energy_range_uj";
+// A real wrap within one sample spends a sliver of the range, whereas a reset from a low reading
+// reads as nearly the whole range, which is tens of kilowatts. Half the range needs no tuned ceiling.
+const WRAP_PLAUSIBLE_DIVISOR: u64 = 2;
 
 /// Watts drawn by the CPU package, from the energy counter of the powercap zone `package-0`.
 ///
@@ -62,10 +65,12 @@ impl PackagePower {
         (micros > 0).then(|| (spent_uj as f64 / micros as f64) as f32)
     }
 
-    /// `None` when the range is unknown or the previous reading lies beyond it, since either
-    /// means the counter was reset rather than wrapped and the energy spent is unknowable.
+    /// `None` when the range is unknown, the previous reading lies beyond it, or the wrapped delta
+    /// exceeds `1 / WRAP_PLAUSIBLE_DIVISOR` of it: each means the counter was reset rather than
+    /// wrapped, so the energy spent is unknowable.
     fn wrapped_delta(&self, before_uj: u64, now_uj: u64) -> Option<u64> {
         let range_uj: u64 = read_text(&self.root, &self.range_rel)?.parse().ok()?;
-        range_uj.checked_sub(before_uj)?.checked_add(now_uj)
+        let wrapped_uj = range_uj.checked_sub(before_uj)?.checked_add(now_uj)?;
+        (wrapped_uj <= range_uj / WRAP_PLAUSIBLE_DIVISOR).then_some(wrapped_uj)
     }
 }
