@@ -2,14 +2,12 @@
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::time::{Duration, Instant};
 
 use futures_core::future::BoxFuture;
-use nix::sys::socket::{
-    AddressFamily, MsgFlags, SockFlag, SockProtocol, SockType, SockaddrIn, recv, sendto, socket,
-};
-use tokio::io::unix::AsyncFd;
+use nix::sys::socket::{AddressFamily, SockFlag, SockProtocol, SockType, socket};
+use tokio::net::UdpSocket;
 use tokio::time::timeout;
 use tracing::debug;
 
@@ -57,29 +55,14 @@ impl Pinger for IcmpPinger {
 }
 
 async fn echo(host: Ipv4Addr) -> io::Result<Duration> {
-    let socket = open_socket()?;
-    // SAFETY: an `OwnedFd` keeps its descriptor open, and always the same one, until it is
-    // dropped, which happens only with the `AsyncFd` that owns it.
-    let socket = unsafe { AsyncFd::register(socket) }?;
-    let target = SockaddrIn::from(SocketAddrV4::new(host, 0));
+    // A ping socket is a datagram socket, so tokio's UDP socket drives it through the same
+    // sendto and recv calls; the descriptor is already non-blocking, as from_std requires.
+    let socket = UdpSocket::from_std(std::net::UdpSocket::from(open_socket()?))?;
     let sent_at = Instant::now();
-    socket
-        .async_io(tokio::io::Interest::WRITABLE, |fd| {
-            Ok(sendto(
-                fd.as_raw_fd(),
-                &REQUEST,
-                &target,
-                MsgFlags::empty(),
-            )?)
-        })
-        .await?;
+    socket.send_to(&REQUEST, SocketAddrV4::new(host, 0)).await?;
     let mut reply = [0; REPLY_BUFFER_LEN];
     loop {
-        let received = socket
-            .async_io(tokio::io::Interest::READABLE, |fd| {
-                Ok(recv(fd.as_raw_fd(), &mut reply, MsgFlags::empty())?)
-            })
-            .await?;
+        let received = socket.recv(&mut reply).await?;
         if is_echo_reply(&reply[..received]) {
             return Ok(sent_at.elapsed());
         }
