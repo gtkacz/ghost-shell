@@ -44,8 +44,52 @@ Item {
     property bool fastHeld: Quickshell.env("GHOST_GALLERY_FAST") === "1"
     property bool holdsFast: false
 
+    // GHOST_GALLERY_LANES swaps this page for MONITOR-sized graph lanes: `mixed` and `heat` move once a second, to
+    // be measured; `fixed` stands still and writes each graph's grab to GHOST_GALLERY_GRAB_DIR, for pixel checks.
+    readonly property var lanePages: ({
+            mixed: ["block", "block", "mirror", "mirror", "heat", "heat"],
+            heat: ["heat", "heat", "heat", "heat", "heat", "heat"],
+            fixed: ["block", "mirror", "heat"]
+        })
+    readonly property string lanesPage: Quickshell.env("GHOST_GALLERY_LANES") || ""
+    readonly property bool showsLanes: Object.prototype.hasOwnProperty.call(lanePages, lanesPage)
+    readonly property bool movingLanes: showsLanes && lanesPage !== "fixed"
+    readonly property string grabDir: Quickshell.env("GHOST_GALLERY_GRAB_DIR") || ""
+    // Design pixels: the reference mockup's MONITOR lanes, less each lane's 8 px graph padding above and below,
+    // and its lane cell.
+    readonly property real laneWidthPx: 1256
+    readonly property real laneHeightPx: 70
+    readonly property real laneGapPx: 6
+    readonly property real laneCellWPx: 4
+    readonly property real laneCellHPx: 3
+    // The mockup's CPU lane has a row per core of a 16-core CPU, and its network lane a floor of 50.
+    readonly property int heatRows: 16
+    readonly property real mirrorFloor: 50
+    // Five minutes at 1 Hz, as Data.history keeps.
+    readonly property int laneSamples: 300
+    readonly property int laneTickMs: 1000
+    // BlockGraph's spike series: a gap every 37 samples, and a prime step that visits every value of 0..100 within
+    // 101 samples, so each lane shows every level, gaps, and empty and full columns.
+    readonly property int laneMissingEvery: 37
+    readonly property int laneValueStep: 7919
+    readonly property int laneValueRange: 101
+    // The series repeats after the least common multiple of the two, so one period and a lane's length cover every
+    // window of it.
+    readonly property int lanePeriod: laneMissingEvery * laneValueRange
+    readonly property var laneTable: showsLanes ? Array.from({
+            length: lanePeriod + laneSamples
+        }, (_, at) => at % laneMissingEvery === 0 ? null : (at * laneValueStep) % laneValueRange) : []
+    // Samples between the series of neighbouring lanes, of a mirror's two halves and of a heat graph's rows.
+    readonly property int laneSeriesStride: 61
+    readonly property int mirrorDownOffset: 29
+    readonly property int heatRowStride: 19
+    // Long enough for the first frame with live data to have rendered.
+    readonly property int grabDelayMs: 1500
+    readonly property bool lanesReady: showsLanes && Data.connected && !Data.stale
+    property int laneTick: 0
+
     // The window passes every click through except these, the way the layout view does for its tab strips.
-    readonly property var inputRects: [
+    readonly property var inputRects: showsLanes ? [] : [
         {
             x: Math.floor(fastToggle.x),
             y: Math.floor(fastToggle.y),
@@ -72,17 +116,52 @@ Item {
         holdsFast = wanted;
     }
 
+    // The series `offset` samples into BlockGraph's spike series, moved on by one sample per tick. A slice of one
+    // period of it, so that feeding the lanes costs next to nothing beside drawing them.
+    function laneSeries(offset) {
+        const start = (offset + laneTick) % lanePeriod;
+        return laneTable.slice(start, start + laneSamples);
+    }
+
+    function heatSeries(offset) {
+        return Array.from({
+            length: heatRows
+        }, (_, row) => laneSeries(offset + row * heatRowStride));
+    }
+
+    // Once the data is live, so the creation time includes packing every lit cell, as a real view's would.
+    function createLanes() {
+        if (lanesLoader.active || !lanesReady) {
+            return;
+        }
+        const started = Date.now();
+        lanesLoader.active = true;
+        const ratio = QsWindow.window ? QsWindow.window.devicePixelRatio : 1;
+        console.info("gallery lanes page " + lanesPage + " created in " + (Date.now() - started) + " ms at u " + Theme.u + ", pixel ratio " + ratio);
+    }
+
     onFastHeldChanged: holdFast(fastHeld)
+    onLanesReadyChanged: Qt.callLater(createLanes)
+    // The lane pages draw only on their own tick, so a measurement counts the lanes' frames alone.
     Component.onCompleted: {
         holdFast(fastHeld);
-        FrameClock.acquireSeconds();
+        if (!showsLanes) {
+            FrameClock.acquireSeconds();
+        }
+        if (lanesPage !== "" && !showsLanes) {
+            console.warn("GHOST_GALLERY_LANES must be one of " + Object.keys(lanePages).join(", ") + ", got '" + lanesPage + "'; showing the kit");
+        }
+        Qt.callLater(createLanes);
     }
     Component.onDestruction: {
         holdFast(false);
-        FrameClock.releaseSeconds();
+        if (!showsLanes) {
+            FrameClock.releaseSeconds();
+        }
     }
 
     Row {
+        visible: !root.showsLanes
         x: Theme.d(root.marginPx)
         y: Theme.d(root.marginPx + root.barBandPx)
         spacing: Theme.d(root.gutterPx)
@@ -178,6 +257,7 @@ Item {
     }
 
     Row {
+        visible: !root.showsLanes
         x: Theme.d(root.marginPx)
         y: root.secondRowY
         spacing: Theme.d(root.gutterPx)
@@ -275,6 +355,7 @@ Item {
     }
 
     Row {
+        visible: !root.showsLanes
         x: Theme.d(root.marginPx)
         y: root.thirdRowY
         spacing: Theme.d(root.gutterPx)
@@ -309,6 +390,7 @@ Item {
     Rectangle {
         id: fastToggle
 
+        visible: !root.showsLanes
         x: Theme.d(root.marginPx) + 2 * root.columnStep
         y: root.thirdRowY
         width: toggleLabel.implicitWidth + Theme.d(2 * (root.toggleSidePx + root.toggleBorderPx))
@@ -336,6 +418,104 @@ Item {
         MouseArea {
             anchors.fill: parent
             onClicked: root.fastHeld = !root.fastHeld
+        }
+    }
+
+    // Inactive until createLanes(), which times its creation.
+    Loader {
+        id: lanesLoader
+
+        x: Theme.d(root.marginPx)
+        y: Theme.d(root.marginPx + root.barBandPx)
+        active: false
+        sourceComponent: Column {
+            id: lanes
+
+            property bool grabbed: false
+
+            // At the screen's own scale in both directions: a grab without a size can cut a row of pixels and scale
+            // the rest unevenly (blockgraph shader spike).
+            function grabLanes() {
+                grabbed = true;
+                if (root.grabDir === "") {
+                    console.warn("GHOST_GALLERY_GRAB_DIR is not set; the fixed lanes are not grabbed");
+                    return;
+                }
+                const ratio = QsWindow.window ? QsWindow.window.devicePixelRatio : 1;
+                for (let i = 0; i < laneRepeater.count; i += 1) {
+                    const graph = laneRepeater.itemAt(i).item;
+                    const path = root.grabDir + "/" + i + "-" + root.lanePages[root.lanesPage][i] + ".png";
+                    const size = Qt.size(Math.round(graph.width * ratio) / ratio, Math.round(graph.height * ratio) / ratio);
+                    graph.grabToImage(result => {
+                        if (result.saveToFile(path)) {
+                            console.info("gallery grab saved " + path);
+                        } else {
+                            console.warn("gallery grab not written to " + path);
+                        }
+                    }, size);
+                }
+            }
+
+            spacing: Theme.d(root.laneGapPx)
+
+            Repeater {
+                id: laneRepeater
+
+                model: root.lanePages[root.lanesPage]
+
+                Loader {
+                    id: lane
+
+                    required property string modelData
+                    required property int index
+                    readonly property int offset: index * root.laneSeriesStride
+
+                    width: Theme.d(root.laneWidthPx)
+                    height: Theme.d(root.laneHeightPx)
+                    sourceComponent: modelData === "block" ? blockLane : modelData === "mirror" ? mirrorLane : heatLane
+
+                    Component {
+                        id: blockLane
+
+                        BlockGraph {
+                            values: root.laneSeries(lane.offset)
+                            cellW: root.laneCellWPx
+                            cellH: root.laneCellHPx
+                        }
+                    }
+
+                    Component {
+                        id: mirrorLane
+
+                        MirrorGraph {
+                            up: root.laneSeries(lane.offset)
+                            down: root.laneSeries(lane.offset + root.mirrorDownOffset)
+                            floor: root.mirrorFloor
+                        }
+                    }
+
+                    Component {
+                        id: heatLane
+
+                        HeatGraph {
+                            rows: root.heatSeries(lane.offset)
+                        }
+                    }
+                }
+            }
+
+            Timer {
+                interval: root.laneTickMs
+                repeat: true
+                running: root.movingLanes && lanes.visible
+                onTriggered: root.laneTick += 1
+            }
+
+            Timer {
+                interval: root.grabDelayMs
+                running: !root.movingLanes && root.lanesReady && !lanes.grabbed
+                onTriggered: lanes.grabLanes()
+            }
         }
     }
 }
