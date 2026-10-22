@@ -47,7 +47,7 @@ export const PULSE_MS = 1800;
 export const PULSE_FROM = 6;
 export const PULSE_GROW = 16;
 export const PULSE_LINE = 1;
-// The uplink feed's cap (Task 10), which is also the shader's count of endpoint uniforms.
+// The uplink feed's cap, which is also the shader's count of endpoint uniforms.
 export const MAX_ENDPOINTS = 8;
 
 const D2R = Math.PI / 180;
@@ -179,7 +179,7 @@ function visible(q) {
   return q[2] > 0 || Math.hypot(q[0], q[1]) > 1;
 }
 
-// Where Task 12's labels go: one anchor per endpoint, at most MAX_ENDPOINTS, then home, hidden when there is none.
+// Where the uplink widget's labels go: one anchor per endpoint, at most MAX_ENDPOINTS, then home, hidden when there is none.
 // The same rotation, tilt and radius as globe.frag, so a label stays on its square.
 export function labelAnchors({ width, height, unit, elapsedMs, hasHome, home, endpoints }) {
   const { radius } = globeLayout({ width, height, unit });

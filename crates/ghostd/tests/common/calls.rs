@@ -61,7 +61,7 @@ impl Calls {
             .count()
     }
 
-    /// Every call so far asked the bus not to start the service for it (C36), so an absent service
+    /// Every call so far asked the bus not to start the service for it, so an absent service
     /// stays absent.
     pub fn assert_none_could_start_the_service(&self) {
         let calls = self.lock();

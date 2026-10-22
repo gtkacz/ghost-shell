@@ -126,7 +126,7 @@ tabs_target=tabs
 connect_deadline_s=12
 # Long enough for the layout, the history and a round of data to create every widget and its claims.
 startup_s=4
-# C21: qs's log reaches the file late, and widgets release their claims through Qt.callLater.
+# qs's log reaches the file late, and widgets release their claims through Qt.callLater.
 settle_s=2
 # Longer than the slowest print (640 ms), so no action lands while the views are busy and every view
 # or tab body has been created before the next step.
