@@ -3,11 +3,8 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 
-// The greeting's stand-in: a full-screen Overlay layer in the ground colour, mapped once the file named by
-// SPIKE_ARM_FILE exists and given the keyboard exclusively once SPIKE_FOCUS_FILE exists. Each swapped
-// frame bumps the counter, which asks for the next frame, so the log shows exactly when Qt renders.
-// KWin types a layer surface by its namespace (SPIKE_NAMESPACE), and the type decides which open effect
-// animates it.
+// The counter changes on every swapped frame, which asks for the next one, so the log shows each frame Qt
+// renders and the stall while KWin withholds frame callbacks under the lock.
 ShellRoot {
     id: root
 

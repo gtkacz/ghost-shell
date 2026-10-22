@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Locks a headless KWin over a red stand-in window, maps a ground-coloured Overlay layer under the lock
-# screen, unlocks through a stand-in logind and records what the scene shows around the unlock. Nothing
-# reaches the user's session: KWin runs on its own session bus, and its screen locker's system bus is a
-# second private bus whose only logind is fake_logind.py. Every process is stopped by the pid it was
-# started with.
-#   SPIKE_OUT        directory for logs, captures and results, kept afterwards (default: a new temp dir)
-#   SPIKE_NAMESPACE  the overlay's layer-shell namespace (default: dock). KWin's scale effect fades in a
-#                    layer surface whose namespace it does not know (window type Normal), and the fade only
-#                    starts at the unlock; `dock` is a type no default open effect animates.
+# The screen locker's logind is a stand-in on a second private bus, because the real one would take the
+# headless KWin for part of the user's session 2 and set its LockedHint.
+#   SPIKE_OUT            directory for logs, captures and results, kept afterwards (default: a new temp dir)
+#   SPIKE_NAMESPACE      the overlay's layer-shell namespace (default: utility). KWin types a layer surface by
+#                        its namespace, and open effects pick the windows they fade in by type; a fade started
+#                        under the lock only plays at the unlock, over the windows.
+#   SPIKE_LIVE_EFFECTS   1 copies the user's KWin effect set ([Plugins] and [Effect-*] of ~/.config/kwinrc,
+#                        ~/.local/share/kwin/{effects,scripts}) into the sandbox, since a fade the defaults lack
+#                        is still a flash on the live desktop
 
 spike=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd "$spike/../.." && pwd)
@@ -17,7 +17,8 @@ name=2c-t1-handoff
 root=/tmp/gs-sbx-$name
 out=${SPIKE_OUT:-$(mktemp -d -t greeting-handoff-spike.XXXXXX)}
 results=$out/results.txt
-surface_namespace=${SPIKE_NAMESPACE:-dock}
+surface_namespace=${SPIKE_NAMESPACE:-utility}
+live_effects=${SPIKE_LIVE_EFFECTS:-0}
 
 socket_deadline_s=10
 ready_deadline_s=30
@@ -123,6 +124,10 @@ type_key() {
     echo "$key_a" >&3
 }
 
+kwin_call() {
+    dbus-send --bus="$session_bus" --print-reply --dest=org.kde.KWin "$@" 2>&1 | tail -n +2 | tr -s ' \n' ' '
+}
+
 start_qs() {
     local file=$1 log=$2
     shift 2
@@ -141,7 +146,13 @@ fi
 mkdir -p "$root"/{run,config,data,cache,state} "$out"
 chmod 700 "$root/run"
 : > "$results"
-note "out=$out namespace=$surface_namespace"
+note "out=$out namespace=$surface_namespace live_effects=$live_effects"
+if [[ $live_effects == 1 ]]; then
+    awk '/^\[/ { keep = ($0 == "[Plugins]" || $0 ~ /^\[Effect-/) } keep' "$HOME/.config/kwinrc" > "$root/config/kwinrc"
+    mkdir -p "$root/data/kwin"
+    cp -rL -- "$HOME/.local/share/kwin/effects" "$HOME/.local/share/kwin/scripts" "$root/data/kwin/"
+    cp -- "$root/config/kwinrc" "$out/kwinrc"
+fi
 
 dbus-daemon --config-file="$repo/scripts/private-bus.conf" --nofork --print-address=3 3> "$root/system.addr" &
 system_pid=$!
@@ -180,6 +191,10 @@ wait_for "$ready_deadline_s" has_line "spike red active true" "$out/red.log" || 
 type_key
 wait_for "$ready_deadline_s" has_line "spike red key" "$out/red.log" || fail "the red window got no key before the lock"
 note "before lock: the red window holds the keyboard"
+note "loaded effects: $(kwin_call /Effects org.freedesktop.DBus.Properties.Get string:org.kde.kwin.Effects string:loadedEffects)"
+for script in ghost-shell-desktop gridlock-keeper; do
+    note "script $script loaded: $(kwin_call /Scripting org.kde.kwin.Scripting.isScriptLoaded "string:$script")"
+done
 grab 1-before-lock
 
 start_qs "$spike/shell.qml" "$out/overlay.log" SPIKE_ARM_FILE="$root/arm" SPIKE_FOCUS_FILE="$root/focus" \
@@ -215,8 +230,10 @@ wait_for "$ready_deadline_s" has_line "spike overlay exclusive keyboard requeste
 sleep "$key_wait_s"
 type_key
 sleep "$key_wait_s"
-note "key after the unlock, overlay: $(grep -a 'spike overlay key' "$out/overlay.log" || echo none)"
-note "key after the unlock, red: $(grep -a 'spike red key' "$out/red.log" | tail -n +2 || echo none)"
+overlay_keys=$(grep -a 'spike overlay key' "$out/overlay.log" || true)
+note "key after the unlock, overlay: ${overlay_keys:-none}"
+red_keys_after_lock=$(grep -a 'spike red key' "$out/red.log" | tail -n +2)
+note "key after the unlock, red: ${red_keys_after_lock:-none}"
 wait "$watch_pid" || true
 watch_pid=
 grab 4-after-unlock
@@ -228,3 +245,12 @@ awk -v after="$unlocked_ms" 'NR > 1 && $1 >= after { count[$5]++ } END { for (ki
     "$out/watch.tsv" | tee -a "$results"
 note "class changes in the watch:"
 awk 'NR > 1 && $5 != last { print "  " $1, $5; last = $5 }' "$out/watch.tsv" | tee -a "$results"
+# The overlay's ground has red 10, so any more red once the lock screen's colour is gone is the window
+# showing through.
+note "after the lock screen: first capture and the most red in any capture: $(awk -v after="$unlocked_ms" \
+    'NR > 1 && $1 < after { locked = $2 "," $3 "," $4 }
+    NR > 1 && $1 >= after && (seen || $2 "," $3 "," $4 != locked) {
+        if (!seen) { first = $2 "," $3 "," $4 " at +" ($1 - after) " ms"; seen = 1 }
+        if ($2 > peak) { peak = $2; at = $1 - after }
+    }
+    END { print "first=" first " peak_red=" peak " at +" at " ms" }' "$out/watch.tsv")"

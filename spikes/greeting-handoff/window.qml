@@ -1,8 +1,7 @@
 import QtQuick
 import Quickshell
 
-// A normal toplevel filled red, standing in for the user's windows: any red in a capture after the unlock
-// is a window shown before the greeting.
+// Red, so any red in a capture after the unlock is a window shown before the greeting.
 ShellRoot {
     id: root
 
