@@ -60,7 +60,8 @@ Item {
         // Once per widget: one without a shown Panel header leaves the strip nowhere but over its body.
         onInstanceChanged: {
             if (body.instance !== null && (body.instance.headerReserve === undefined || body.instance.header === false)) {
-                console.warn("tab widget \"" + body.widgetId + "\" in the tabs node at \"" + root.node.path + "\" has no panel header, so the tab strip will overlap its body");
+                // From the slot, as WidgetHost.fail() does: on a tab switch widgetId still names the previous tab.
+                console.warn("tab widget \"" + body.slot.widget + "\" in the tabs node at \"" + root.node.path + "\" has no panel header, so the tab strip will overlap its body");
             }
         }
     }
