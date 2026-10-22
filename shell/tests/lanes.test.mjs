@@ -126,6 +126,13 @@ test('a line never shrinks below the floor', () => {
   assert.equal(fitScale(400, 120), 0.8);
 });
 
+test('a fast network lane keeps both rates within 4 characters, so both fit at the floor', () => {
+  const { down, up } = laneValue('net', { net: { rx_bps: 12.3e6, tx_bps: 120e3 } });
+  assert.deepEqual([down, up], ['12M', '120K']);
+  const widths = [down, up].map((part) => part.length);
+  assert.equal(fittingParts(widths, widths[0] + widths[1]), 2);
+});
+
 test('every part shows while the line fits at the floor', () => {
   assert.equal(fittingParts([60, 40, 50], 120), 3);
   assert.equal(fittingParts([], 120), 0);

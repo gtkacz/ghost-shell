@@ -29,6 +29,14 @@ test('rateShort', () => {
   assert.equal(rateShort(null), '--');
 });
 
+test('rateShort prints whole megabytes from 10 MB/s so it stays within 4 characters', () => {
+  assert.equal(rateShort(9.9e6), '9.9M');
+  assert.equal(rateShort(9.94e6), '9.9M');
+  assert.equal(rateShort(9.95e6), '10M');
+  assert.equal(rateShort(12.3e6), '12M');
+  assert.equal(rateShort(125e6), '125M');
+});
+
 test('rateShort picks the tier from the rounded value so the field never widens', () => {
   assert.equal(rateShort(999499), '999K');
   assert.equal(rateShort(999500), '1.0M');
