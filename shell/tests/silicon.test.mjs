@@ -212,3 +212,18 @@ test('blocks too short for their names give way to names on the iod head row', (
   assert.equal(dieLayout(276, 137, [8, 8]).showsBlocks, false);
   assert.equal(dieLayout(1250, 560, [8, 8]).showsBlocks, true);
 });
+
+// V1's tabs node is 225 px, so its body is 183; the V2 centre tab's body is about 1250 x 560. Kode Mono's deepest
+// descender reaches 0.217 em below the baseline.
+const DEEPEST_DESCENDER_EM = 0.217;
+
+test('a block value never reaches into its meter, at the v1 or the v2 size', () => {
+  for (const [w, h] of [[276, 183], [276, 200], [1250, 560]]) {
+    const die = dieLayout(w, h, [8, 8]);
+    for (const block of die.blocks) {
+      assert.ok(!block.showsValue || block.valueBaseline + DEEPEST_DESCENDER_EM * die.fs <= block.meter.y, `value at ${w}×${h}`);
+    }
+  }
+  assert.ok(dieLayout(276, 183, [8, 8]).blocks.every((block) => !block.showsValue && block.showsMeter));
+  assert.ok(dieLayout(1250, 560, [8, 8]).blocks.every((block) => block.showsValue && block.showsMeter));
+});

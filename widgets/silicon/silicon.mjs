@@ -182,6 +182,8 @@ const BLOCK_TEXT_PX = 5;
 const BLOCK_NAME_DROP_PX = 1;
 const BLOCK_VALUE_DROP_PX = 4;
 const BLOCK_VALUE_ROOM_PX = 10;
+// Kode Mono's deepest descender, in em below the baseline; the block text is at most fs.
+const VALUE_DESCENT_EM = 0.22;
 const METER_FROM_BOTTOM_PX = 9;
 const METER_HEIGHT_PX = 4;
 const STROKE_PX = 1;
@@ -239,12 +241,15 @@ export function dieLayout(w, h, coreCounts) {
   const blocks = Array.from({ length: IOD_BLOCK_COUNT }, (_, i) => {
     const bx = x0 + CONTENT_SIDE_PX + i * (blockW + BLOCK_GAP_PX);
     const meterY = blockY + blockH - METER_FROM_BOTTOM_PX;
+    const valueBaseline = blockY + 2 * fs + BLOCK_VALUE_DROP_PX;
     return {
       x: bx, y: blockY, w: blockW, h: blockH,
       textX: bx + BLOCK_TEXT_PX,
       nameBaseline: blockY + fs + BLOCK_NAME_DROP_PX,
-      valueBaseline: blockY + 2 * fs + BLOCK_VALUE_DROP_PX,
-      showsValue: blockH > 2 * fs + BLOCK_VALUE_ROOM_PX,
+      valueBaseline,
+      // The mockup's room test alone lets the value run through the meter in a short block, so a block that cannot
+      // clear it shows its name and meter only, as the mockup's small die does.
+      showsValue: blockH > 2 * fs + BLOCK_VALUE_ROOM_PX && valueBaseline + VALUE_DESCENT_EM * fs <= meterY,
       meter: { x: bx + BLOCK_TEXT_PX, y: meterY, w: blockW - 2 * BLOCK_TEXT_PX, h: METER_HEIGHT_PX },
       // A block shorter than its meter's offset would put the meter above the block, over the I/O die's head.
       showsMeter: meterY >= blockY,
