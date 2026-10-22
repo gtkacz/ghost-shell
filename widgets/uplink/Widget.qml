@@ -23,25 +23,40 @@ Panel {
 
     readonly property string topicName: "uplink"
     readonly property var uplink: Data.topic(topicName).value
-    readonly property var endpoints: uplink ? uplink.endpoints : []
+    readonly property var endpoints: Uplink.shownEndpoints(uplink)
     readonly property var location: Data.config ? Data.config.location : null
+    readonly property bool live: Data.connected && !Data.stale && Data.topic(topicName).live
     readonly property bool wantsGlobe: visible && !Data.covered
+    // A stale globe stands still, while the want stays so that the topic is replayed once it returns.
+    readonly property bool wantsClock: wantsGlobe && live
+    readonly property color labelColor: live ? Qt.rgba(Theme.hi.r, Theme.hi.g, Theme.hi.b, labelOpacity) : Theme.dim
 
-    property bool holdsGlobe: false
+    property bool holdsTopic: false
+    property bool holdsClock: false
 
     // Once per change rather than per frame: every change of the subscription makes the daemon replay each topic.
-    function holdGlobe() {
-        if (wantsGlobe === holdsGlobe) {
+    function holdTopic() {
+        if (wantsGlobe === holdsTopic) {
             return;
         }
         if (wantsGlobe) {
             Data.want(topicName);
-            FrameClock.acquire();
         } else {
             Data.release(topicName);
+        }
+        holdsTopic = wantsGlobe;
+    }
+
+    function holdClock() {
+        if (wantsClock === holdsClock) {
+            return;
+        }
+        if (wantsClock) {
+            FrameClock.acquire();
+        } else {
             FrameClock.release();
         }
-        holdsGlobe = wantsGlobe;
+        holdsClock = wantsClock;
     }
 
     anchors.fill: parent
@@ -49,14 +64,21 @@ Panel {
     tagKey: "scope"
 
     // A hold changes a turn later, never inside the update of the binding that asked for it.
-    onWantsGlobeChanged: Qt.callLater(holdGlobe)
-    Component.onCompleted: holdGlobe()
+    onWantsGlobeChanged: Qt.callLater(holdTopic)
+    onWantsClockChanged: Qt.callLater(holdClock)
+    Component.onCompleted: {
+        holdTopic();
+        holdClock();
+    }
     // Directly: a call left for later is dropped once the widget is gone, and its claims would stay.
     Component.onDestruction: {
-        if (holdsGlobe) {
+        if (holdsTopic) {
             Data.release(topicName);
+            holdsTopic = false;
+        }
+        if (holdsClock) {
             FrameClock.release();
-            holdsGlobe = false;
+            holdsClock = false;
         }
     }
 
@@ -67,7 +89,7 @@ Panel {
         readonly property var homeAnchor: globe.labelAnchors[globe.labelAnchors.length - 1]
 
         anchors.fill: parent
-        // A label beside an endpoint on the right limb runs past the body, where the mockup's canvas ends it.
+        // Only a safety net: the labels turn inward and the footer elides before they reach the edge.
         clip: true
 
         Globe {
@@ -80,6 +102,8 @@ Panel {
             homeLat: hasHome ? root.location.lat : 0
             homeLon: hasHome ? root.location.lon : 0
             endpoints: root.endpoints
+            signalColor: root.live ? Theme.signal : Theme.dim
+            hiColor: root.live ? Theme.hi : Theme.dim
         }
 
         FontMetrics {
@@ -94,7 +118,7 @@ Panel {
 
         Repeater {
             // A count rather than the endpoints, so a label keeps its object through the data's updates.
-            model: Math.min(root.endpoints.length, globe.labelAnchors.length - 1)
+            model: root.endpoints.length
 
             Text {
                 required property int index
@@ -103,23 +127,23 @@ Panel {
                 readonly property var endpoint: root.endpoints[index]
 
                 visible: anchor !== undefined && endpoint !== undefined && anchor.visible
-                x: anchor ? anchor.x + Theme.d(root.labelDxPx) : 0
+                x: anchor ? Uplink.labelX(anchor.x, Theme.d(root.labelDxPx), implicitWidth, area.width) : 0
                 y: anchor ? anchor.y + Theme.d(root.labelBaselinePx) - baselineOffset : 0
                 text: endpoint ? endpoint.label : ""
                 // Organisation, process and tailnet host names come from outside the shell.
                 textFormat: Text.PlainText
-                color: Qt.rgba(Theme.hi.r, Theme.hi.g, Theme.hi.b, root.labelOpacity)
+                color: root.labelColor
                 font: labelLine.font
             }
         }
 
         Text {
             visible: globe.hasHome && area.homeAnchor.visible
-            x: area.homeAnchor.x + Theme.d(root.homeDxPx)
+            x: Uplink.labelX(area.homeAnchor.x, Theme.d(root.homeDxPx), implicitWidth, area.width)
             y: area.homeAnchor.y + Theme.d(root.homeBaselinePx) - baselineOffset
             text: Uplink.homeLabel(Data.topic("host").value)
             textFormat: Text.PlainText
-            color: Theme.signal
+            color: root.live ? Theme.signal : Theme.dim
             font: labelLine.font
         }
 
@@ -127,6 +151,8 @@ Panel {
             visible: !area.small
             x: Theme.d(root.footerInsetPx)
             y: area.height - Theme.d(root.footerInsetPx) - baselineOffset
+            width: area.width - 2 * Theme.d(root.footerInsetPx)
+            elide: Text.ElideRight
             text: Uplink.footerText(root.uplink)
             textFormat: Text.PlainText
             color: Theme.dim

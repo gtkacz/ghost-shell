@@ -6,7 +6,17 @@ export const MISSING = '--';
 // The daemon's attribution is empty while it has no city database, and README says how to fetch one.
 export const NO_DATABASE_TEXT = 'NO GEO-IP DATABASE · SEE README';
 
+// The kit Globe's count of endpoint uniforms, restated because a widget cannot import the kit's modules; a node
+// test pins the two together.
+export const MAX_ENDPOINTS = 8;
+
 const SEPARATOR = ' · ';
+
+// An address the databases cannot name is its own label, and an IPv6 one would otherwise print in lower case.
+export function shownEndpoints(snapshot) {
+  const endpoints = snapshot && snapshot.endpoints ? snapshot.endpoints : [];
+  return endpoints.slice(0, MAX_ENDPOINTS).map((endpoint) => Object.assign({}, endpoint, { label: String(endpoint.label).toUpperCase() }));
+}
 
 export function footerText(snapshot) {
   if (!snapshot) {
@@ -26,4 +36,11 @@ export function homeLabel(host) {
 export function hasHome(config) {
   const location = config ? config.location : null;
   return Boolean(location) && Number.isFinite(location.lat) && Number.isFinite(location.lon);
+}
+
+// A label sits `gap` right of its square, or as far left of it when it would run past the body's right edge, since
+// the spec draws no text cut through a glyph.
+export function labelX(anchorX, gap, textWidth, areaWidth) {
+  const right = anchorX + gap;
+  return right + textWidth > areaWidth ? anchorX - gap - textWidth : right;
 }
