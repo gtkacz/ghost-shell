@@ -129,7 +129,7 @@ Rendering spike with a full-screen transparent surface (dot grid plus test conte
 
 ### Daemon collectors
 
-#### Memory and top processes (`collect/mem.rs`)
+#### Memory and top processes (`collect/procs.rs` for the process list, topics `procs` and `procs.tree`; `collect/mem.rs` for memory)
 
 ~800 `/proc` entries; about 490 of them are kernel threads.
 
@@ -706,6 +706,118 @@ Looking for savings in the media widget's album art, the largest memory cost Pla
 ### Plan 2a: KWin desktop script
 
 The script has no timers and does no polling. It evaluates the stacking order once per relevant window event and calls ghostd's `Report` only when the covered outputs or the focus state change. It also reads KWin's `showingDesktop` property once on load, once per new window and once per show-desktop change. On the live session, a 20 s window with no window events made 0 calls. `kwin_wayland` read 2.00 % of a core over those 20 s with the dashboard animating; that is KWin's own baseline, and no comparison without the script was taken.
+
+### Plan 2b: shader mirror and heat graphs (HEAD `c480007`)
+
+`MirrorGraph` and `HeatGraph` draw with shaders like `BlockGraph`. A heat lane is one ShaderEffect per band of at most 4 rows, fed by a ring buffer: a new sample writes one word and moves a `head` uniform. One ShaderEffect per lane held 512 words and cost +35.3 MiB of Rss against ≤ 30, because NVIDIA charges memory per program. Shell only, in a headless KWin (2560×1440, `QT_SCALE_FACTOR=1.15`), against a release `ghostd run --fake` on its own socket. The gallery's lane pages, a 320 s warm-up so the history is full, a 10 s settle, then `measure-cpu.sh` for 60 s. `Rss` is the shell's `smaps_rollup` figure at the end of the window. Three runs, interleaved, one warm-up run discarded. Load average 0.25–1.87.
+
+| Page | CPU, per run | Rss (KiB), per run | Frames/s | Creation |
+|---|---|---|---|---|
+| Base (the kit page, no lanes) | 0.18, 0.18, 0.18 % | 196 576, 196 236, 196 448 | 1.00 | — |
+| Mixed (two bar, two mirror, two heat lanes) | 0.42, 0.38, 0.38 % | 212 392, 213 248, 213 720 | 1.00 | 9 ms |
+
+- Against the interleaved base, the mixed page costs **+0.21 %** and **+16.4 MiB** of Rss (the two earlier rounds of the design read +0.19 %). The target was ≤ 0.30 % and ≤ 30 MiB.
+- Per lane, from earlier rounds on the same harness: a bar lane about 0.017 %, a mirror lane about 0.06 %, a 16-row heat lane about 0.03 % (it was 0.20 % with one effect per row). The heat program costs NVIDIA about +20 MiB once per process, so count it once, not per lane.
+- Projection, not measured: a MONITOR with one heat lane, three bar lanes and two mirror lanes would add about 0.20 + 0.05 + 0.12 ≈ 0.37 % before labels, using the per-row heat cost of the first version. With the band design the heat share is smaller.
+
+**Only the first shell start after any shader change runs about 61 MiB above steady state.** Same harness, the service's EGL variables, and the NVIDIA and Qt shader caches in directories of their own. Rss was read 2 s after the page existed, then at about 70 s:
+
+| Session | Rss at start (KiB) | Rss at ≈ 70 s (KiB) |
+|---|---|---|
+| Base, cold caches | 228 908 | 225 824 |
+| Base, second start (warm) | 165 752 | 164 340 |
+| Mixed, cold caches | 234 728 | 228 328 |
+| Mixed, second start (warm) | 169 228 | 167 188 |
+| Mixed, NVIDIA cold only | 234 468 | 228 076 |
+| Mixed, Qt cold only | 169 624 | 167 252 |
+
+- A cold session does not decay: the mixed page reads 228.0 MiB at 300 s and 228.1 MiB at 600 s. The second start reads 167.2 MiB, **61.1 MiB lower**.
+- NVIDIA's disk cache is the deciding layer. With only NVIDIA's cold the session reads cold, and with only Qt's cold it reads warm.
+- The cost belongs to any shader change, not to these graphs: the base page pays +61.5 MiB too (225.8 against 164.3). The lanes add +2.5 MiB cold and +2.8 MiB warm over it.
+- **Reinstalls therefore restart the shell once, to warm the caches.** The service's `nvidia.conf` drop-in sets `__GL_SHADER_DISK_CACHE_PATH` and `CacheDirectory=ghost-shell`, so the driver's cache directory exists.
+- Load average over these runs was 0.57–5.99.
+
+### Plan 2b: the uplink globe as one shader (spike, not merged)
+
+A globe spike before the widget is written; details in `docs/superpowers/notes/2026-10-21-globe-shader-spike.md`. One ShaderEffect with a placeholder 2048×1024 land mask, 3 200 dots and 8 arcs. Headless KWin (2560×1440, `QT_SCALE_FACTOR=1.15`), a release fake daemon, `measure-cpu.sh` for 60 s after a 15 s settle, two passes of interleaved rounds, load average 0.1–2.4. The renderer was checked rather than assumed: the shell drew on the RTX 4080 SUPER through NVIDIA's EGL (`OpenGL ES 3.2 NVIDIA 615.78.08`).
+
+| Mode (V2 centre, 608×330 design px) | CPU per run | Rss | Frames/s |
+|---|---|---|---|
+| Empty (clock held, no globe) | 0.12, 0.08, 0.07, 0.08, 0.08 % | 122–123 MiB | 0 |
+| Dots only | 0.77, 0.55, 0.55, 0.58, 0.57 % | 155–156 MiB | 14.93 |
+| Dots and arcs in the shader | 0.77, 0.57, 0.55, 0.58, 0.53 % | 155–156 MiB | 14.93 |
+| Arcs as a `Shape` (CurveRenderer) | 1.90, 1.80, 1.77, 1.72, 1.82 % | 160 MiB | **29.87** |
+
+- **The arcs in the shader cost nothing beyond the frames**, about 0.5 % over empty at 14.93 frames/s (about 0.57 % in total). The V1 scope size (276×146) reads 0.55–0.57 %.
+- **A `Shape` draws two frames per tick**: Qt 6.11 renders a second frame after every path change, 1–13 ms after the first. That costs about 1.8 % at both sizes and breaks the 15 frames/s ceiling by itself.
+- **The mask is the memory.** The globe is about 33 MiB over empty with the 2048×1024 mask, 21 MiB with 1024×512 and 15 MiB with 512×256 (one run each); with no mask it is +3 MiB. Any image costs about 10 MiB.
+- Projection, not measured: with the live shell at about 245 MiB, a 2048×1024 mask would bring it to about 278 MiB and a 512×256 one to about 260 MiB, against the 300 MB budget.
+- Creating the globe took 23–28 ms (a synchronous `Loader`, including the PNG decode) and its first frame 6–7 ms, with warm caches. With cold ones, the first frame took 97–134 ms for the globe shaders, and the process kept 60–70 MiB.
+- The labels' per-tick projection of 9 points in JavaScript was not measured.
+
+### Plan 2b: process list and tree (daemon)
+
+The process scan moved from `mem` to its own source, with topics `procs` and `procs.tree`. Release builds, this machine with the desktop running (load average 0.2–3.1). The scan wall time comes from `Instant` and its CPU from `CLOCK_THREAD_CPUTIME_ID`; the old and new collectors ran side by side, one sample a second, 121 samples. Medians:
+
+| Sample | Wall | CPU |
+|---|---|---|
+| Old scan (`mem` with the top list), n = 61 | 3.857 ms | 3.837 ms |
+| New scan, no tree, n = 48 | 3.873 ms | 3.858 ms |
+| New scan with the tree, n = 13 | 3.939 ms | 3.923 ms |
+| Repeat between scans, old / new | 0.025 / 0.027 ms | 0.025 / 0.027 ms |
+
+- The split costs nothing measurable, and the tree adds about 0.07 ms once every 10 s.
+- Plan 2a's 2.56 ms scan (above) no longer describes this machine: it now has about 410 user processes and 485 kernel threads, against about 340 user processes then.
+- The tree is 28 738–30 940 B of JSON, typically about 30.0 KB, for 389–416 processes. It is published every 10 s, so about 3 KB/s on the socket while wanted. A `procs` message is 398–415 B.
+- Daemon CPU and Rss by demand (`measure-cpu.sh` for 60 s after a 6 s settle, two interleaved rounds, a client subscribed):
+
+| Demand | Run 1 | Run 2 |
+|---|---|---|
+| Old `[mem]` | 0.20 % / 33 968 KiB | 0.15 % / 33 816 KiB |
+| New `[mem, procs]` (the memory widget) | 0.17 % / 33 988 KiB | 0.17 % / 33 984 KiB |
+| New `[procs]` | 0.18 % / 33 936 KiB | 0.18 % / 34 080 KiB |
+| New `[procs, procs.tree]` | 0.18 % / 34 288 KiB | 0.18 % / 34 184 KiB |
+
+- The memory widget's change is about 0.00 % CPU and about +100 KiB of Rss. The tree adds about 0.00 % and +200 to 350 KiB while wanted.
+- On V1 in a headless KWin against `--fake`, the shell read 0.35 and 0.32 % (new) against 0.35 and 0.33 % (old). The Rss difference was inside the ±5 MiB run-to-run noise.
+
+### Plan 2b: History for every sampled topic
+
+The daemon now keeps a history for 26 series (3 cpu, 16 cores, 2 gpu, 1 mem, 1 sensors, 3 disks) instead of 4. Release builds, a 5-minute `history_minutes` at 1 s ticks, every topic subscribed. After 310 s a probe subscribed and recorded the History line.
+
+| | Series | Samples each | History line |
+|---|---|---|---|
+| Before, `--fake` / real collectors | 4 | 300 | 8 850 B / 10 090 B |
+| After, `--fake` | 26 | 300 | 52 668 B |
+| After, real collectors, two rounds | 26 | 300 | 53 031 B, 56 315 B |
+| After, `--fake`, at 60 minutes (`history_minutes = 3` at a 50 ms tick) | 26 | 3 600 | 628 706 B |
+| After, real collectors, at 60 minutes | 26 | 3 600 | 457 887 B |
+
+- The 5-minute line is about 21 % of `MAX_UNSENT_BYTES` (256 KiB). The 60-minute line exceeds it, so a History reply is now admitted against the bytes queued before it. A client that does not drain the reply by the next tick is dropped. The probe drained at 20 Hz ticks and stayed connected; a live shell at 60 minutes was not run.
+- **Shell cost of one resend** (`JSON.parse` and `fromHistory` in a QV4 micro-benchmark, tight loop, so later rounds include GC): 0.465, 1.450, 1.215 ms at 5 minutes against 0.070, 0.210, 0.370 ms before. At 60 minutes: 5.9, 15.6, 24.2 ms (fake line) and 7.3, 19.8, 25.6 ms (real line).
+- **Shell cost per tick** (the same benchmark, appending one message for each of the five topics): 1.734, 1.643, 1.777 ms at 300 samples against 0.288, 0.286, 0.288 ms before. At 3 600 samples: 14.8, 32.9, 51 ms. The append copies every series on every tick.
+  - Projection from the benchmark, not measured end to end: at `history_minutes = 60` and 1 Hz that is roughly 1.5–5 % of a core, over the 2 % budget on its own.
+  - End to end at the default 5 minutes (headless KWin, `--fake`, 340 s settle, two rounds with the trees swapped between KWins), the shell read 0.38 and 0.43 % (new) against 0.33 and 0.42 % (old), a mean of +0.03 points. Rss differed by −304 and +728 KiB.
+- **Daemon:** Rss grew by about 0.5–0.65 MiB (real collectors: 35 956 and 35 796 KiB against 35 244 KiB; `--fake`: 9 540 against 8 912 KiB). CPU did not change (real: 0.38 against 0.38 %). At 3 600 samples the daemon holds 12 212 KiB (`--fake`) and 38 620 KiB (real).
+
+### Plan 2b: network links (`net.links`)
+
+The `net.links` feed reads NetworkManager over the system bus, asks Tailscale for its status, and pings 1.1.1.1 from an unprivileged ICMP datagram socket. Release build, a throwaway harness on a current-thread runtime. CPU from `CLOCK_PROCESS_CPUTIME_ID`, wall from `Instant`. These figures predate the change of the ping socket to tokio's UDP socket.
+
+| Operation | n | CPU median / mean / max | Wall median / mean / max |
+|---|---|---|---|
+| NetworkManager full re-read (system bus) | 50 | 476 / 503 / 755 µs | 1.79 / 1.87 / 2.58 ms |
+| Tailscale status request | 30 | 109 / 110 / 291 µs | 0.44 / 0.42 / 0.61 ms |
+| Ping 1.1.1.1 | 10 | 121 / 145 / 405 µs | 1.96 / 1.99 / 2.66 ms |
+
+- Projection from these figures: 6 Tailscale requests and 12 pings a minute come to about 2.1 ms of CPU a minute, about 0.0035 % of one core. NetworkManager is re-read only on its events.
+- Daemon over 60 s after a 20 s warm-up, with only `net.links` subscribed. `measure-cpu.sh` reads 0.00 % either way, because it counts 10 ms clock ticks. The summed per-thread `schedstat` gives 3.72 and 3.64 ms per 60 s (0.0061–0.0062 %) with no client and 5.20 ms (**0.0087 %**) with `net.links` wanted: about **+0.0025 %**.
+- Rss rose by about **+650–700 KiB** (34 004 KiB before the first want, 34 688–34 700 KiB afterwards): the system-bus connection, zbus state and the lane tasks. The connection stays open after the first want.
+- A live check on this machine returned `ping_ms` of 1.95–2.36 ms at the 5 s cadence.
+
+### Plan 2b: the live install (2026-10-22 01:59, HEAD `f202ade`)
+
+After the reinstall the shell was restarted once to warm the shader caches. The live services' `smaps_rollup` Rss afterwards was **194 964 KiB** for the shell and **34 536 KiB** for `ghostd`. The desktop was covered by a maximised window at the time.
 
 ## License
 
