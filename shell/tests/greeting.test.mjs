@@ -15,6 +15,8 @@ import {
 } from '../kit/GhostKit/lib/greeting.mjs';
 
 const TUBE_END_MS = 1030;
+const GLOW_START_MS = 130;
+const GLOW_RUN_MS = 900;
 const DOT_PRINT_MS = 900;
 const TYPING_LEAD_MS = 350;
 const TITLE_CHAR_MS = 62;
@@ -59,6 +61,44 @@ test('the tube line opens to 220 times its height and the glow fades out', () =>
   assert.equal(frameAt(p, 130).tube.glowInset, 0.5);
   assert.equal(frameAt(p, 130).tube.glowOpacity, 1);
   assert.ok(Math.abs(frameAt(p, TUBE_END_MS - 1e-6).tube.glowOpacity) < 1e-3);
+});
+
+test('the glow tints the whole screen until its clip animation starts at 130 ms', () => {
+  const p = sequence({ fromDots: false });
+  for (const ms of [0, 60, 129.99]) {
+    assert.equal(frameAt(p, ms).tube.glowInset, 0, `${ms}`);
+    assert.equal(frameAt(p, ms).tube.glowOpacity, 1, `${ms}`);
+  }
+  assert.equal(frameAt(p, 130).tube.glowInset, 0.5);
+  assert.equal(frameAt(p, 130).tube.glowOpacity, 1);
+});
+
+function glowMsAtEasedProgress(eased) {
+  let low = 0;
+  let high = 1;
+  for (let i = 0; i < 60; i += 1) {
+    const mid = (low + high) / 2;
+    if (EASE_OUT(mid) < eased) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+  return GLOW_START_MS + ((low + high) / 2) * GLOW_RUN_MS;
+}
+
+test('the glow reaches 0.9 opacity with its clip fully open at 35 % of the eased run', () => {
+  const p = sequence({ fromDots: false });
+  const peakMs = glowMsAtEasedProgress(0.35);
+  const atPeak = frameAt(p, peakMs).tube;
+  assert.ok(Math.abs(atPeak.glowOpacity - 0.9) < 1e-6, `${atPeak.glowOpacity}`);
+  assert.ok(Math.abs(atPeak.glowInset) < 1e-6, `${atPeak.glowInset}`);
+  const half = frameAt(p, (GLOW_START_MS + peakMs) / 2).tube;
+  assert.ok(half.glowInset > 0 && half.glowInset < 0.5, `${half.glowInset}`);
+  assert.ok(half.glowOpacity > 0.9 && half.glowOpacity < 1, `${half.glowOpacity}`);
+  const after = frameAt(p, (peakMs + TUBE_END_MS) / 2).tube;
+  assert.equal(after.glowInset, 0);
+  assert.ok(after.glowOpacity > 0 && after.glowOpacity < 0.9, `${after.glowOpacity}`);
 });
 
 test('dot print holds each of 25 states for 36 ms', () => {

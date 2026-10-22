@@ -128,6 +128,8 @@ function tubeAt(ms) {
   const opened = TUBE_OPEN_EASING(clamp01((ms - TUBE_OPEN_AT_MS) / TUBE_OPEN_MS));
   // The glow's easing covers its whole run and the keyframe offsets are on the eased progress.
   const glow = EASE_OUT(clamp01((ms - TUBE_OPEN_AT_MS) / GLOW_MS));
+  // The mockup's glow layer is fully open with its tint from power-on; only its clip animation waits for 130 ms.
+  const glowStarted = ms >= TUBE_OPEN_AT_MS;
   const peaked = glow >= GLOW_PEAK_AT;
   const toPeak = glow / GLOW_PEAK_AT;
   const afterPeak = (glow - GLOW_PEAK_AT) / (1 - GLOW_PEAK_AT);
@@ -135,7 +137,7 @@ function tubeAt(ms) {
     lineScaleX: LINE_SCALE_X_FROM + (1 - LINE_SCALE_X_FROM) * grown,
     lineScaleY: 1 + (LINE_SCALE_Y_TO - 1) * opened,
     lineOpacity: 1 - opened,
-    glowInset: peaked ? 0 : GLOW_FULL_INSET * (1 - toPeak),
+    glowInset: peaked || !glowStarted ? 0 : GLOW_FULL_INSET * (1 - toPeak),
     glowOpacity: peaked ? GLOW_PEAK_OPACITY * (1 - afterPeak) : 1 - (1 - GLOW_PEAK_OPACITY) * toPeak,
   };
 }
@@ -257,6 +259,8 @@ export function withSession(state, session, connection) {
     // A greeting that is cut short by a lock must wait for the next unlock and start over.
     return withPhase(state, 'armed', null, true, seen);
   }
+  // A new seq while playing is absorbed on purpose: the daemon bumps it only at an unlock or a wake, which a play
+  // cannot overlap unless a lock re-armed it first.
   if (state.phase === 'playing') {
     return withPhase(state, 'playing', state.kind, state.fromDots, seen);
   }
