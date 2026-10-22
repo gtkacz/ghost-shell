@@ -17,6 +17,8 @@ const CPU_TEMP_KEY = 'temp_cpu';
 const DISK_READ_KEY = 'disk_read';
 const DISK_WRITE_KEY = 'disk_write';
 const NVME_TEMP_KEY = 'temp_nvme';
+const NET_DOWN_KEY = 'net_down';
+const NET_UP_KEY = 'net_up';
 // Every key but the per-core ones, with the topic that records it, as the daemon's history_topic.
 const KEY_TOPICS = Object.freeze({
   [LOAD_KEY]: CPU_TOPIC,
@@ -29,8 +31,8 @@ const KEY_TOPICS = Object.freeze({
   [DISK_READ_KEY]: DISKS_TOPIC,
   [DISK_WRITE_KEY]: DISKS_TOPIC,
   [NVME_TEMP_KEY]: DISKS_TOPIC,
-  net_down: NET_TOPIC,
-  net_up: NET_TOPIC,
+  [NET_DOWN_KEY]: NET_TOPIC,
+  [NET_UP_KEY]: NET_TOPIC,
 });
 // The daemon's CPU_PACKAGE_SENSORS.
 const CPU_PACKAGE_SENSORS = Object.freeze(['k10temp/Tctl', 'coretemp/Package id 0']);
@@ -118,6 +120,14 @@ function disksSamples(data) {
   };
 }
 
+// The default-route interface's rates, rounded to f32 as the daemon keeps them.
+function netSamples(data) {
+  return {
+    [NET_DOWN_KEY]: Math.fround(data.rx_bps),
+    [NET_UP_KEY]: Math.fround(data.tx_bps),
+  };
+}
+
 // As the daemon records them, keyed by the topic they are recorded from.
 const SAMPLES_OF = Object.freeze({
   [CPU_TOPIC]: cpuSamples,
@@ -125,6 +135,7 @@ const SAMPLES_OF = Object.freeze({
   [MEM_TOPIC]: memSamples,
   [SENSORS_TOPIC]: sensorsSamples,
   [DISKS_TOPIC]: disksSamples,
+  [NET_TOPIC]: netSamples,
 });
 
 // Returns a new track: Data publishes `series` as is, so a published series is never changed.

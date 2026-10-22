@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use ghost_proto::{CcdLoad, CoreLoad, Drive, DriveState, ProcTree, Reading};
+use ghost_proto::{CcdLoad, CoreLoad, Drive, DriveState, NetIface, ProcTree, Reading};
 
 use super::*;
 
@@ -50,12 +50,12 @@ impl<T: Clone> Source<T> for Counted<T> {
     }
 }
 
-/// Samples taken of cpu, mem, sensors, gpu, disks and procs, in that order.
+/// Samples taken of cpu, mem, sensors, gpu, disks, net and procs, in that order.
 #[derive(Default)]
-struct SampleCounts([Arc<AtomicUsize>; 6]);
+struct SampleCounts([Arc<AtomicUsize>; 7]);
 
 impl SampleCounts {
-    fn get(&self) -> [usize; 6] {
+    fn get(&self) -> [usize; 7] {
         self.0
             .each_ref()
             .map(|samples| samples.load(Ordering::Relaxed))
@@ -76,6 +76,7 @@ struct Machine {
     sensors: SensorSnapshot,
     gpu: GpuSnapshot,
     disks: DiskSnapshot,
+    net: NetSnapshot,
     procs: ProcSample,
 }
 
@@ -87,19 +88,21 @@ impl Machine {
             Box::new(Fixed(self.sensors)),
             Box::new(Fixed(self.gpu)),
             Box::new(Fixed(self.disks)),
+            Box::new(Fixed(self.net)),
             Box::new(Fixed(self.procs)),
         )
     }
 
     fn counted_sampler(self) -> (Sampler, SampleCounts) {
         let counts = SampleCounts::default();
-        let [cpu, mem, sensors, gpu, disks, procs] = &counts.0;
+        let [cpu, mem, sensors, gpu, disks, net, procs] = &counts.0;
         let sampler = Sampler::new(
             counted(self.cpu, cpu),
             counted(self.mem, mem),
             counted(self.sensors, sensors),
             counted(self.gpu, gpu),
             counted(self.disks, disks),
+            counted(self.net, net),
             counted(self.procs, procs),
         );
         (sampler, counts)
@@ -264,6 +267,7 @@ fn tick_order_and_seq() {
             (topics::SENSORS, expected_seq),
             (topics::GPU, expected_seq),
             (topics::DISKS, expected_seq),
+            (topics::NET, expected_seq),
             (topics::PROCS, expected_seq),
             (topics::PROCS_TREE, expected_seq),
         ];
@@ -277,7 +281,7 @@ fn tick_samples_only_wanted_sources() {
 
     let msgs = sampler.tick(&mut History::new(3), &wanted(&[topics::CPU]));
 
-    assert_eq!(counts.get(), [1, 0, 0, 0, 0, 0]);
+    assert_eq!(counts.get(), [1, 0, 0, 0, 0, 0, 0]);
     assert_eq!(topics_of(&msgs), [topics::CPU]);
 }
 
@@ -287,7 +291,7 @@ fn disks_pull_in_sensors_without_publishing_them() {
 
     let msgs = sampler.tick(&mut History::new(3), &wanted(&[topics::DISKS]));
 
-    assert_eq!(counts.get(), [0, 0, 1, 0, 1, 0]);
+    assert_eq!(counts.get(), [0, 0, 1, 0, 1, 0, 0]);
     assert_eq!(topics_of(&msgs), [topics::DISKS]);
     let disks: DiskSnapshot = serde_json::from_value(data_for(&msgs, topics::DISKS).clone())
         .expect("disks message holds a DiskSnapshot");
@@ -317,6 +321,7 @@ fn a_resumed_source_skips_a_baseline_then_pushes_nulls_for_the_gap() {
             ..Default::default()
         })),
         Box::new(Fixed(DiskSnapshot::default())),
+        Box::new(Fixed(NetSnapshot::default())),
         Box::new(Fixed(ProcSample::default())),
     );
     let mut history = History::new(10);
@@ -380,6 +385,7 @@ fn a_source_hears_of_a_resume_just_before_its_first_sample_after_a_gap() {
         Box::new(Fixed(SensorSnapshot::default())),
         Box::new(Journal(Arc::clone(&journal))),
         Box::new(Fixed(DiskSnapshot::default())),
+        Box::new(Fixed(NetSnapshot::default())),
         Box::new(Fixed(ProcSample::default())),
     );
     let mut history = History::new(3);
@@ -404,6 +410,7 @@ fn history_caps() {
         Box::new(Fixed(SensorSnapshot::default())),
         Box::new(Fixed(GpuSnapshot::default())),
         Box::new(Fixed(DiskSnapshot::default())),
+        Box::new(Fixed(NetSnapshot::default())),
         Box::new(Fixed(ProcSample::default())),
     );
     let mut history = History::new(3);
@@ -594,4 +601,43 @@ fn drive_temperature_comes_from_the_matching_nvme_reading() {
         .expect("disks message holds a DiskSnapshot");
     assert_eq!(disks.drives[0].temp_c, Some(41.0));
     assert_eq!(disks.drives[1].temp_c, None);
+}
+
+#[test]
+fn net_records_the_default_route_rates_as_down_and_up() {
+    let mut sampler = Machine {
+        net: NetSnapshot {
+            default_iface: Some("enp14s0".to_owned()),
+            rx_bps: 125_000_000,
+            tx_bps: 4_000,
+            interfaces: vec![NetIface {
+                name: "tun0".to_owned(),
+                oper_up: true,
+                rx_bps: 9_000,
+                tx_bps: 9_000,
+            }],
+        },
+        ..Default::default()
+    }
+    .sampler();
+    let mut history = History::new(10);
+
+    let msgs = sampler.tick(&mut history, &wanted(&[topics::NET]));
+
+    assert_eq!(topics_of(&msgs), [topics::NET]);
+    let series = history.series();
+    assert_eq!(series["net_down"], [Some(125_000_000.0)]);
+    assert_eq!(series["net_up"], [Some(4_000.0)]);
+}
+
+#[test]
+fn net_history_is_recorded_only_while_net_is_published() {
+    let (mut sampler, counts) = Machine::default().counted_sampler();
+    let mut history = History::new(10);
+
+    sampler.tick(&mut history, &wanted(&[topics::CPU]));
+
+    let [.., net, _procs] = counts.get();
+    assert_eq!(net, 0);
+    assert!(!history.series().contains_key("net_down"));
 }

@@ -63,6 +63,11 @@ test('every key maps to one topic', () => {
   assert.equal(topicOfKey('core'), null);
 });
 
+test('net data records down and up', () => {
+  const t = withData(fromHistory({}), { topic: 'net', seq: 1, data: { rx_bps: 10, tx_bps: 2, interfaces: [] } }, 300);
+  assert.deepEqual([t.series.net_down, t.series.net_up], [[10], [2]]);
+});
+
 test('cpu data appends one sample per core', () => {
   const t = withData(fromHistory({}), { topic: 'cpu', seq: 1, data: { load: 10, ccds: [], cores: [{ cpus: [0, 16], load: 20 }] } }, 300);
   assert.deepEqual(t.series.core0, [20]);

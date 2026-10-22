@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use ghost_proto::{DiskSnapshot, Drive, DriveState, SensorSnapshot};
 use nix::sys::statvfs::statvfs;
 
-use super::{Source, read_text};
+use super::{Source, bytes_per_second, read_text};
 use crate::sysroot::SysRoot;
 
 const BLOCK_DIR: &str = "sys/block";
@@ -176,21 +176,18 @@ impl Device {
     fn rates(&mut self, current: Option<Sectors>, elapsed: Duration) -> (u64, u64) {
         match (mem::replace(&mut self.previous_sectors, current), current) {
             (Some(before), Some(now)) => (
-                bytes_per_second(now.read, before.read, elapsed),
-                bytes_per_second(now.written, before.written, elapsed),
+                sector_bytes_per_second(now.read, before.read, elapsed),
+                sector_bytes_per_second(now.written, before.written, elapsed),
             ),
             _ => (0, 0),
         }
     }
 }
 
-/// Zero when the counter went backwards, as it does when a drive is re-enumerated.
-fn bytes_per_second(now: u64, before: u64, elapsed: Duration) -> u64 {
-    if elapsed.is_zero() {
-        return 0;
-    }
-    let bytes = now.saturating_sub(before).saturating_mul(BYTES_PER_SECTOR);
-    (bytes as f64 / elapsed.as_secs_f64()) as u64
+/// Scales the difference rather than each counter, so large counters cannot saturate it.
+fn sector_bytes_per_second(now: u64, before: u64, elapsed: Duration) -> u64 {
+    let sectors = now.saturating_sub(before);
+    bytes_per_second(sectors.saturating_mul(BYTES_PER_SECTOR), 0, elapsed)
 }
 
 /// Physical drives from `/sys/block`, keyed by model and serial rather than by kernel name.

@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep, timeout, timeout_at};
 
 const WATCHED_TICKS: u64 = 6;
-const NEW_BUILTINS: [&str; 8] = [
+const NEW_BUILTINS: [&str; 9] = [
     topics::HOST,
     topics::DESKTOP,
     topics::WEATHER,
@@ -24,6 +24,7 @@ const NEW_BUILTINS: [&str; 8] = [
     topics::PROCS,
     topics::PROCS_TREE,
     topics::NET_LINKS,
+    topics::NET,
 ];
 const BOOT_TIME_S: u64 = 1_792_500_000;
 const RETURNING_FEED: &str = "returning";

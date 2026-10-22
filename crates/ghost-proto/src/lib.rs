@@ -21,6 +21,7 @@ pub mod topics {
     pub const SENSORS: &str = "sensors";
     pub const GPU: &str = "gpu";
     pub const DISKS: &str = "disks";
+    pub const NET: &str = "net";
     pub const PERF: &str = "perf";
     pub const HOST: &str = "host";
     pub const DESKTOP: &str = "desktop";
@@ -32,9 +33,9 @@ pub mod topics {
     pub const WEATHER_ALERTS: &str = "weather.alerts";
 
     // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
-    pub const BUILTIN: [&str; 14] = [
+    pub const BUILTIN: [&str; 15] = [
         CPU, MEM, SENSORS, GPU, DISKS, PERF, HOST, DESKTOP, WEATHER, SKY, SPECTRUM, PROCS,
-        PROCS_TREE, NET_LINKS,
+        PROCS_TREE, NET_LINKS, NET,
     ];
 }
 

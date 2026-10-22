@@ -1,6 +1,6 @@
 use ghost_proto::{
     CcdLoad, CoreLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, MemSnapshot,
-    ProcUsage, Reading, SensorSnapshot,
+    NetIface, NetSnapshot, ProcUsage, Reading, SensorSnapshot,
 };
 
 use super::Wave;
@@ -15,6 +15,7 @@ pub fn sampler() -> Sampler {
         Box::new(FakeSensors::default()),
         Box::new(FakeGpu::default()),
         Box::new(FakeDisks::default()),
+        Box::new(FakeNet::default()),
         Box::new(FakeProcs::default()),
     )
 }
@@ -434,6 +435,59 @@ impl Source<DiskSnapshot> for FakeDisks {
             })
             .collect();
         DiskSnapshot { drives }
+    }
+}
+
+struct FakeIface {
+    name: &'static str,
+    rx_bps: Wave,
+    tx_bps: Wave,
+}
+
+// The wired link carries the default route; the two tunnels read `unknown` live, and count as up.
+const DEFAULT_IFACE: &str = "enp14s0";
+const IFACES: [FakeIface; 3] = [
+    FakeIface {
+        name: DEFAULT_IFACE,
+        rx_bps: Wave::new(20_000.0, 48_000_000.0, 33.0),
+        tx_bps: Wave::new(8_000.0, 6_500_000.0, 47.0),
+    },
+    FakeIface {
+        name: "tailscale0",
+        rx_bps: Wave::new(0.0, 900_000.0, 52.0),
+        tx_bps: Wave::new(0.0, 300_000.0, 61.0),
+    },
+    FakeIface {
+        name: "tun0",
+        rx_bps: Wave::new(0.0, 2_400_000.0, 39.0),
+        tx_bps: Wave::new(0.0, 700_000.0, 44.0),
+    },
+];
+
+#[derive(Default)]
+struct FakeNet {
+    samples: u64,
+}
+
+impl Source<NetSnapshot> for FakeNet {
+    fn sample(&mut self) -> NetSnapshot {
+        self.samples += 1;
+        let interfaces: Vec<NetIface> = IFACES
+            .iter()
+            .map(|iface| NetIface {
+                name: iface.name.to_owned(),
+                oper_up: true,
+                rx_bps: iface.rx_bps.at(self.samples) as u64,
+                tx_bps: iface.tx_bps.at(self.samples) as u64,
+            })
+            .collect();
+        let headline = &interfaces[0];
+        NetSnapshot {
+            default_iface: Some(DEFAULT_IFACE.to_owned()),
+            rx_bps: headline.rx_bps,
+            tx_bps: headline.tx_bps,
+            interfaces,
+        }
     }
 }
 

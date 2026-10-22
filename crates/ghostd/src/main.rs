@@ -9,8 +9,8 @@ use std::{env, fs, io, thread};
 
 use ghost_proto::{CpuSnapshot, ResolvedConfig, topics};
 use ghostd::collect::{
-    CpuCollector, DiskCollector, GpuCollector, GpuSource, MemCollector, NvmlSource, ProcCollector,
-    SensorCollector, Source, StatvfsFs,
+    CpuCollector, DiskCollector, GpuCollector, GpuSource, MemCollector, NetCollector, NvmlSource,
+    ProcCollector, SensorCollector, Source, StatvfsFs,
 };
 use ghostd::config::{DEFAULT_TOML, default_path};
 use ghostd::feeds::desktop::ScriptReload;
@@ -30,7 +30,7 @@ use tracing::{error, info, warn};
 const EXIT_USAGE: u8 = 2;
 const USAGE: &str = "usage: ghostd run [--socket PATH] [--config PATH] [--widgets-dir DIR] \
                      [--fake] [--tick-ms N]\n       ghostd default-config\n       \
-                     ghostd probe <cpu | mem | procs | sensors | gpu | disks | perf>";
+                     ghostd probe <cpu | mem | procs | sensors | gpu | disks | net | perf>";
 const DEFAULT_TICK_MS: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 const RUNTIME_DIR_ENV: &str = "XDG_RUNTIME_DIR";
 const SOCKET_FILE: &str = "ghostd.sock";
@@ -290,6 +290,7 @@ fn host_sampler(config: watch::Receiver<ResolvedConfig>) -> Sampler {
         Box::new(Relabeled::new(config, disk_labels, move |labels| {
             DiskCollector::new(&disks_root, Box::new(StatvfsFs), labels)
         })),
+        Box::new(NetCollector::new(&root)),
         Box::new(ProcCollector::new(&root, TOP_PROCESSES)),
     )
 }
@@ -390,6 +391,7 @@ fn probe(topic: &str) -> ExitCode {
         // what the daemon would publish.
         topics::GPU => probe_source(GpuCollector::new(open_gpu())),
         topics::DISKS => probe_source(DiskCollector::new(&root, Box::new(StatvfsFs), &no_labels)),
+        topics::NET => probe_source(NetCollector::new(&root)),
         topics::PERF => probe_source(SelfMon::new(root)),
         _ => usage(),
     }

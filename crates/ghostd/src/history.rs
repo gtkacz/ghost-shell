@@ -3,7 +3,8 @@ use std::iter;
 use std::num::NonZeroU32;
 
 use ghost_proto::{
-    CpuSnapshot, DiskSnapshot, DriveState, GpuSnapshot, MemSnapshot, SensorSnapshot, topics,
+    CpuSnapshot, DiskSnapshot, DriveState, GpuSnapshot, MemSnapshot, NetSnapshot, SensorSnapshot,
+    topics,
 };
 
 const MILLIS_PER_MINUTE: u64 = 60_000;
@@ -23,8 +24,6 @@ const DISK_WRITE_KEY: &str = "disk_write";
 const NVME_TEMP_KEY: &str = "temp_nvme";
 const NET_DOWN_KEY: &str = "net_down";
 const NET_UP_KEY: &str = "net_up";
-// ghost-proto names no `net` topic until a collector publishes it.
-const NET_TOPIC: &str = "net";
 
 /// The hwmon readings of the CPU package's temperature, on AMD and on Intel.
 const CPU_PACKAGE_SENSORS: [&str; 2] = ["k10temp/Tctl", "coretemp/Package id 0"];
@@ -42,8 +41,8 @@ const KEY_TOPICS: [(&str, &str); 12] = [
     (DISK_READ_KEY, topics::DISKS),
     (DISK_WRITE_KEY, topics::DISKS),
     (NVME_TEMP_KEY, topics::DISKS),
-    (NET_DOWN_KEY, NET_TOPIC),
-    (NET_UP_KEY, NET_TOPIC),
+    (NET_DOWN_KEY, topics::NET),
+    (NET_UP_KEY, topics::NET),
 ];
 
 /// The topic whose messages a history series is recorded from, or `None` for a key no topic
@@ -195,6 +194,14 @@ pub fn record_disks(hist: &mut History, disks: &DiskSnapshot, missed: u64) {
     hist.record(DISK_READ_KEY, missed, Some(read_bps as f32));
     hist.record(DISK_WRITE_KEY, missed, Some(write_bps as f32));
     hist.record(NVME_TEMP_KEY, missed, hottest_nvme);
+}
+
+/// Records a net sample that followed `missed` ticks without one: the default-route interface's
+/// rates.
+pub fn record_net(hist: &mut History, net: &NetSnapshot, missed: u64) {
+    // Through f64, as the shell's JSON parse goes, so both series round a rate alike.
+    hist.record(NET_DOWN_KEY, missed, Some(net.rx_bps as f64 as f32));
+    hist.record(NET_UP_KEY, missed, Some(net.tx_bps as f64 as f32));
 }
 
 fn push_bounded(buffer: &mut VecDeque<Option<f32>>, len: usize, v: Option<f32>) {

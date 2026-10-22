@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 
 use ghost_proto::{
-    CpuSnapshot, DiskSnapshot, GpuSnapshot, MemSnapshot, ProcsSnapshot, SensorSnapshot, ServerMsg,
-    data_msg, topics,
+    CpuSnapshot, DiskSnapshot, GpuSnapshot, MemSnapshot, NetSnapshot, ProcsSnapshot,
+    SensorSnapshot, ServerMsg, data_msg, topics,
 };
 
 use crate::collect::{ProcSample, Source, attach_temps};
-use crate::history::{History, record_cpu, record_disks, record_gpu, record_mem, record_sensors};
+use crate::history::{
+    History, record_cpu, record_disks, record_gpu, record_mem, record_net, record_sensors,
+};
 
 /// `Send` so a `Sampler` can be ticked from a blocking thread.
 type BoxedSource<T> = Box<dyn Source<T> + Send>;
@@ -74,6 +76,7 @@ pub struct Sampler {
     sensors_published_at: u64,
     gpu: Tracked<GpuSnapshot>,
     disks: Tracked<DiskSnapshot>,
+    net: Tracked<NetSnapshot>,
     procs: Tracked<ProcSample>,
     seq: u64,
 }
@@ -85,6 +88,7 @@ impl Sampler {
         sensors: BoxedSource<SensorSnapshot>,
         gpu: BoxedSource<GpuSnapshot>,
         disks: BoxedSource<DiskSnapshot>,
+        net: BoxedSource<NetSnapshot>,
         procs: BoxedSource<ProcSample>,
     ) -> Self {
         Self {
@@ -94,14 +98,15 @@ impl Sampler {
             sensors_published_at: 0,
             gpu: Tracked::new(gpu, Measure::Instant),
             disks: Tracked::new(disks, Measure::SincePrevious),
+            net: Tracked::new(net, Measure::SincePrevious),
             procs: Tracked::new(procs, Measure::SincePrevious),
             seq: 0,
         }
     }
 
     /// Samples the sources of the `wanted` topics and returns one `Data` message per wanted topic
-    /// that has a value to publish, in the order `cpu`, `mem`, `sensors`, `gpu`, `disks`, `procs`,
-    /// `procs.tree`.
+    /// that has a value to publish, in the order `cpu`, `mem`, `sensors`, `gpu`, `disks`, `net`,
+    /// `procs`, `procs.tree`.
     ///
     /// The messages share a `seq` that is 1 on the first tick and rises by 1 on every tick after
     /// it, whether or not anything is sampled, so a jump in `seq` shows the ticks a topic missed.
@@ -152,6 +157,12 @@ impl Sampler {
             }
             record_disks(hist, &disks.value, disks.missed);
             messages.push(data_msg(topics::DISKS, seq, &disks.value));
+        }
+        if is_wanted(topics::NET)
+            && let Some(net) = self.net.sample(seq)
+        {
+            record_net(hist, &net.value, net.missed);
+            messages.push(data_msg(topics::NET, seq, &net.value));
         }
         // The tree comes from the same scans as the top list, hence one source for both topics.
         if (is_wanted(topics::PROCS) || is_wanted(topics::PROCS_TREE))

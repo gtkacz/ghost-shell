@@ -461,7 +461,7 @@ mod tests {
         topics::MEM,
         topics::SENSORS,
         topics::DISKS,
-        "net",
+        topics::NET,
     ];
 
     fn state() -> State {

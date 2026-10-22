@@ -121,6 +121,29 @@ pub enum DriveState {
     Unmounted,
 }
 
+/// Network rates in bytes per second. The headline rates are those of `default_iface`, the
+/// interface of the lowest-metric IPv4 default route that is up, and read 0 without one.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct NetSnapshot {
+    pub default_iface: Option<String>,
+    pub rx_bps: u64,
+    pub tx_bps: u64,
+    /// Every interface but loopback, in the kernel's order.
+    pub interfaces: Vec<NetIface>,
+}
+
+/// An interface's rates read 0 on the sample that first sees it, and on one whose counters went
+/// backwards.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct NetIface {
+    pub name: String,
+    /// Carrying traffic: its operstate is `up`, or `unknown` with the interface administratively
+    /// up, as tunnels report it.
+    pub oper_up: bool,
+    pub rx_bps: u64,
+    pub tx_bps: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct HostSnapshot {
     pub hostname: String,

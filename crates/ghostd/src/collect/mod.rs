@@ -4,6 +4,7 @@ mod gpu;
 mod hwmon;
 mod labels;
 mod mem;
+mod net;
 mod procs;
 
 pub use cpu::{CpuCollector, parse_cpu_list};
@@ -11,7 +12,10 @@ pub use disk::{DiskCollector, FsStat, StatvfsFs, attach_temps};
 pub use gpu::{GpuCollector, GpuReading, GpuSource, NvmlSource};
 pub use hwmon::SensorCollector;
 pub use mem::MemCollector;
+pub use net::NetCollector;
 pub use procs::{ProcCollector, ProcSample};
+
+use std::time::Duration;
 
 use crate::sysroot::SysRoot;
 
@@ -27,6 +31,15 @@ pub trait Source<T> {
     /// measured since the previous sample are measured from the next one, which the sampler drops
     /// for such a source because it spans the gap.
     fn resume(&mut self) {}
+}
+
+/// Zero when the counter went backwards, as it does when a device is reset or re-enumerated.
+pub(crate) fn bytes_per_second(now: u64, before: u64, elapsed: Duration) -> u64 {
+    if elapsed.is_zero() {
+        return 0;
+    }
+    let bytes = now.saturating_sub(before);
+    (bytes as f64 / elapsed.as_secs_f64()) as u64
 }
 
 /// The trimmed text of a file, or `None` when it cannot be read or is blank.

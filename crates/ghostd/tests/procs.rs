@@ -512,6 +512,7 @@ fn procs_only_sampler(fake: &FakeRoot, samples: &Arc<AtomicUsize>) -> Sampler {
         Box::new(Idle),
         Box::new(Idle),
         Box::new(Idle),
+        Box::new(Idle),
         Box::new(Counting {
             inner: ProcCollector::new(&fake.root(), TOP_N),
             samples: Arc::clone(samples),
