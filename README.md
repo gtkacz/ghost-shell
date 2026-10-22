@@ -54,6 +54,8 @@ This runs `make release` and then `scripts/install.sh`. The script is idempotent
 
 It stops with an error if `cargo`, `fc-list`, `fc-cache`, `kpackagetool6`, `kreadconfig6`, `shell/` or the compiled shaders are missing. It does not enable or start anything, and it leaves the running session alone.
 
+When an install changes a compiled shader, the script says so at the end. The shell's first start after that compiles the shaders into its cache and stays about 61 MiB above its steady state until it is restarted (see Performance). So start or restart `ghost-shell`, wait about 30 s, and run `systemctl --user restart ghost-shell` once.
+
 ### CPU package power (optional)
 
 The processor panel shows `PKG` (the CPU package's power draw) only when `ghostd` can read the RAPL energy counter, `/sys/class/powercap/intel-rapl:0/energy_uj`. The kernel makes it root-only, so the row stays hidden until you install the udev rule, which `scripts/install.sh` never does:

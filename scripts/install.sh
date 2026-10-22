@@ -19,6 +19,10 @@ unit_dir=$config_home/systemd/user
 
 shell_src=$repo/shell
 shaders_src=$shell_src/kit/GhostKit/shaders
+shaders_installed=$shell_dir/kit/GhostKit/shaders
+# How long the first start after a shader change takes to compile and cache its shaders before a
+# restart brings it up warm.
+warm_up_s=30
 widgets_src=$repo/widgets
 units_src=$repo/packaging/systemd
 kwin_script=$repo/scripts/kwin-script.sh
@@ -100,6 +104,16 @@ sync_tree() {
             rm -rf "${dest:?}/$name"
         done
     fi
+}
+
+# Prints the compiled shaders that differ from the installed copies, one a line, or nothing.
+changed_shaders() {
+    local qsb
+    for qsb in "$shaders_src"/*.qsb; do
+        if [[ -e $qsb ]] && ! cmp -s -- "$qsb" "$shaders_installed/${qsb##*/}"; then
+            echo "${qsb##*/}"
+        fi
+    done
 }
 
 # Called from an if, where errexit is off, so every failure has to return explicitly.
@@ -244,6 +258,7 @@ install -D -m 755 "$binary" "$bin_dir/ghostd"
 # Beside ghostd, which starts it from its own dir because the user manager's PATH lacks this one.
 install -D -m 755 "$alerts_binary" "$bin_dir/ghost-alerts-inmet"
 
+shaders_changed=$(changed_shaders)
 step "copying the shell into $shell_dir"
 sync_tree "$shell_src" "$shell_dir"
 
@@ -259,3 +274,7 @@ step "installing the KWin desktop script"
 install_kwin_script
 
 step "done; start with: systemctl --user start ghostd ghost-shell"
+# The script starts nothing, so the warm-up is left to whoever starts the shell.
+if [[ -n $shaders_changed ]]; then
+    step "shaders changed ($(paste -sd ' ' <<< "$shaders_changed")): the shell's first start compiles them and runs about 61 MiB above its steady state until restarted, so once ghost-shell is running, wait ${warm_up_s} s and run once: systemctl --user restart ghost-shell"
+fi
