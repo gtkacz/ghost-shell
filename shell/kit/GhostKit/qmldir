@@ -17,6 +17,7 @@ Globe 1.0 Globe.qml
 AlertBox 1.0 AlertBox.qml
 WeatherAlertState 1.0 WeatherAlertState.qml
 Digits 1.0 Digits.qml
+InlineRow 1.0 InlineRow.qml
 Kv 1.0 Kv.qml
 ScrambleText 1.0 ScrambleText.qml
 Chip 1.0 Chip.qml

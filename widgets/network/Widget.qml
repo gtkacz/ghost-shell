@@ -57,7 +57,7 @@ Panel {
 
         implicitHeight: line.implicitHeight
 
-        Row {
+        InlineRow {
             id: line
 
             transformOrigin: Item.Left
@@ -67,7 +67,7 @@ Panel {
     }
 
     // A dim key, as a word or a chevron, before its value.
-    component KvPair: Row {
+    component KvPair: InlineRow {
         id: pair
 
         property string key

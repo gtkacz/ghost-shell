@@ -60,7 +60,7 @@ Item {
         }
     }
 
-    Row {
+    InlineRow {
         id: cells
 
         visible: !root.monospace

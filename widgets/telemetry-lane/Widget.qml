@@ -231,7 +231,7 @@ Panel {
                 color: live && root.valueKnown ? Theme.hi : Theme.dim
             }
 
-            Row {
+            InlineRow {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: root.isNet
                 transformOrigin: Item.Left
@@ -274,14 +274,14 @@ Panel {
             }
         }
 
-        Row {
+        InlineRow {
             transformOrigin: Item.Left
             scale: root.fitScale(implicitWidth)
 
             Repeater {
                 model: root.subParts
 
-                Row {
+                InlineRow {
                     id: part
 
                     required property var modelData
