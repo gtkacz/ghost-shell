@@ -50,32 +50,33 @@ function sampleAt(samples, columns, column) {
   return index >= 0 ? samples[index] : undefined;
 }
 
-function fillSlot(ring, slot, column, graph) {
-  for (let row = 0; row < ring.rows; row += 1) {
-    ring.cells[slot * ring.rows + row] = heatCellByte(sampleAt(ring.series[row], ring.columns, column), graph);
-  }
+// The cells of one column, top row first.
+function columnCells(series, columns, column, graph) {
+  return series.map(samples => heatCellByte(sampleAt(samples, columns, column), graph));
+}
+
+function packWord(cells, word) {
+  return pack(cells.slice(word * CELLS_PER_WORD, (word + 1) * CELLS_PER_WORD), 1, CELLS_PER_COMPONENT, CELL_RANGE)[0];
 }
 
 // `series` holds one series per row of the band, top row first, at most HEAT_BAND_ROWS of them, for a graph `columns`
 // wide; the ring starts with its head at slot 0. The caller keeps the ring and moves it on with heatRingAdvance().
 export function heatRing(series, columns, graph) {
-  const rows = series.length;
   const drawn = heatDrawnColumns(columns);
-  const ring = {
+  let cells = [];
+  for (let slot = 0; slot < drawn; slot += 1) {
+    cells = cells.concat(columnCells(series, columns, columns - drawn + slot, graph));
+  }
+  return {
     series,
     columns,
-    rows,
+    rows: series.length,
     drawn,
     head: 0,
     graph: { lo: graph.lo, hi: graph.hi, warnAt: graph.warnAt, critAt: graph.critAt, live: graph.live },
-    cells: Array(drawn * rows).fill(CELL_MISSING),
-    words: [],
+    cells,
+    words: pack(cells, HEAT_WORDS, CELLS_PER_COMPONENT, CELL_RANGE),
   };
-  for (let slot = 0; slot < drawn; slot += 1) {
-    fillSlot(ring, slot, columns - drawn + slot, graph);
-  }
-  ring.words = pack(ring.cells, HEAT_WORDS, CELLS_PER_COMPONENT, CELL_RANGE);
-  return ring;
 }
 
 function sameSettings(ring, rows, columns, graph) {
@@ -103,30 +104,41 @@ function movedOnByOne(ring, series) {
   return true;
 }
 
-// Moves `ring` on to draw `series` and returns the indices of the words that changed: none when nothing did, the
-// words of one column when every series moved on by one sample. Anything else, such as a gap of several samples, a
-// series replaced wholesale, a resize or new settings, returns null, and the caller packs a new heatRing(). The ring
-// changes in place: a new one per sample would cost the copying that the ring exists to avoid.
+// The ring that draws `series` after `ring`, and the indices of its words that differ from `ring`'s: none when nothing
+// changed, the words of one column when every series moved on by one sample. Anything else, such as a gap of several
+// samples, a series replaced wholesale, a resize or new settings, returns null, and the caller packs a new heatRing().
 export function heatRingAdvance(ring, series, columns, graph) {
   if (!sameSettings(ring, series.length, columns, graph)) {
     return null;
   }
   if (series.every((samples, row) => samples === ring.series[row])) {
-    return [];
+    return { ring, changed: [] };
   }
   if (ring.drawn === 0 || !movedOnByOne(ring, series)) {
     return null;
   }
+  // The newest column takes the oldest one's slot.
   const slot = ring.head;
-  ring.series = series;
-  fillSlot(ring, slot, columns - 1, graph);
-  ring.head = (slot + 1) % ring.drawn;
-  const first = Math.floor((slot * ring.rows) / CELLS_PER_WORD);
-  const last = Math.floor(((slot + 1) * ring.rows - 1) / CELLS_PER_WORD);
+  const start = slot * ring.rows;
+  const newest = columnCells(series, columns, columns - 1, graph);
+  const cells = ring.cells.slice(0, start).concat(newest, ring.cells.slice(start + ring.rows));
+  const first = Math.floor(start / CELLS_PER_WORD);
+  const last = Math.floor((start + ring.rows - 1) / CELLS_PER_WORD);
   const changed = [];
   for (let word = first; word <= last; word += 1) {
-    ring.words[word] = pack(ring.cells.slice(word * CELLS_PER_WORD, (word + 1) * CELLS_PER_WORD), 1, CELLS_PER_COMPONENT, CELL_RANGE)[0];
     changed.push(word);
   }
-  return changed;
+  return {
+    ring: {
+      series,
+      columns: ring.columns,
+      rows: ring.rows,
+      drawn: ring.drawn,
+      head: (slot + 1) % ring.drawn,
+      graph: ring.graph,
+      cells,
+      words: ring.words.map((word, index) => (index >= first && index <= last ? packWord(cells, index) : word)),
+    },
+    changed,
+  };
 }

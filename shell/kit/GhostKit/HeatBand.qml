@@ -48,14 +48,15 @@ ShaderEffect {
         if (!completed) {
             return;
         }
-        const changed = ring === null ? null : Packing.heatRingAdvance(ring, series, columnCount, graph);
-        if (changed === null) {
+        const advanced = ring === null ? null : Packing.heatRingAdvance(ring, series, columnCount, graph);
+        if (advanced === null) {
             ring = Packing.heatRing(series, columnCount, graph);
             for (let i = 0; i < Packing.HEAT_WORDS; i += 1) {
                 send(i);
             }
         } else {
-            for (const index of changed) {
+            ring = advanced.ring;
+            for (const index of advanced.changed) {
                 send(index);
             }
         }

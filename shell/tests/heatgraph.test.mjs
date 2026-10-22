@@ -80,11 +80,15 @@ test('a band of 4 rows of 384 crit cells fills its 128 words with exact componen
 
 test('moving on one sample at a time re-sends one word and draws what a full repack draws', () => {
   for (const [rows, columns, length] of [[4, 251, 300], [3, 7, 7], [2, 400, 420], [1, 251, 300]]) {
-    const ring = heatRing(history(0, rows, length), columns, G);
+    let ring = heatRing(history(0, rows, length), columns, G);
     for (let tick = 1; tick <= 2 * columns + 5; tick += 1) {
       const series = history(tick, rows, length);
-      const changed = heatRingAdvance(ring, series, columns, G);
-      assert.equal(changed?.length, 1, `${rows}x${columns} tick ${tick}: ${changed}`);
+      const advanced = heatRingAdvance(ring, series, columns, G);
+      assert.equal(advanced?.changed.length, 1, `${rows}x${columns} tick ${tick}`);
+      // The shader keeps every word it is not sent, so only the ones named may differ.
+      const unsent = advanced.ring.words.filter((_, index) => !advanced.changed.includes(index));
+      assert.deepEqual(unsent, ring.words.filter((_, index) => !advanced.changed.includes(index)));
+      ring = advanced.ring;
       assert.deepEqual(picture(ring), picture(heatRing(series, columns, G)), `${rows}x${columns} tick ${tick}`);
     }
   }
@@ -93,10 +97,12 @@ test('moving on one sample at a time re-sends one word and draws what a full rep
 test('a history that grows from empty past the width moves the ring on one sample at a time', () => {
   const full = history(0, 4, 300);
   const upTo = length => full.map(samples => samples.slice(0, length));
-  const ring = heatRing(upTo(0), 251, G);
+  let ring = heatRing(upTo(0), 251, G);
   for (let length = 1; length <= 300; length += 1) {
     const series = upTo(length).map(samples => samples.slice(-300));
-    assert.notEqual(heatRingAdvance(ring, series, 251, G), null, `length ${length}`);
+    const advanced = heatRingAdvance(ring, series, 251, G);
+    assert.notEqual(advanced, null, `length ${length}`);
+    ring = advanced.ring;
     assert.deepEqual(picture(ring), picture(heatRing(series, 251, G)), `length ${length}`);
   }
 });
@@ -122,9 +128,8 @@ test('drawing as HeatBand does matches a full repack after ticks, a gap and a re
   // HeatBand.draw(): move the ring on, or pack a new one when it cannot.
   let ring = heatRing(history(0, 4, 300), 251, G);
   const draw = (series, columns) => {
-    if (heatRingAdvance(ring, series, columns, G) === null) {
-      ring = heatRing(series, columns, G);
-    }
+    const advanced = heatRingAdvance(ring, series, columns, G);
+    ring = advanced === null ? heatRing(series, columns, G) : advanced.ring;
     assert.deepEqual(picture(ring), picture(heatRing(series, columns, G)));
   };
   let series = history(0, 4, 300);
@@ -148,8 +153,18 @@ test('drawing as HeatBand does matches a full repack after ticks, a gap and a re
 test('the same series again changes nothing', () => {
   const series = history(0, 4, 300);
   const ring = heatRing(series, 251, G);
-  assert.deepEqual(heatRingAdvance(ring, series.slice(), 251, G), []);
-  assert.equal(ring.head, 0);
+  const advanced = heatRingAdvance(ring, series.slice(), 251, G);
+  assert.deepEqual(advanced.changed, []);
+  assert.equal(advanced.ring, ring);
+});
+
+test('moving on leaves the ring it started from untouched', () => {
+  const ring = heatRing(history(0, 4, 300), 251, G);
+  const before = structuredClone(ring);
+  const advanced = heatRingAdvance(ring, history(1, 4, 300), 251, G);
+  assert.notEqual(advanced.ring, ring);
+  assert.deepEqual(ring, before);
+  assert.deepEqual(picture(ring), picture(heatRing(history(0, 4, 300), 251, G)));
 });
 
 test('row height', () => assert.equal(heatRowHeight(70, 16, 1), 55 / 16));
