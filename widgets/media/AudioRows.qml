@@ -164,12 +164,14 @@ Column {
                 weight: Font.Medium
                 color: row.valueColor
             }
+        }
 
-            ClickArea {
-                anchors.fill: parent
-                enabled: root.canToggle(row.node)
-                onClicked: row.toggled()
-            }
+        // The whole row toggles the mute: the value alone is a few characters wide, and a click beside it would pass
+        // through to the desktop.
+        ClickArea {
+            anchors.fill: parent
+            enabled: root.canToggle(row.node)
+            onClicked: row.toggled()
         }
     }
 
