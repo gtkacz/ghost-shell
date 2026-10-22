@@ -767,6 +767,22 @@ A globe spike before the widget is written; details in `docs/superpowers/notes/2
 - Creating the globe took 23–28 ms (a synchronous `Loader`, including the PNG decode) and its first frame 6–7 ms, with warm caches. With cold ones, the first frame took 97–134 ms for the globe shaders, and the process kept 60–70 MiB.
 - The labels' per-tick projection of 9 points in JavaScript was not measured.
 
+### Plan 2b: the kit globe (merged, shader)
+
+`Globe` is the spike's design with the real Natural Earth land mask and land bits. Shell only, headless KWin (2560×1440, `QT_SCALE_FACTOR=1.15`), a fake release daemon, a 320 s history warm-up, a 15 s settle, then `measure-cpu.sh` for 60 s. Empty, V2 centre, V1 scope and a six-lane page, interleaved, one warm-up round discarded, three measured rounds. Load average 0.1–1.7, with other agents running. The renderer was the RTX 4080 SUPER through NVIDIA's EGL. The driver's shader cache was a directory made for the run.
+
+| Mode | CPU, per run | Median | Rss | Over empty | Frames/s |
+|---|---|---|---|---|---|
+| Empty | 0.20, 0.17, 0.18 % | 0.18 % | 122.8–123.5 MiB | — | 0 |
+| V2 centre (608×330) | 0.70, 0.78, 0.65 % | 0.70 % | 126.3–126.4 MiB | +3.0 MiB | 14.92 |
+| V1 scope (276×146) | 0.85, 1.03, 0.63 % | 0.85 % | 126.4–126.6 MiB | +3.1 MiB | 14.92 |
+
+- **Against the spike:** V2 reads 0.70 % against the spike's 0.57 % (0.53–0.77). This session's floor was higher (empty 0.18 against 0.08), so the fair comparison is the cost over empty: +0.52 points against +0.49. The globe's own cost did not change. The 1.03 % V1 run coincided with a load average of 1.74.
+- **Memory:** +3.0 MiB against the spike's +33 MiB, because the shader reads 34 words of land bits (1 423 B) instead of sampling a 2048×1024 mask. VRAM read 24 MiB against 36 MiB for the spike. The stop rule (V2 ≤ 0.77 %, Rss ≤ +5 MiB) passed.
+- **Creation:** 1–2 ms against the spike's 23–28 ms (no PNG decode). The cold first frame took 68 ms; the warm one 2 ms.
+- **Fix round (exact arithmetic for the land-bit lookup):** one measured round after one discarded round gave V2 0.78 %, V1 0.80 % and empty 0.17 %, with +3.2 and +3.1 MiB over empty. V2 sits inside the first round's 0.65–0.78 %. A single round, so it shows that nothing moved, not a new figure.
+- Output against a brute-force reference at a frozen frame: 2 pixels differ by more than 2/255 at V2 (largest 11/255) and 19 at V1 (largest 10/255), all at the rim. The fix round's grabs are pixel-identical to the first round's.
+
 ### Plan 2b: process list and tree (daemon)
 
 The process scan moved from `mem` to its own source, with topics `procs` and `procs.tree`. Release builds, this machine with the desktop running (load average 0.2–3.1). The scan wall time comes from `Instant` and its CPU from `CLOCK_THREAD_CPUTIME_ID`; the old and new collectors ran side by side, one sample a second, 121 samples. Medians:
@@ -827,9 +843,111 @@ The `net.links` feed reads NetworkManager over the system bus, asks Tailscale fo
 - Rss rose by about **+650–700 KiB** (34 004 KiB before the first want, 34 688–34 700 KiB afterwards): the system-bus connection, zbus state and the lane tasks. The connection stays open after the first want.
 - A live check on this machine returned `ping_ms` of 1.95–2.36 ms at the 5 s cadence.
 
+### Plan 2b: network rates (`net`)
+
+The `net` topic reads `/proc/net/dev` and `/proc/net/route` once a second, only while it is wanted. Release build, a throwaway harness, load average 0.2–1.3, desktop running. CPU from `CLOCK_THREAD_CPUTIME_ID`, wall from `Instant`.
+
+| Spacing | n | Wall median / mean / max | CPU median / mean / max |
+|---|---|---|---|
+| 1 s, round 1 | 60 | 165.7 / 175.3 / 276.8 µs | 164.9 / 174.6 / 254.8 µs |
+| 1 s, round 2 | 60 | 141.1 / 139.9 / 220.4 µs | 140.8 / 140.1 / 219.4 µs |
+| 10 ms (warm) | 1000 | 72.1 / 74.8 / 144.0 µs | 72.3 / 74.8 / 131.0 µs |
+
+- At 1 Hz that is about 0.14–0.17 ms of CPU a second, about 0.015 % of one core. Wall time is roughly equal to CPU time, so the cost is on-CPU work.
+- Daemon over 60 s after a 20 s warm-up, two rounds on fresh daemons, no providers. `measure-cpu.sh` reads 0.02 % idle and 0.03 % with `net` wanted. The summed per-thread `schedstat` gives 4.0 and 4.7 ms per 60 s idle and 19.3 and 17.9 ms with `net` wanted: about **+0.022–0.025 %**. About 9 ms of that is the collector; the rest is the tick task, the history push, the JSON and the socket write.
+- Rss rose by **+96 KiB** in both rounds (34 384 → 34 480 and 34 224 → 34 320 KiB). A message is about 285–290 B.
+
+### Plan 2b: uplink feed (daemon)
+
+The `uplink` feed lists the machine's remote endpoints, with GeoIP, ASN labels and, for endpoints with a process override, the owning process found by walking `/proc/<pid>/fd`. Release build, its own socket, no session bus, a temporary config with no labels. Per-cycle times come from an instrumented build that was not committed (`CLOCK_THREAD_CPUTIME_ID` around the cycle); Rss and CPU come from the clean release binary.
+
+| Measure | Value |
+|---|---|
+| Cycle, no process override (13 cycles) | wall 1.21–2.35 ms, median about 1.40 ms; CPU about equal |
+| First cycle with a process override (walks the fds, 4 runs) | wall 12.0–13.4 ms |
+| Later cycles with an override (cache hits) | wall 1.24–1.68 ms |
+| fd walk | 10.6–11.8 ms, 5 187–5 198 fds read, of about 6 087 held by this uid in 720 processes |
+| Daemon CPU (`measure-cpu.sh`, 60 s) | 0.02 % unwanted, 0.03 % wanted |
+
+- The walk takes about 11 ms, so the cycle runs in `spawn_blocking`; on the daemon's single-threaded runtime it would stall every other task. Unfound sockets are cached, so the walk ran once in about 60 s.
+- **GeoIP memory.** The two databases are memory-mapped (DB-IP City Lite 126 998 165 B, ASN Lite 9 566 363 B). Before the fix the mappings stayed after the topic was released:
+
+| Moment | Rss (`smaps_rollup`) |
+|---|---|
+| Before the first want | 34 472 KiB |
+| 30 s wanted | 40 312 KiB |
+| 10 min wanted | 42 284 KiB (**+7 812 KiB**) |
+| 60 s after release | 42 284 KiB |
+
+- After the unmap-on-release fix (one fresh daemon, a 60 s tap): **34 276 → 40 984 → 34 536 KiB** (before the want, about 55 s into the want, 10 s after release). While wanted, the city file held 4 088 kB resident and the ASN file 2 368 kB, with the GeoLite2 fallback not mapped. After release there were no mmdb mappings, and the cost was +260 KiB over the baseline. While the globe is shown the cost is still about 6.5 MiB, plus about 1.4 MiB more over 10 minutes (the earlier run); the 10-minute figure was not repeated after the fix.
+
+### Plan 2b: disk health, batteries, CPU package power and spectrum retry (daemon)
+
+Release builds on this machine. Wall time from `Instant`; on-CPU time from `/proc/thread-self/schedstat` (current-thread runtime) for the two D-Bus feeds, and from 20 000 iterations of a bench file that was not committed for the RAPL reads.
+
+| Feed | Operation | Wall | On-CPU | Cadence |
+|---|---|---|---|---|
+| `disks.health` | One refresh: `GetManagedObjects` and 3 × `SmartGetAttributes` (5 drives, 7 reads) | 2.8–3.6 ms, median 3.1 ms | 1.10–1.37 ms, median 1.13 ms | 600 s while wanted, plus one read per wanted period |
+| `batteries` | KDE Connect poll: `devices(bb)` and 5 `Properties.Get` (n = 12) | 460–943 µs, median 720 µs | 93–246 µs, median 194 µs | 60 s while wanted |
+| `batteries` | UPower read, 0 devices present (n = 5) | 206–432 µs | 40–102 µs | per wanted period and per signal |
+| `cpu` | `energy_uj` read while unreadable (EACCES) | 1.0 µs | | each sample |
+| `cpu` | Readable powercap file (a 0444 file as a proxy for the udev rule) | 1.8 µs | | each sample |
+| `cpu` | DRM scan for the iGPU | 3.8 µs | | each sample |
+| `cpu` | Whole `CpuCollector::sample()`, 32 cpufreq reads and `/proc/stat` included | 81.7 µs | | 1 Hz |
+
+- `disks.health` at 600 s is about 1.1 ms per 600 s, about 0.0002 % of a core. `measure-cpu.sh` over 60 s read 0.02 % with nothing wanted and 0.00 % with it wanted, both below its resolution. Daemon Rss: 34 200 KiB before the first want, 36 276 KiB after the first read, 36 312 KiB after 8 reads. The **+2 076 KiB** is almost all the first system-bus connection (zbus) and the first `GetManagedObjects`; `net.links` also connects to the system bus, and the shared cost of the two together was not measured.
+- `batteries` at 60 s is about 0.2 ms per 60 s, about 0.0003 %. `measure-cpu.sh` read 0.00 % unwanted and 0.02 % wanted (other feeds share the process). Rss: 34 564 KiB before the first want, 34 724 KiB after the first 190 s wanted period, 34 748 KiB at the end (+160 KiB, then +24 KiB more). The cost of a present UPower device (6 `Properties.Get`) was not measured live, because the DualSense was disconnected; the controller's cost is a projection: comparable to KDE Connect's 5 gets, so under about 1 ms.
+- The `cpu` additions make the whole topic about 0.008 % of one core at 1 Hz, below what `measure-cpu.sh` resolves, so it was not run. The RAPL reading itself was untested until the udev rule was installed; see the live install below.
+- **Spectrum retry.** With PipeWire restarted on the live session (one approved restart, a dev daemon with its own socket), the capture reconnected about **1.0 s** after PipeWire disconnected it (disconnect at 07:00:17.34, the retried capture's first dark frame at 07:00:18.446, 100 ms after it started). The first lit frame after the restart was not observed, because the user's Spotify did not survive the restart and no audio flowed. Recovery of the bars is therefore shown to the reconnect, not past it.
+
+### Plan 2b: widgets and the budget states
+
+All headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, a real release `ghostd` (not `--fake`) on its own socket with no session bus, a 15 s settle, then `measure-cpu.sh` on the shell and its daemon for 60 s, frames from `QSG_RENDER_TIMING`, one warm-up run discarded, base and variant interleaved. `Rss` is `smaps_rollup` at the end of the window. The daemon's share is stated in each case. These are the combined figures of the budget table (the shell and the daemon, averaged over 60 s).
+
+| Page | Base, combined | With the widget, combined | Delta | Load | Budget |
+|---|---|---|---|---|---|
+| MONITOR, six telemetry lanes (median of 5 kept runs, range 0.98–1.13 %, one 1.77 % outlier) | 0.65 % | **1.06 %** | +0.41 | 0.08–3.69 | 1.00 % |
+| MONITOR, process tree (mean of 3 pairs) | 0.69 % | 0.84 % | +0.15 | not logged | 1.00 % |
+| V2, network panel (median of 3 kept pairs) | 0.75 % | 0.93 % | +0.18 | 0.06–0.34 | 2.00 % |
+| V2, silicon (mean of 5 runs, range 1.86–2.17 %, three base runs) | 0.74 % | **2.02 %** | +1.28 | not logged | 2.00 % |
+
+**Telemetry lanes on MONITOR.** The shell reads 0.61 % against 0.28 % for the base (+0.33), the daemon 0.45 % against 0.35 % (+0.10), and the shell Rss +10.6 to +15.4 MiB (median about +13 MiB) in most runs, with two higher runs at +23 and +51 MiB (NVIDIA's random 4 MiB chunks). The daemon's rise is the `net` sampler and the `net.links` feed, which the lanes subscribe to. Daemon Rss +1.0 MiB. Creation took 67–80 ms against 58–62 ms (+8 to +20 ms). Frames were 2.50–2.70/s against 1.75–2.00/s. One lanes run read 1.30 % shell at 6.23 frames/s and was not explained; it did not recur in six later runs.
+- **Outcome: 1.06 % against the 1.00 % target.** The user accepted MONITOR up to 1.25 % on 2026-10-22, so this is inside the accepted band, and still over the design target.
+- Projection, not measured: adding the lanes' delta to Plan 2a's base of 0.76 % gives about 1.17 %.
+
+**Process tree on MONITOR.** Shell 0.26 → 0.38 % (+0.12), daemon 0.43 → 0.46 % (+0.03). Shell Rss **+14.3 MiB** (193 239 → 207 920 KiB mean, range +11.2 to +16.1), daemon +0.3 MiB. A rebuild per `procs.tree` message takes 0.26 ms for 40 processes (fake) and 2.12 ms for 321 (real), about 0.02 % of a core at one message every 10 s.
+- **Outcome: the CPU is within budget, and the Rss is flagged.** +14.3 MiB is past the +10 MiB flag and uses most of the 18 772 KiB left for all of Plan 2b. The absolute shell Rss stayed at 205–210 MB in this rig, under 300 MiB.
+- Edges are one `PathSvg` inside a `Shape`, not one `PathQuad` per edge. Interleaved, two runs each: one `PathQuad` per edge read 0.58 and 0.63 % shell and about +15 MiB, the single path 0.40 and 0.40 % and about +13 MiB (an earlier per-edge A/B read +17 to +23 MiB). About 6 MiB of the remaining Rss is the CurveRenderer's stroke geometry. The default renderer saves it, but leaves the 0.6 px edges aliased.
+- The lanes and the tree were not measured together for the combined figure. With both on MONITOR, the shell alone read 0.72 % and the daemon 0.32–0.40 % in the empty-frame fix runs below.
+
+**Network panel on V2.** Shell 0.33 → 0.50 % (+0.17), daemon 0.42 → 0.45 % (+0.02, noisy), frames 2.07 → 2.68–2.88/s. Shell Rss +1.4 MiB (range +0.8 to +6.3). Daemon Rss about +0.6 MiB. The scope style measures **109 design px** tall (also 108.65 at 1.739), so the V1 column has 179 left for the tabs.
+
+**Silicon on V2.** Shell 0.39 → 1.68 % (+1.29), daemon unchanged at about 0.35 %, frames 2.2 → 14.9/s. Shell Rss +8.4 MiB (per pair +2.5 to +11.2).
+- **Outcome: 2.02 % against 2.00 %, just over; flagged for Task 19.** The cost is the 15 frames/s loop over the whole window: with only the two packets drawn the shell already reads 1.38 %, about 1.0 of the 1.28 points. Drawing the tiles' 16 shaders adds about 0.1–0.3. Repacking the tile graphs on each `cpu` tick is not measurable: the frozen-graph runs (1.63 %) read the same as the live ones within noise. The one lever is the animation's frame rate, which is a design decision.
+- The diagnostic variants are single runs and one read an unexplained 282 MB of shell Rss; it was not chased.
+- The narrow form's later fix was not re-measured, because it adds no per-frame work.
+
+### Plan 2b: the empty second frame (rows and the alert layer)
+
+Task 7 and Task 8 saw about 0.7 extra frames a second. They are not a second publish: each daemon tick reaches the shell in one read and one `publish()`. They come from Qt's basic render loop (the headless KWin's) drawing an empty frame after a `Row` re-lays out a child whose size changed (0–2 ms later, no dirty nodes), and, on MONITOR, from the alert box's content layer re-rendering each time its countdown changed.
+
+Two commits on a branch of their own: `InlineRow` (a kit item that places its children from a binding, replacing `Row` in the network and telemetry-lane widgets and in `Digits`' proportional cells), and `AlertBox`'s layer, now enabled only while the box holds the FrameClock. Real release daemon, no session bus, 20 s settle, 60 s window, four interleaved rounds with the first discarded, medians of rounds 2–4:
+
+| View | Frames/s, before → after | Shell CPU, before → after | Shell Rss (KiB), before → after |
+|---|---|---|---|
+| V2 with the network panel | 2.75 → **2.00** (2.70–2.77 → 2.00–2.03) | 0.45 → 0.42 % (**−0.03**) | 201 928 → 205 820 |
+| MONITOR (six lanes and the tree) | 3.58 → **2.20** (3.57–3.72 → 2.15–2.20) | 0.73 → 0.72 % (**−0.01**) | 224 072 → 224 824 |
+
+- The frame count fell by 27 and 39 %, but the CPU saving of 0.01–0.03 points is inside run noise: the empty frames rendered in 0 ms. Task 7's estimate was 0.05–0.1 %. The daemon did not change (0.32–0.40 % in both arms), and the Rss changes are inside the ±4 MiB noise.
+- These runs ran `qs` without a session bus and without a warm history client, so their absolute figures are not comparable with the tables above. Base and fix share the setup.
+- All of this is the basic render loop. The live NVIDIA desktop may use the threaded loop, where the polish-driven frame may not occur; it was not measured there.
+- While an alert is held, the layer's removal changes about 125 antialiasing pixels per alert (up to 0.96 on single edge pixels); the row changes are pixel-identical. The default snapshots are identical.
+
 ### Plan 2b: the live install (2026-10-22 01:59, HEAD `f202ade`)
 
 After the reinstall the shell was restarted once to warm the shader caches. The live services' `smaps_rollup` Rss afterwards was **194 964 KiB** for the shell and **34 536 KiB** for `ghostd`. The desktop was covered by a maximised window at the time.
+
+At about 12:24 on 2026-10-22, with the RAPL udev rule installed, the live daemon's `package_w` read **38.9 W** and then **41.3 W**. These are two readings from the live desktop, with no load control, so they show that the counter is readable and plausible, not a power figure for any state.
 
 ## License
 
