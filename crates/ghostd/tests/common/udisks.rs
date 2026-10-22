@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::watch;
 use zbus::message::{Flags, Type};
 use zbus::names::OwnedInterfaceName;
 use zbus::{Connection, Message, MessageStream, OwnedObjectPath, OwnedVariant, Variant, interface};
@@ -138,13 +139,31 @@ enum UdisksError {
     NotAuthorized(String),
 }
 
+/// Which of the fake's methods hold their reply back, as a stuck controller would.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Stuck {
+    #[default]
+    Nothing,
+    ManagedObjects,
+    Attributes,
+}
+
+/// Resolves once `method` is no longer the stuck one.
+async fn until_unstuck(stuck: &watch::Sender<Stuck>, method: Stuck) {
+    let mut now = stuck.subscribe();
+    // The sender lives as long as the fake, so the wait never ends in an error the test cares about.
+    let _ = now.wait_for(|stuck| *stuck != method).await;
+}
+
 struct FakeManager {
     objects: ManagedObjects,
+    stuck: Arc<watch::Sender<Stuck>>,
 }
 
 #[interface(name = "org.freedesktop.DBus.ObjectManager")]
 impl FakeManager {
-    fn get_managed_objects(&self) -> ManagedObjects {
+    async fn get_managed_objects(&self) -> ManagedObjects {
+        until_unstuck(&self.stuck, Stuck::ManagedObjects).await;
         self.objects.clone()
     }
 }
@@ -152,14 +171,16 @@ impl FakeManager {
 struct FakeNvme {
     percent_used: u8,
     denied: bool,
+    stuck: Arc<watch::Sender<Stuck>>,
 }
 
 #[interface(name = "org.freedesktop.UDisks2.NVMe.Controller")]
 impl FakeNvme {
-    fn smart_get_attributes(
+    async fn smart_get_attributes(
         &self,
         _options: HashMap<String, OwnedVariant>,
     ) -> Result<Properties, UdisksError> {
+        until_unstuck(&self.stuck, Stuck::Attributes).await;
         if self.denied {
             return Err(UdisksError::NotAuthorized(
                 "Not authorized to perform operation".into(),
@@ -185,6 +206,7 @@ pub struct UdisksShape {
 pub struct FakeUdisks {
     connection: Connection,
     calls: Calls,
+    stuck: Arc<watch::Sender<Stuck>>,
 }
 
 impl FakeUdisks {
@@ -192,6 +214,7 @@ impl FakeUdisks {
     pub async fn serve(bus: &PrivateBus, shape: UdisksShape) -> Self {
         let connection = bus.connect().await;
         let calls = Calls::default();
+        let stuck = Arc::new(watch::Sender::new(Stuck::Nothing));
         let mut incoming = MessageStream::from(&connection);
         let noted = calls.clone();
         // Drained for as long as the connection lives, or its queue would fill and stall the fake.
@@ -233,6 +256,7 @@ impl FakeUdisks {
             let nvme = FakeNvme {
                 percent_used: NVME_WEAR_PCT,
                 denied: shape.attributes_denied,
+                stuck: Arc::clone(&stuck),
             };
             server.at(path(name), nvme).await.unwrap();
         }
@@ -253,10 +277,20 @@ impl FakeUdisks {
             ]),
         );
         server
-            .at(UDISKS_PATH, FakeManager { objects })
+            .at(
+                UDISKS_PATH,
+                FakeManager {
+                    objects,
+                    stuck: Arc::clone(&stuck),
+                },
+            )
             .await
             .unwrap();
-        Self { connection, calls }
+        Self {
+            connection,
+            calls,
+            stuck,
+        }
     }
 
     pub async fn start(bus: &PrivateBus, shape: UdisksShape) -> Self {
@@ -271,6 +305,11 @@ impl FakeUdisks {
 
     pub async fn release(&self) {
         self.connection.release_name(UDISKS).await.unwrap();
+    }
+
+    /// Holds back every reply of `method` from now on, until another is stuck instead.
+    pub fn stick(&self, method: Stuck) {
+        self.stuck.send_replace(method);
     }
 
     pub fn calls(&self, member: &str) -> usize {

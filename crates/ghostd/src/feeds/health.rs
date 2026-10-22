@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ghost_proto::{DiskHealth, DriveHealth, topics};
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tracing::{debug, warn};
 use zbus::fdo::{self, NameOwnerChangedStream};
 use zbus::names::OwnedInterfaceName;
@@ -49,6 +49,10 @@ const HEALTH_EVERY_S: u64 = 10 * 60;
 // Tokio's timers stop during a suspend and nothing reports the resume, so while the topic is
 // wanted the feed looks at the wall clock at least this often.
 const WALL_CLOCK_CHECK: Duration = Duration::from_secs(60);
+/// UDisks2 answers a full read in milliseconds; one that takes longer has a stuck controller behind
+/// it, and the drive health read before stays up meanwhile. It bounds the whole read rather than
+/// each call, so a stuck drive costs one timeout, not one per call (user-confirmed 2026-10-22).
+const READ_TIMEOUT: Duration = Duration::from_secs(2);
 
 type Properties = HashMap<String, OwnedVariant>;
 type Interfaces = BTreeMap<OwnedInterfaceName, Properties>;
@@ -107,9 +111,15 @@ async fn read_forever(
             // A read covers every change queued before it starts.
             drain(owners);
         }
-        let drives = reader.read(bus).await;
+        match timeout(READ_TIMEOUT, reader.read(bus)).await {
+            Ok(drives) => publisher.publish(topics::DISKS_HEALTH, &DiskHealth { drives }),
+            Err(_) => {
+                warn!(
+                    "UDisks2 did not answer within {READ_TIMEOUT:?}; keeping its last drive health"
+                );
+            }
+        }
         let read_s = clock();
-        publisher.publish(topics::DISKS_HEALTH, &DiskHealth { drives });
         until_due(owners.as_mut(), clock, read_s).await;
     }
 }
