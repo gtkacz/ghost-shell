@@ -63,14 +63,16 @@ function packWord(cells, word) {
 // wide; the ring starts with its head at slot 0. The caller keeps the ring and moves it on with heatRingAdvance().
 export function heatRing(series, columns, graph) {
   const drawn = heatDrawnColumns(columns);
-  let cells = [];
-  for (let slot = 0; slot < drawn; slot += 1) {
-    cells = cells.concat(columnCells(series, columns, columns - drawn + slot, graph));
-  }
+  const rows = series.length;
+  // Slot s holds column columns - drawn + s, its rows together.
+  const cells = Array.from({ length: drawn * rows }, (_, index) => {
+    const slot = Math.floor(index / rows);
+    return heatCellByte(sampleAt(series[index - slot * rows], columns, columns - drawn + slot), graph);
+  });
   return {
     series,
     columns,
-    rows: series.length,
+    rows,
     drawn,
     head: 0,
     graph: { lo: graph.lo, hi: graph.hi, warnAt: graph.warnAt, critAt: graph.critAt, live: graph.live },
