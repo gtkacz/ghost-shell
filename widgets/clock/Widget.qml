@@ -349,7 +349,8 @@ Panel {
         id: alertState
 
         nowS: root.nowS
-        enabled: root.available
+        // Not root.available: the alerts come from their own provider and must not wait on the forecast.
+        enabled: root.wantsWeather
     }
 
     Component {

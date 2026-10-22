@@ -112,6 +112,10 @@ Singleton {
         return Weather.alertsEnabled(config);
     }
 
+    function weatherPanelShown(weather, hasAlert) {
+        return Weather.weatherPanelShown(weather, hasAlert);
+    }
+
     function hourLabel(atS, offsetMin) {
         return Weather.hourLabel(atS, offsetMin);
     }

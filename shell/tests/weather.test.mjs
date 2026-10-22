@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ALERTS_STALE_AFTER_S, activeAlerts, alertKey, alertLine, alertsEnabled, alertsStale, detailLine, forecastFrom, hiLo, hiLoHum, hourLabel,
-  skyLine,
+  skyLine, weatherPanelShown,
 } from '../kit/GhostKit/lib/weather.mjs';
 
 const HOUR_S = 3600;
@@ -86,6 +86,17 @@ test('alerts stay off until a config has arrived, and for a config without the s
   assert.equal(alertsEnabled(null), false);
   assert.equal(alertsEnabled({}), false);
   assert.equal(alertsEnabled({ location: {} }), false);
+});
+
+test('an alert shows the weather panel while the forecast is unavailable', () => {
+  assert.equal(weatherPanelShown({ available: false }, true), true);
+  assert.equal(weatherPanelShown(null, true), true);
+});
+
+test('without an alert the weather panel waits for a forecast', () => {
+  assert.equal(weatherPanelShown({ available: false }, false), false);
+  assert.equal(weatherPanelShown(null, false), false);
+  assert.equal(weatherPanelShown({ available: true }, false), true);
 });
 
 test('the rain part of the detail line is left out without a peak', () => {

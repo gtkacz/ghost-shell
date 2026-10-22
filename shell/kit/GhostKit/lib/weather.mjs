@@ -64,6 +64,13 @@ export function alertsEnabled(config) {
   return Boolean(config.location.alerts.provider);
 }
 
+// The alerts come from their own provider, which needs no coordinates, so neither an alerts-only config nor an
+// unreachable Open-Meteo may keep the panel, and with it the alert box, from drawing.
+export function weatherPanelShown(weather, hasAlert) {
+  const hasForecast = weather !== null && weather !== undefined && weather.available === true;
+  return hasForecast || hasAlert;
+}
+
 // An alert that escalates keeps its id but is a new alert to the eye, so the level is part of the key.
 export function alertKey(alert) {
   return String(alert.id) + ':' + alert.level;

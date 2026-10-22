@@ -12,7 +12,7 @@ QtObject {
     // Seconds since the epoch, from FrameClock.epochSecond, which only runs for a holder of acquireSeconds().
     // Alerts expire against it.
     property double nowS
-    // Lets a widget hide the alert while the rest of what it shows is unavailable.
+    // Lets a widget leave the alert out where it shows no weather; never tie it to the forecast being available.
     property bool enabled: true
 
     readonly property var value: Data.topic("weather.alerts").value

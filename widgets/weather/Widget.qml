@@ -3,7 +3,7 @@ import GhostKit
 
 // The weather band: the temperature and condition, the most urgent alert with the day's detail, sun, moon and
 // air quality, and the next hours' chance of rain. It shows nothing until the daemon has a forecast, which it
-// has only once a location is set.
+// has only once a location is set, or an alert to show, which never waits on the forecast.
 Panel {
     id: root
 
@@ -88,7 +88,7 @@ Panel {
     }
 
     anchors.fill: parent
-    visible: available
+    visible: Fmt.weatherPanelShown(weather, alertState.hasAlert)
     header: false
     padding: Theme.d(paddingPx)
 
