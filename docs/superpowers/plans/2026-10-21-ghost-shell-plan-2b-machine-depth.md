@@ -35,9 +35,9 @@
 - Rust 1.98. New crates:
   - `maxminddb` with its `mmap` feature, so only the pages a lookup touches become resident, and they count in `smaps_rollup` Rss (R50);
   - nothing else. NetworkManager, UPower, UDisks2 and KDE Connect go through the existing zbus 6. Tailscale's local API is plain HTTP/1.0 over `tokio::net::UnixStream`. Ping uses `nix` sockets.
-- Quickshell 0.2.1, QtQuick.Shapes, ShaderEffect (`qsb-qt6`, `.frag` and `.vert`).
+- Quickshell 0.2.1, QtQuick.Shapes, ShaderEffect (`qsb-qt6`, `.frag` only).
 - Node 24 for `.mjs` tests.
-- `uv run --no-project --with pyshp --with pillow --with numpy python -I` for the land-mask and lattice generator.
+- `uv run --no-project --with pyshp --with pillow --with numpy python -I` for the land-mask and dot land-bits generator.
 - ImageMagick `compare` for pixel checks.
 
 **Spec:** `docs/superpowers/specs/2026-10-20-ghost-shell-design.md`: §3 the machine, §4 stack, §5 visual language, §6.2–6.3 layouts and panels, §12 data sources, §13 extensibility, §15 performance. The mockup `docs/superpowers/specs/mockups/2026-10-20-ghost-shell-reference.html` is the visual truth, and its drawing functions (`blocks`, `mirror`, `heat`, `drawGlobe`, `drawDie`, `buildTree`/`drawTree`, the `C.lane`/`C.net`/`C.scope` templates) are the reference for every renderer below. Read it together with:
@@ -96,7 +96,7 @@ Calls marked **[call]** are mine. The user may override them.
 
 Plan 2a's Global Constraints all still apply: pluggable contract, design units, palette, colour-for-attention thresholds, panels, segmented bars, font, Japanese, motion, budgets, daemon behaviour, D-Bus in tests, formats, config, commits. The rules below add to them.
 
-- **Citations:** `P<n>` in a task's text is a ruling of the Part 2b pre-flight scan, except `(P17)` in Decision 5, `(P18)` in Task 13's heading and `(P19)` in Task 17's heading, which are Plan 2a's. `R<n>`, `C<n>`, `M<n>` and `FR` are entries of the Plan 2a ledger and final review; `Q<n>` is a user answer of 2026-10-21; `fx C<n>` is an entry of the fixtures' contradiction list.
+- **Citations:** `P<n>` in a task's text is a ruling of the Part 2b pre-flight scan, except `(P17)` in Decision 5, `(P18)` in Task 13's heading and `(P19)` in Task 17's heading, which are Plan 2a's. `R<n>`, `C<n>`, `M<n>` and `FR` are entries of the Plan 2a ledger and final review; `Q<n>` is a user answer of 2026-10-21; `fx C<n>` is an entry of the fixtures' contradiction list; `G1` is the controller's globe ruling after the shader spike (Task 11).
 - **Process rules** (Plan 2a ledger `process-rules.md`, binding for every agent):
   - never `rm -rf` (use `rm -r --`), `pkill`/`killall`, or `git reset`/`rebase`/`push`/`branch -D`, and never check out another branch;
   - stage by explicit path;
@@ -1771,7 +1771,7 @@ git commit -m "feat(config): fill the default views with the machine widgets"
 
 - [ ] **Step 1: Install**
 
-Follow R17's order (`make release`, which builds the shaders, `.vert` included). When regenerating the user's config:
+Follow R17's order (`make release`, which builds the shaders). Before restarting ghost-shell, check that the NVIDIA shader cache directory the service uses exists (Task 11 reports where it is; without it every start recompiles the shaders, costing 90–160 ms and about 65 MiB, G1). When regenerating the user's config:
 - ask the user whether to add a `[uplink.labels]` table, with organisations of their choosing;
 - write the `[batteries] labels` entry that maps the DualSense's id, its UPower `NativePath` (`ps-controller-battery-<MAC>`, read from the live `batteries` topic and never committed), to `"DUALSENSE EDGE"` (user, 2026-10-21).
 
