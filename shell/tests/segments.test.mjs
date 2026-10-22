@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cellCount, litCells, level, levelLow, levelAbove, cellColor, rampAlphaByte } from '../kit/GhostKit/lib/segments.mjs';
+import {
+  cellCount, litCells, level, levelLow, levelAbove, cellColor, rampAlphaByte, mirrorCellColor, mirrorAlphaByte, heatCellColor, heatAlphaByte,
+} from '../kit/GhostKit/lib/segments.mjs';
+import { withAlpha } from '../kit/GhostKit/lib/theme.mjs';
 
 test('cells and levels', () => {
   assert.equal(cellCount(266), 44);
@@ -94,4 +97,26 @@ test('levelAbove never alarms on an unavailable reading', () => {
   for (const missing of [null, undefined, NaN]) {
     assert.equal(levelAbove(missing, 100, 150), 'ok');
   }
+});
+
+const byteOf = color => Number.parseInt(color.slice(1, 3), 16);
+
+test('mirror cells', () => {
+  assert.equal(mirrorCellColor(true, 0, 3, 10, THEME), withAlpha(THEME.hi, 45));
+  assert.equal(mirrorCellColor(false, 5, 6, 10, THEME), withAlpha(THEME.signal, 70));
+  assert.equal(mirrorCellColor(true, 7, 3, 10, THEME), withAlpha(THEME.signal, 5));
+});
+
+test('heat cells', () => {
+  assert.equal(heatCellColor(0.5, 'ok', THEME), withAlpha(THEME.signal, 47));
+  assert.equal(heatCellColor(0.95, 'crit', THEME), THEME.crit);
+  assert.equal(heatCellColor(NaN, 'ok', THEME), withAlpha(THEME.signal, 6));
+});
+
+test('alpha bytes read back from withAlpha', () => {
+  for (const r of [0, 3, 9]) {
+    assert.equal(mirrorAlphaByte(false, r, 10), byteOf(withAlpha(THEME.signal, 45 + 50 * r / 10)));
+  }
+  assert.equal(heatAlphaByte(0), 18);
+  assert.equal(heatAlphaByte(1), 222);
 });

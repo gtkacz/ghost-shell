@@ -62,11 +62,16 @@ export function chip(key, mode) {
   return CHIPS[key][CHIP_FIELD_BY_MODE[mode]];
 }
 
+// The alpha byte withAlpha() writes for `pct`, for shaders that take the byte rather than the colour.
+export function alphaByte(pct) {
+  return Math.min(ALPHA_BYTE_MAX, Math.max(0, Math.round(pct * ALPHA_PER_PERCENT)));
+}
+
 // QML hands over a `color` whose string form is #RRGGBB, or #AARRGGBB when translucent; keeping the last six digits
 // replaces any existing alpha.
 export function withAlpha(hex, pct) {
   const rgb = String(hex).replace('#', '').slice(-RGB_HEX_LENGTH);
-  const alpha = Math.min(ALPHA_BYTE_MAX, Math.max(0, Math.round(pct * ALPHA_PER_PERCENT)));
+  const alpha = alphaByte(pct);
   const alphaHex = (ZERO_PAD + alpha.toString(16)).slice(-HEX_BYTE_WIDTH);
   return ('#' + alphaHex + rgb).toUpperCase();
 }

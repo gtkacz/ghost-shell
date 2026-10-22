@@ -7,7 +7,7 @@ import { level, litCells, rampAlphaByte } from './segments.mjs';
 const LEVEL_CODES = Object.freeze({ ok: 0, warn: 1, crit: 2 });
 // Four slots for three codes: a power of two keeps the shader's division by it exact.
 const LEVELS = 4;
-const COMPONENTS_PER_WORD = 4;
+export const COMPONENTS_PER_WORD = 4;
 const COLUMN_FIELD_RANGE = 4096;
 const COLUMN_FIELDS_PER_COMPONENT = 2;
 const ROW_FIELD_RANGE = 256;
@@ -18,7 +18,7 @@ export const MAX_COLUMNS = COLUMN_WORDS * COMPONENTS_PER_WORD * COLUMN_FIELDS_PE
 // The row words bound the rows rather than the column fields, which could count up to 1023 lit cells.
 export const MAX_ROWS = ROW_WORDS * COMPONENTS_PER_WORD * ROW_FIELDS_PER_COMPONENT;
 
-function pack(fields, wordCount, fieldsPerComponent, range) {
+export function pack(fields, wordCount, fieldsPerComponent, range) {
   const words = [];
   for (let word = 0; word < wordCount; word += 1) {
     const components = [];

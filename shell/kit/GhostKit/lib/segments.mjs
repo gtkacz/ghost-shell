@@ -1,16 +1,19 @@
-import { withAlpha } from './theme.mjs';
+import { alphaByte, withAlpha } from './theme.mjs';
 
 const DEFAULT_CELL_PX = 4;
 const DEFAULT_GAP_PX = 2;
 const UNLIT_ALPHA_PCT = 6;
-// withAlpha() writes #AARRGGBB; any colour will do when only the alpha byte is read back.
-const ANY_RGB = '#000000';
-const ALPHA_HEX_START = 1;
-const ALPHA_HEX_END = 3;
-const HEX_RADIX = 16;
 // Exported for SegBars, whose shader colours its lit cells the way cellColor() does.
 export const LIT_ALPHA_FLOOR_PCT = 35;
 export const LIT_ALPHA_SPAN_PCT = 50;
+// The reference mockup's mirror() and heat().
+export const MIRROR_UNLIT_ALPHA_PCT = 5;
+export const MIRROR_UP_FLOOR_PCT = 45;
+export const MIRROR_UP_SPAN_PCT = 40;
+export const MIRROR_DOWN_FLOOR_PCT = 45;
+export const MIRROR_DOWN_SPAN_PCT = 50;
+export const HEAT_FLOOR_PCT = 7;
+export const HEAT_SPAN_PCT = 80;
 
 export function cellCount(width, cell = DEFAULT_CELL_PX, gap = DEFAULT_GAP_PX) {
   return Math.max(0, Math.floor((width + gap) / (cell + gap)));
@@ -86,8 +89,51 @@ function rampAlphaPct(row, rows) {
   return LIT_ALPHA_FLOOR_PCT + (LIT_ALPHA_SPAN_PCT * row) / rows;
 }
 
-// The alpha byte of cellColor()'s ramp at a row of an ok column below its top cell, for BlockGraph's shader. Read
-// back from withAlpha() so it is rounded exactly as the colour is.
+// The alpha byte of cellColor()'s ramp at a row of an ok column below its top cell, for BlockGraph's shader. From
+// withAlpha()'s own rounding, so it is the colour's alpha exactly.
 export function rampAlphaByte(row, rows) {
-  return Number.parseInt(withAlpha(ANY_RGB, rampAlphaPct(row, rows)).slice(ALPHA_HEX_START, ALPHA_HEX_END), HEX_RADIX);
+  return alphaByte(rampAlphaPct(row, rows));
+}
+
+function mirrorAlphaPct(upper, row, rows) {
+  if (upper) {
+    return MIRROR_UP_FLOOR_PCT + (MIRROR_UP_SPAN_PCT * row) / rows;
+  }
+  return MIRROR_DOWN_FLOOR_PCT + (MIRROR_DOWN_SPAN_PCT * row) / rows;
+}
+
+// A cell of a mirror graph: `upper` picks the half, and rows count out from the axis.
+export function mirrorCellColor(upper, row, lit, rows, theme) {
+  if (row >= lit) {
+    return withAlpha(theme.signal, MIRROR_UNLIT_ALPHA_PCT);
+  }
+  return withAlpha(upper ? theme.hi : theme.signal, mirrorAlphaPct(upper, row, rows));
+}
+
+// The alpha byte of a lit mirror cell, for MirrorGraph's shader.
+export function mirrorAlphaByte(upper, row, rows) {
+  return alphaByte(mirrorAlphaPct(upper, row, rows));
+}
+
+function heatAlphaPct(fraction) {
+  return HEAT_FLOOR_PCT + HEAT_SPAN_PCT * Math.min(1, Math.max(0, fraction));
+}
+
+// A cell of a heat graph, whose brightness rather than height shows the value.
+export function heatCellColor(fraction, cellLevel, theme) {
+  if (cellLevel === 'crit') {
+    return theme.crit;
+  }
+  if (cellLevel === 'warn') {
+    return theme.warn;
+  }
+  if (!Number.isFinite(fraction)) {
+    return withAlpha(theme.signal, UNLIT_ALPHA_PCT);
+  }
+  return withAlpha(theme.signal, heatAlphaPct(fraction));
+}
+
+// The alpha byte of an ok heat cell, for HeatGraph's shader.
+export function heatAlphaByte(fraction) {
+  return alphaByte(heatAlphaPct(fraction));
 }

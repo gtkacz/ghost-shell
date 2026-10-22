@@ -11,6 +11,8 @@ Scanlines 1.0 Scanlines.qml
 Panel 1.0 Panel.qml
 SegMeter 1.0 SegMeter.qml
 BlockGraph 1.0 BlockGraph.qml
+MirrorGraph 1.0 MirrorGraph.qml
+HeatGraph 1.0 HeatGraph.qml
 AlertBox 1.0 AlertBox.qml
 WeatherAlertState 1.0 WeatherAlertState.qml
 Digits 1.0 Digits.qml
@@ -22,3 +24,4 @@ SegBars 1.0 SegBars.qml
 Duotone 1.0 Duotone.qml
 ClickArea 1.0 ClickArea.qml
 internal TopicValue TopicValue.qml
+internal HeatBand HeatBand.qml
