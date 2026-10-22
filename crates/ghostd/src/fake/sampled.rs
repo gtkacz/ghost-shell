@@ -1,6 +1,6 @@
 use ghost_proto::{
     CcdLoad, CoreLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, MemSnapshot,
-    NetIface, NetSnapshot, ProcUsage, Reading, SensorSnapshot,
+    NetIface, NetSnapshot, ProcNode, ProcTree, ProcUsage, Reading, SensorSnapshot,
 };
 
 use super::Wave;
@@ -170,7 +170,97 @@ fn share_of(total: u64, share: f32) -> u64 {
     (total as f64 * f64::from(share)) as u64
 }
 
-/// The busiest processes, without a tree.
+// The real collector builds the tree on every fifth of its scans, which fall on every second sample.
+const TREE_EVERY_SAMPLES: u64 = 10;
+// The reference mockup's KTHREADS.
+const KERNEL_THREADS: u32 = 436;
+
+struct TreeProcess {
+    pid: u32,
+    ppid: u32,
+    name: &'static str,
+    cpu: f32,
+    rss_kib: u64,
+}
+
+const fn tree_process(
+    pid: u32,
+    ppid: u32,
+    name: &'static str,
+    cpu: f32,
+    rss_kib: u64,
+) -> TreeProcess {
+    TreeProcess {
+        pid,
+        ppid,
+        name,
+        cpu,
+        rss_kib,
+    }
+}
+
+// Rows of the reference mockup's process table (its buildTree), by pid as the real tree is sent. The
+// slack's parent is not listed, as when a parent exits between scans, so it hangs from the root.
+const TREE: [TreeProcess; 40] = [
+    tree_process(1, 0, "systemd", 0.0, 21_852),
+    tree_process(1278, 1, "auditd", 0.0, 3_612),
+    tree_process(1280, 1278, "sedispatch", 0.0, 3_940),
+    tree_process(1303, 1, "dbus-broker-lau", 0.0, 7_496),
+    tree_process(1309, 1303, "dbus-broker", 0.0, 11_116),
+    tree_process(1322, 1, "NetworkManager", 0.0, 23_672),
+    tree_process(1339, 1, "udisksd", 0.0, 18_212),
+    tree_process(1340, 1, "upowerd", 0.0, 14_160),
+    tree_process(1371, 1, "systemd-logind", 0.0, 11_680),
+    tree_process(1541, 1, "tailscaled", 0.0, 41_024),
+    tree_process(1743, 1, "sddm", 0.0, 27_080),
+    tree_process(2074, 1743, "sddm-helper", 0.0, 28_176),
+    tree_process(2081, 1, "systemd", 0.0, 16_796),
+    tree_process(2129, 2081, "pipewire", 0.0, 29_668),
+    tree_process(2130, 2081, "wireplumber", 0.0, 34_840),
+    tree_process(2131, 2081, "pipewire-pulse", 0.1, 42_684),
+    tree_process(2136, 2074, "startplasma-way", 0.0, 44_212),
+    tree_process(2398, 2081, "kwin_wayland_wr", 0.0, 21_568),
+    tree_process(2411, 2398, "kwin_wayland", 6.8, 1_003_412),
+    tree_process(2494, 2411, "Xwayland", 2.0, 283_268),
+    tree_process(581452, 581450, "slack", 0.1, 257_844),
+    tree_process(704437, 2081, "bwrap", 0.0, 1_628),
+    tree_process(704440, 704437, "spotify", 0.9, 486_256),
+    tree_process(704541, 704440, "spotify", 10.1, 528_864),
+    tree_process(707794, 2081, "plasmashell", 2.8, 1_016_164),
+    tree_process(713026, 2081, "konsole", 0.5, 149_692),
+    tree_process(758925, 713026, "zsh", 0.0, 8_228),
+    tree_process(760517, 758925, "claude", 1.7, 511_488),
+    tree_process(783628, 2081, "qs", 3.9, 376_592),
+    tree_process(792997, 1, "mount.ntfs", 1.8, 157_360),
+    tree_process(804665, 2081, "bwrap", 0.0, 2_368),
+    tree_process(804675, 804665, "bwrap", 0.0, 1_584),
+    tree_process(804676, 804675, "firefox-bin", 7.9, 1_002_444),
+    tree_process(804754, 804676, "forkserver", 0.0, 29_504),
+    tree_process(805048, 804754, "Isolated", 3.2, 435_588),
+    tree_process(808918, 2081, "thorium", 4.8, 644_924),
+    tree_process(808938, 808918, "thorium", 0.0, 18_484),
+    tree_process(809079, 808938, "thorium", 3.2, 267_348),
+    tree_process(813424, 808938, "thorium", 85.1, 445_312),
+    tree_process(814125, 783628, "cava", 0.5, 10_680),
+];
+
+fn fake_tree() -> ProcTree {
+    ProcTree {
+        kernel_threads: KERNEL_THREADS,
+        procs: TREE
+            .iter()
+            .map(|process| ProcNode {
+                pid: process.pid,
+                ppid: process.ppid,
+                name: process.name.to_owned(),
+                cpu: process.cpu,
+                rss_kib: process.rss_kib,
+            })
+            .collect(),
+    }
+}
+
+/// The busiest processes, and on the first sample and every tenth after it the process tree.
 #[derive(Default)]
 struct FakeProcs {
     samples: u64,
@@ -178,6 +268,10 @@ struct FakeProcs {
 
 impl Source<ProcSample> for FakeProcs {
     fn sample(&mut self) -> ProcSample {
+        let tree = self
+            .samples
+            .is_multiple_of(TREE_EVERY_SAMPLES)
+            .then(fake_tree);
         self.samples += 1;
         let mut top: Vec<ProcUsage> = PROCESSES
             .iter()
@@ -192,7 +286,7 @@ impl Source<ProcSample> for FakeProcs {
             })
             .collect();
         top.sort_by(|a, b| b.cpu.total_cmp(&a.cpu));
-        ProcSample { top, tree: None }
+        ProcSample { top, tree }
     }
 }
 
@@ -576,6 +670,53 @@ mod tests {
         let gpu: GpuSnapshot = data(&messages, topics::GPU);
         assert!(gpu.present);
         assert_eq!(gpu.name, "NVIDIA GeForce RTX 4080 SUPER");
+    }
+
+    #[test]
+    fn the_tree_comes_on_the_first_sample_and_every_tenth_after() {
+        let mut procs = FakeProcs::default();
+
+        let with_tree: Vec<bool> = (0..21).map(|_| procs.sample().tree.is_some()).collect();
+
+        let expected: Vec<bool> = (0..21).map(|index| index % 10 == 0).collect();
+        assert_eq!(with_tree, expected);
+    }
+
+    #[test]
+    fn the_tree_has_a_root_an_orphan_kernel_threads_and_busy_processes() {
+        let tree = FakeProcs::default().sample().tree.unwrap();
+
+        assert_eq!(tree.procs.len(), 40);
+        assert_eq!(tree.kernel_threads, 436);
+        let pids: BTreeSet<u32> = tree.procs.iter().map(|process| process.pid).collect();
+        assert_eq!(pids.len(), tree.procs.len(), "every pid is listed once");
+        assert!(pids.contains(&1));
+        let orphans: Vec<&str> = tree
+            .procs
+            .iter()
+            .filter(|process| process.pid != 1 && !pids.contains(&process.ppid))
+            .map(|process| process.name.as_str())
+            .collect();
+        assert_eq!(orphans, ["slack"]);
+        let busy = tree
+            .procs
+            .iter()
+            .filter(|process| process.cpu > 4.0)
+            .count();
+        assert!(
+            busy >= 4,
+            "only {busy} processes are busy enough to be labelled"
+        );
+    }
+
+    #[test]
+    fn the_sampler_publishes_the_fake_tree() {
+        let wanted = [topics::PROCS_TREE.to_owned()].into_iter().collect();
+
+        let messages = sampler().tick(&mut History::new(1), &wanted);
+
+        let tree: ProcTree = data(&messages, topics::PROCS_TREE);
+        assert_eq!(tree.procs.len(), 40);
     }
 
     #[test]
