@@ -608,7 +608,7 @@ fn default_monitor() -> LayoutNode {
                     split(
                         Column,
                         Some(340.0),
-                        vec![slot("storage", None), slot("sensors", Some(184.0))],
+                        vec![slot("storage", Some(188.0)), slot("sensors", None)],
                     ),
                 ],
             ),

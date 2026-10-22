@@ -361,10 +361,10 @@ size = 340
 
 [[layout.views.monitor.children.children.children]]
 widget = "storage"
+size = 188
 
 [[layout.views.monitor.children.children.children]]
 widget = "sensors"
-size = 184
 
 [widgets]
 # Extra directories searched for third-party widgets.

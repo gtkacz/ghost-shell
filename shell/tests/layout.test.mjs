@@ -72,7 +72,7 @@ const DEFAULT_MONITOR_FOR_TEST = {
       size: null,
       children: [
         { direction: 'column', size: null, gutter: 6, children: ['cpu', 'gpu', 'mem', 'net', 'disk', 'therm'].map((metric) => slot('telemetry-lane', null, { metric })) },
-        { direction: 'column', size: 340, children: [slot('storage'), slot('sensors', 184)] },
+        { direction: 'column', size: 340, children: [slot('storage', 188), slot('sensors')] },
       ],
     },
   ],
@@ -139,7 +139,8 @@ test('default monitor geometry', () => {
   const r = computeRects(DEFAULT_MONITOR_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
   assert.deepEqual(pick(r, 'weather'), { x: 274, y: 42, w: 642, h: 104 });
   assert.deepEqual(pick(r, 'media'), { x: 928, y: 42, w: 340, h: 104 });
-  assert.deepEqual(pick(r, 'sensors'), { x: 928, y: 524, w: 340, h: 184 });
+  assert.deepEqual(pick(r, 'storage'), { x: 928, y: 158, w: 340, h: 188 });
+  assert.deepEqual(pick(r, 'sensors'), { x: 928, y: 358, w: 340, h: 350 });
   assert.equal(r.overflow, undefined);
 });
 
