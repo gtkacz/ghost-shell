@@ -1,0 +1,11 @@
+id = "uplink"
+name = "Uplink"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+# Without uplink although the widget reads it: the shell subscribes to every view's and every tab's requires whenever
+# the dashboard shows, so listing it would keep the socket scan and the GeoIP databases running in any view. The
+# widget wants the topic itself while the globe is on screen.
+requires = ["host"]
+# The globe turns and its packets travel on the frame clock.
+animates = true
