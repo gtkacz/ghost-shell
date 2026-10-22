@@ -2,7 +2,8 @@
 //!
 //! Only while some client wants the topic does a thread of its own capture the default sink's
 //! monitor through PipeWire, as the node `ghostd-spectrum`; it is stopped as soon as no client
-//! wants the topic. Without PipeWire the feed logs once each time the topic becomes wanted.
+//! wants the topic. Without PipeWire the feed logs once each time the topic becomes wanted, and
+//! retries with a backoff while the topic stays wanted.
 //!
 //! The capture is passive, so it never keeps the sink awake: when nothing else plays, the sink
 //! suspends and the frames simply stop. Each frame holds the bands for at least three frame
@@ -14,6 +15,7 @@
 mod analyzer;
 mod capture;
 
+use std::io;
 use std::pin::pin;
 use std::time::Duration;
 
@@ -33,6 +35,10 @@ const MIN_HOLD_FRAMES: u32 = 3;
 /// The least time a frame holds the bands before they are shown dark.
 const MIN_HOLD: Duration = FRAME_PERIOD.checked_mul(MIN_HOLD_FRAMES).unwrap();
 const DARK: Bands = [0; BANDS];
+/// The wait before the first retry after a capture ends, and again after any capture PipeWire took.
+const RETRY_FIRST: Duration = Duration::from_secs(1);
+/// The longest wait between retries, so a PipeWire that stays down logs at most twice a minute.
+const RETRY_CAP: Duration = Duration::from_secs(30);
 
 /// One frame of the spectrum, and how long it holds the bands if no frame follows it.
 #[derive(Debug, Clone, Copy)]
@@ -50,29 +56,50 @@ enum Stop {
 }
 
 pub fn feed() -> Feed {
-    Feed::new(topics::SPECTRUM, |mut context| async move {
-        loop {
-            until_wanted(&mut context.demand, topics::SPECTRUM).await;
-            capture_while_wanted(&mut context).await;
-        }
-    })
+    Feed::new(topics::SPECTRUM, |context| run(context, Capture::start))
 }
 
-/// Runs one capture until the topic is no longer wanted, then stops it. A capture that ends before
-/// then leaves the topic dark until it is wanted again.
-async fn capture_while_wanted(context: &mut FeedContext) {
-    let mut capture = match Capture::start() {
-        Ok(capture) => capture,
-        Err(error) => {
-            warn!(%error, "cannot start the audio capture thread; audio.spectrum stays dark");
-            until_unwanted(&mut context.demand, topics::SPECTRUM).await;
-            return;
-        }
-    };
-    if let Stop::Ended = publish_frames(&mut capture.frames, context).await {
-        until_unwanted(&mut context.demand, topics::SPECTRUM).await;
+/// Each time the topic becomes wanted, captures with `start` until it is released.
+async fn run(mut context: FeedContext, mut start: impl FnMut() -> io::Result<Capture>) {
+    loop {
+        until_wanted(&mut context.demand, topics::SPECTRUM).await;
+        capture_while_wanted(&mut context, &mut start).await;
     }
-    capture.stop().await;
+}
+
+/// Captures with `start` until the topic is no longer wanted, then stops the capture. A capture
+/// that ends or fails to start before then is retried after [`RETRY_FIRST`], doubling up to
+/// [`RETRY_CAP`]; one that PipeWire took starts the waits over.
+async fn capture_while_wanted(
+    context: &mut FeedContext,
+    start: &mut impl FnMut() -> io::Result<Capture>,
+) {
+    let mut delay = RETRY_FIRST;
+    loop {
+        let connected = match start() {
+            Ok(mut capture) => {
+                let stop = publish_frames(&mut capture.frames, context).await;
+                let connected = capture.connected();
+                capture.stop().await;
+                if let Stop::Released = stop {
+                    return;
+                }
+                connected
+            }
+            Err(error) => {
+                warn!(%error, "cannot start the audio capture thread; audio.spectrum stays dark");
+                false
+            }
+        };
+        if connected {
+            delay = RETRY_FIRST;
+        }
+        tokio::select! {
+            () = until_unwanted(&mut context.demand, topics::SPECTRUM) => return,
+            () = sleep(delay) => {}
+        }
+        delay = (delay * 2).min(RETRY_CAP);
+    }
 }
 
 /// Publishes every frame from `frames` until the topic is released or the frames end, and one dark
@@ -119,6 +146,7 @@ fn publish(publisher: &Publisher, bands: &Bands) {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::sync::{Arc, Mutex};
 
     use ghost_proto::ResolvedConfig;
     use serde_json::Value;
@@ -147,19 +175,37 @@ mod tests {
         running: JoinHandle<Stop>,
     }
 
-    fn forwarding() -> Forwarding {
-        let (frames, mut receiver) = broadcast::channel(BANDS);
+    /// A feed context whose demand starts with the topic `wanted` or not, and the ends that drive the
+    /// demand and read what is published.
+    fn context(
+        wanted: bool,
+    ) -> (
+        FeedContext,
+        watch::Sender<BTreeSet<String>>,
+        mpsc::UnboundedReceiver<Value>,
+    ) {
         let (published_tx, published) = mpsc::unbounded_channel();
-        let (demand, wanted) = watch::channel(BTreeSet::from([topics::SPECTRUM.to_owned()]));
+        let topics = if wanted {
+            BTreeSet::from([topics::SPECTRUM.to_owned()])
+        } else {
+            BTreeSet::new()
+        };
+        let (demand, receiver) = watch::channel(topics);
         let (_, config) = watch::channel(ResolvedConfig::default());
-        let mut context = FeedContext {
+        let context = FeedContext {
             publisher: Publisher::new(move |topic, data| {
                 assert_eq!(topic, topics::SPECTRUM);
                 published_tx.send(data).unwrap();
             }),
-            demand: wanted,
+            demand: receiver,
             config,
         };
+        (context, demand, published)
+    }
+
+    fn forwarding() -> Forwarding {
+        let (frames, mut receiver) = broadcast::channel(BANDS);
+        let (mut context, demand, published) = context(true);
         let running =
             tokio::spawn(async move { publish_frames(&mut receiver, &mut context).await });
         Forwarding {
@@ -251,5 +297,127 @@ mod tests {
 
         assert!(matches!(stop, Stop::Ended));
         assert_eq!(published(&mut forwarding.published), [LIT, DARK]);
+    }
+
+    const RETRY_DELAYS: [Duration; 7] = [
+        Duration::from_secs(1),
+        Duration::from_secs(2),
+        Duration::from_secs(4),
+        Duration::from_secs(8),
+        Duration::from_secs(16),
+        Duration::from_secs(30),
+        Duration::from_secs(30),
+    ];
+    const SLACK: Duration = Duration::from_millis(1);
+
+    #[derive(Clone, Copy)]
+    enum Outcome {
+        StartFails,
+        EndsUnconnected,
+        EndsConnected,
+    }
+
+    /// `run` on a connector the test controls: attempt `n` gets `outcome(n)`, and every start is
+    /// recorded.
+    struct Retrying {
+        starts: Arc<Mutex<Vec<Instant>>>,
+        demand: watch::Sender<BTreeSet<String>>,
+        _published: mpsc::UnboundedReceiver<Value>,
+        running: JoinHandle<()>,
+    }
+
+    fn retrying(wanted: bool, outcome: impl Fn(usize) -> Outcome + Send + 'static) -> Retrying {
+        let starts = Arc::new(Mutex::new(Vec::new()));
+        let record = Arc::clone(&starts);
+        let (context, demand, _published) = context(wanted);
+        let start = move || {
+            let attempt = {
+                let mut starts = record.lock().unwrap();
+                starts.push(Instant::now());
+                starts.len() - 1
+            };
+            match outcome(attempt) {
+                Outcome::StartFails => Err(io::Error::other("no thread")),
+                ended => {
+                    // The sender is dropped: the capture has ended.
+                    let (_, frames) = broadcast::channel(1);
+                    Ok(Capture::detached(
+                        frames,
+                        matches!(ended, Outcome::EndsConnected),
+                    ))
+                }
+            }
+        };
+        Retrying {
+            starts,
+            demand,
+            _published,
+            running: tokio::spawn(run(context, start)),
+        }
+    }
+
+    impl Retrying {
+        fn count(&self) -> usize {
+            self.starts.lock().unwrap().len()
+        }
+
+        fn gaps(&self) -> Vec<Duration> {
+            self.starts
+                .lock()
+                .unwrap()
+                .windows(2)
+                .map(|pair| pair[1] - pair[0])
+                .collect()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retries_start_after_one_second_and_double_to_the_cap() {
+        for outcome in [Outcome::EndsUnconnected, Outcome::StartFails] {
+            let run = retrying(true, move |_| outcome);
+            sleep(RETRY_DELAYS.iter().sum::<Duration>() + SLACK).await;
+            assert_eq!(run.gaps(), RETRY_DELAYS);
+            run.running.abort();
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_successful_connection_resets_the_delay() {
+        let run = retrying(true, |attempt| {
+            if attempt == 3 {
+                Outcome::EndsConnected
+            } else {
+                Outcome::EndsUnconnected
+            }
+        });
+        sleep(Duration::from_secs(1 + 2 + 4 + 1 + 2) + SLACK).await;
+        // Attempt 3 connected before it ended.
+        assert_eq!(run.gaps(), [1, 2, 4, 1, 2].map(Duration::from_secs));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn nothing_is_attempted_while_unwanted() {
+        let run = retrying(false, |_| Outcome::EndsUnconnected);
+        sleep(Duration::from_secs(120)).await;
+        assert_eq!(run.count(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_release_cancels_the_pending_retry_and_a_later_want_starts_over() {
+        let run = retrying(true, |_| Outcome::EndsUnconnected);
+        // Attempts at 0, 1 and 3 s; the next is due at 7 s.
+        sleep(Duration::from_secs(1 + 2) + SLACK).await;
+        assert_eq!(run.count(), 3);
+
+        run.demand.send_replace(BTreeSet::new());
+        sleep(Duration::from_secs(120)).await;
+        assert_eq!(run.count(), 3);
+
+        run.demand
+            .send_replace(BTreeSet::from([topics::SPECTRUM.to_owned()]));
+        sleep(RETRY_FIRST + SLACK).await;
+        // One at once, one RETRY_FIRST later.
+        assert_eq!(run.count(), 5);
+        assert_eq!(run.gaps().last(), Some(&RETRY_FIRST));
     }
 }

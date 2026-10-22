@@ -2,6 +2,8 @@
 //! monitor whose audio is analysed on that thread as it arrives.
 
 use std::io::{self, Cursor};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -41,6 +43,12 @@ const STOP_GRACE: Duration = Duration::from_secs(1);
 /// A running capture and the frames it analyses, which end when the capture does.
 pub(super) struct Capture {
     pub(super) frames: broadcast::Receiver<Frame>,
+    connected: Arc<AtomicBool>,
+    running: Option<Running>,
+}
+
+/// What only a capture with a thread of its own has.
+struct Running {
     quit: pw::channel::Sender<()>,
     thread: JoinHandle<()>,
 }
@@ -50,26 +58,45 @@ impl Capture {
     pub(super) fn start() -> io::Result<Self> {
         let (frames_tx, frames) = broadcast::channel(QUEUED_FRAMES);
         let (quit, quit_rx) = pw::channel::channel();
-        let thread = thread::Builder::new()
-            .name(THREAD_NAME.to_owned())
-            .spawn(move || {
-                if let Err(error) = capture(frames_tx, quit_rx) {
+        let connected = Arc::new(AtomicBool::new(false));
+        let thread = thread::Builder::new().name(THREAD_NAME.to_owned()).spawn({
+            let connected = Arc::clone(&connected);
+            move || {
+                if let Err(error) = capture(frames_tx, quit_rx, &connected) {
                     warn!(%error, "audio output capture failed; audio.spectrum stays dark");
                 }
-            })?;
+            }
+        })?;
         Ok(Self {
             frames,
-            quit,
-            thread,
+            connected,
+            running: Some(Running { quit, thread }),
         })
+    }
+
+    /// A capture without a thread, whose frames come from the test.
+    #[cfg(test)]
+    pub(super) fn detached(frames: broadcast::Receiver<Frame>, connected: bool) -> Self {
+        Self {
+            frames,
+            connected: Arc::new(AtomicBool::new(connected)),
+            running: None,
+        }
+    }
+
+    /// Whether PipeWire took the stream, that is whether it ever reached `Paused` or `Streaming`.
+    pub(super) fn connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
     }
 
     /// Quits the loop, which disconnects the stream, and joins the thread within [`STOP_GRACE`].
     pub(super) async fn stop(self) {
+        let Some(Running { quit, thread }) = self.running else {
+            return;
+        };
         // A loop that has already ended has nothing left to quit, and one the message cannot reach
         // is left behind by the bounded join below all the same.
-        let _ = self.quit.send(());
-        let thread = self.thread;
+        let _ = quit.send(());
         match timeout(STOP_GRACE, spawn_blocking(move || thread.join())).await {
             Err(_) => warn!("the audio capture did not stop within {STOP_GRACE:?}; leaving it"),
             Ok(Ok(Err(_))) => warn!("the audio capture thread panicked"),
@@ -78,10 +105,12 @@ impl Capture {
     }
 }
 
-/// Captures until `quit` receives or PipeWire ends the stream, sending every frame on `frames`.
+/// Captures until `quit` receives or PipeWire ends the stream, sending every frame on `frames`, and
+/// sets `connected` once PipeWire takes the stream.
 fn capture(
     frames: broadcast::Sender<Frame>,
     quit: pw::channel::Receiver<()>,
+    connected: &Arc<AtomicBool>,
 ) -> Result<(), pw::Error> {
     pw::init();
     let main_loop = pw::main_loop::MainLoopRc::new(None)?;
@@ -105,11 +134,14 @@ fn capture(
         .add_local_listener_with_user_data(Analysis::new(frames))
         .state_changed({
             let main_loop = main_loop.clone();
+            let connected = Arc::clone(connected);
             move |_, _, _, state| {
                 let reason = match state {
                     StreamState::Error(message) => message,
                     StreamState::Unconnected => "PipeWire disconnected".to_owned(),
-                    StreamState::Connecting | StreamState::Paused | StreamState::Streaming => {
+                    StreamState::Connecting => return,
+                    StreamState::Paused | StreamState::Streaming => {
+                        connected.store(true, Ordering::Relaxed);
                         return;
                     }
                 };
