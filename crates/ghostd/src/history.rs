@@ -1,7 +1,24 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::iter;
 use std::num::NonZeroU32;
 
+use ghost_proto::{CpuSnapshot, GpuSnapshot, topics};
+
 const MILLIS_PER_MINUTE: u64 = 60_000;
+
+const CPU_LOAD_KEY: &str = "load";
+const GPU_LOAD_KEY: &str = "gpu_load";
+// The shell's history keys stop at ccd1, so CCDs past the second are not recorded.
+const CCD_LOAD_KEYS: [&str; 2] = ["ccd0", "ccd1"];
+
+/// The history series each built-in topic records, keyed by topic.
+pub const HISTORY_KEYS: [(&str, &[&str]); 2] = [
+    (
+        topics::CPU,
+        &[CPU_LOAD_KEY, CCD_LOAD_KEYS[0], CCD_LOAD_KEYS[1]],
+    ),
+    (topics::GPU, &[GPU_LOAD_KEY]),
+];
 
 /// Samples to keep so that `history_minutes` of history fit at one sample every `tick_ms`, and
 /// never fewer than one.
@@ -63,6 +80,23 @@ impl History {
             buffer.drain(..excess);
         }
     }
+}
+
+/// Records a cpu sample that followed `missed` ticks without one.
+pub fn record_cpu(hist: &mut History, cpu: &CpuSnapshot, missed: u64) {
+    let ccd_loads = CCD_LOAD_KEYS
+        .into_iter()
+        .zip(cpu.ccds.iter().map(|ccd| ccd.load));
+    for (key, load) in iter::once((CPU_LOAD_KEY, cpu.load)).chain(ccd_loads) {
+        hist.push_gap(key, missed);
+        hist.push(key, Some(load));
+    }
+}
+
+/// Records a gpu sample that followed `missed` ticks without one.
+pub fn record_gpu(hist: &mut History, gpu: &GpuSnapshot, missed: u64) {
+    hist.push_gap(GPU_LOAD_KEY, missed);
+    hist.push(GPU_LOAD_KEY, gpu.present.then_some(gpu.load));
 }
 
 fn push_bounded(buffer: &mut VecDeque<Option<f32>>, len: usize, v: Option<f32>) {

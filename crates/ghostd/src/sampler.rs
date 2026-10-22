@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::iter;
 
 use ghost_proto::{
     CpuSnapshot, DiskSnapshot, GpuSnapshot, MemSnapshot, ProcsSnapshot, SensorSnapshot, ServerMsg,
@@ -7,21 +6,7 @@ use ghost_proto::{
 };
 
 use crate::collect::{ProcSample, Source, attach_temps};
-use crate::history::History;
-
-const CPU_LOAD_KEY: &str = "load";
-const GPU_LOAD_KEY: &str = "gpu_load";
-// The shell's history keys stop at ccd1, so CCDs past the second are not recorded.
-const CCD_LOAD_KEYS: [&str; 2] = ["ccd0", "ccd1"];
-
-/// The history series each built-in topic records, keyed by topic.
-pub const HISTORY_KEYS: [(&str, &[&str]); 2] = [
-    (
-        topics::CPU,
-        &[CPU_LOAD_KEY, CCD_LOAD_KEYS[0], CCD_LOAD_KEYS[1]],
-    ),
-    (topics::GPU, &[GPU_LOAD_KEY]),
-];
+use crate::history::{History, record_cpu, record_gpu};
 
 /// `Send` so a `Sampler` can be ticked from a blocking thread.
 type BoxedSource<T> = Box<dyn Source<T> + Send>;
@@ -126,7 +111,7 @@ impl Sampler {
         if is_wanted(topics::CPU)
             && let Some(cpu) = self.cpu.sample(seq)
         {
-            record_cpu(hist, &cpu);
+            record_cpu(hist, &cpu.value, cpu.missed);
             messages.push(data_msg(topics::CPU, seq, &cpu.value));
         }
         if is_wanted(topics::MEM)
@@ -148,8 +133,7 @@ impl Sampler {
         if is_wanted(topics::GPU)
             && let Some(gpu) = self.gpu.sample(seq)
         {
-            hist.push_gap(GPU_LOAD_KEY, gpu.missed);
-            hist.push(GPU_LOAD_KEY, gpu.value.present.then_some(gpu.value.load));
+            record_gpu(hist, &gpu.value, gpu.missed);
             messages.push(data_msg(topics::GPU, seq, &gpu.value));
         }
         if is_wanted(topics::DISKS)
@@ -175,16 +159,6 @@ impl Sampler {
             }
         }
         messages
-    }
-}
-
-fn record_cpu(hist: &mut History, cpu: &Kept<CpuSnapshot>) {
-    let ccd_loads = CCD_LOAD_KEYS
-        .into_iter()
-        .zip(cpu.value.ccds.iter().map(|ccd| ccd.load));
-    for (key, load) in iter::once((CPU_LOAD_KEY, cpu.value.load)).chain(ccd_loads) {
-        hist.push_gap(key, cpu.missed);
-        hist.push(key, Some(load));
     }
 }
 

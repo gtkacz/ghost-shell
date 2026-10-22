@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 
 use super::sampling::Tick;
 use super::{Demand, invalid_topic, line};
-use crate::sampler::HISTORY_KEYS;
+use crate::history::HISTORY_KEYS;
 
 /// The output a UI client may leave unread before it is disconnected.
 const MAX_UNSENT_BYTES: usize = 256 * 1024;
