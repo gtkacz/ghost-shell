@@ -63,6 +63,19 @@ export function rate(bps) {
   return (tenthsOf(bps, BYTES_PER_MB) / TENTHS_PER_UNIT).toFixed(1) + ' MB/s';
 }
 
+// The mockup's `short`, for narrow fields: whole kilobytes, or megabytes to a tenth. As in rate, the tier follows
+// the rounded value, so 999.5 KB/s reads "1.0M" rather than "1000K".
+export function rateShort(bps) {
+  if (isMissing(bps)) {
+    return MISSING;
+  }
+  const kb = Math.round(bps / BYTES_PER_KB);
+  if (kb < KB_PER_MB) {
+    return kb + 'K';
+  }
+  return (tenthsOf(bps, BYTES_PER_MB) / TENTHS_PER_UNIT).toFixed(1) + 'M';
+}
+
 export function ghz(mhz) {
   return isMissing(mhz) ? MISSING : (mhz / MHZ_PER_GHZ).toFixed(2) + ' GHz';
 }

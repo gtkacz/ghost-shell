@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow, clockParts, uptimeSince,
+  pct, tempC, tempShort, gib, rate, rateShort, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow, clockParts, uptimeSince,
 } from '../kit/GhostKit/lib/format.mjs';
 
 test('pct rounds', () => assert.equal(pct(22.6), '23%'));
@@ -21,6 +21,17 @@ test('rate switches tier exactly at the decimal boundaries', () => {
   assert.equal(rate(999), '999 B/s');
   assert.equal(rate(1000), '1.0 KB/s');
   assert.equal(rate(1000000), '1.0 MB/s');
+});
+
+test('rateShort', () => {
+  assert.equal(rateShort(25400), '25K');
+  assert.equal(rateShort(1234000), '1.2M');
+  assert.equal(rateShort(null), '--');
+});
+
+test('rateShort picks the tier from the rounded value so the field never widens', () => {
+  assert.equal(rateShort(999499), '999K');
+  assert.equal(rateShort(999500), '1.0M');
 });
 
 test('temperatures round to whole degrees', () => {
@@ -60,7 +71,7 @@ test('ddmmyy renders an invalid date as dashes', () => {
 
 test('every formatter renders a missing value as dashes', () => {
   const formatters = [
-    pct, tempC, tempShort, gib, rate, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow,
+    pct, tempC, tempShort, gib, rate, rateShort, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow,
   ];
   for (const format of formatters) {
     assert.equal(format(null), '--');

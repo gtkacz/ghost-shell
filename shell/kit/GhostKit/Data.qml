@@ -15,6 +15,8 @@ Singleton {
     readonly property var config: link.config
     readonly property var layout: link.layout
     readonly property var history: link.history
+    // Milliseconds between two history samples, so a graph can say how much time its width spans.
+    readonly property int stepMs: link.stepMs
 
     // While windows cover the dashboard it subscribes only to what the bar shows. Read-only here so
     // that one widget cannot starve the whole desktop of data; the host writes it through hostControl.

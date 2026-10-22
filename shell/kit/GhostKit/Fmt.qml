@@ -28,6 +28,10 @@ Singleton {
         return Format.rate(bps);
     }
 
+    function rateShort(bps) {
+        return Format.rateShort(bps);
+    }
+
     function ghz(mhz) {
         return Format.ghz(mhz);
     }

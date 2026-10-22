@@ -1,0 +1,13 @@
+id = "telemetry-lane"
+name = "Telemetry lane"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+# The topics of all six metrics, since a manifest's list cannot follow its settings. Being required rather than
+# wanted keeps a lane's history growing while another view is shown.
+requires = ["cpu", "gpu", "mem", "sensors", "disks", "net", "net.links"]
+
+[settings.metric]
+type = "enum"
+values = ["cpu", "gpu", "mem", "net", "disk", "therm"]
+default = "cpu"
