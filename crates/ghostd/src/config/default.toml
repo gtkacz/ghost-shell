@@ -180,7 +180,8 @@ gutter = 12
 margin = 12
 
 # The view the dashboard starts on: a large clock over the media player and the notifications,
-# between a column of processor, graphics and memory and one of uplink, storage and sensors.
+# between a column of processor, graphics and memory and one of tabs (uplink, silicon and process
+# tree) over the network, then storage and sensors.
 [layout.views.v1]
 direction = "row"
 
@@ -224,9 +225,21 @@ direction = "column"
 size = 300
 
 [[layout.views.v1.children.children]]
-widget = "placeholder"
+direction = "column"
 size = 300
-settings = { label = "Uplink" }
+
+[[layout.views.v1.children.children.children]]
+default = 0
+tabs = [
+  { widget = "uplink", title = "UPLINK" },
+  { widget = "silicon", title = "SILICON" },
+  { widget = "process-tree", title = "TREE" },
+]
+
+[[layout.views.v1.children.children.children]]
+widget = "network"
+size = 109
+settings = { style = "scope" }
 
 [[layout.views.v1.children.children]]
 widget = "storage"
@@ -265,9 +278,9 @@ settings = { style = "band" }
 [[layout.views.v2.children.children]]
 default = 0
 tabs = [
-  { widget = "placeholder", title = "UPLINK", settings = { label = "Uplink" } },
-  { widget = "placeholder", title = "SILICON", settings = { label = "Silicon" } },
-  { widget = "placeholder", title = "PROCESS TREE", settings = { label = "Process tree" } },
+  { widget = "uplink", title = "UPLINK" },
+  { widget = "silicon", title = "SILICON" },
+  { widget = "process-tree", title = "PROCESS TREE" },
 ]
 
 [[layout.views.v2.children.children]]
@@ -285,9 +298,8 @@ size = 290
 settings = { label = "Notifications" }
 
 [[layout.views.v2.children.children]]
-widget = "placeholder"
+widget = "network"
 size = 164
-settings = { label = "Network" }
 
 [[layout.views.v2.children.children]]
 widget = "storage"
@@ -318,16 +330,39 @@ settings = { style = "compact" }
 direction = "row"
 
 [[layout.views.monitor.children.children]]
-widget = "placeholder"
-settings = { label = "Telemetry" }
+direction = "column"
+gutter = 6
+
+[[layout.views.monitor.children.children.children]]
+widget = "telemetry-lane"
+settings = { metric = "cpu" }
+
+[[layout.views.monitor.children.children.children]]
+widget = "telemetry-lane"
+settings = { metric = "gpu" }
+
+[[layout.views.monitor.children.children.children]]
+widget = "telemetry-lane"
+settings = { metric = "mem" }
+
+[[layout.views.monitor.children.children.children]]
+widget = "telemetry-lane"
+settings = { metric = "net" }
+
+[[layout.views.monitor.children.children.children]]
+widget = "telemetry-lane"
+settings = { metric = "disk" }
+
+[[layout.views.monitor.children.children.children]]
+widget = "telemetry-lane"
+settings = { metric = "therm" }
 
 [[layout.views.monitor.children.children]]
 direction = "column"
 size = 340
 
 [[layout.views.monitor.children.children.children]]
-widget = "placeholder"
-settings = { label = "Process tree" }
+widget = "process-tree"
 
 [[layout.views.monitor.children.children.children]]
 widget = "sensors"

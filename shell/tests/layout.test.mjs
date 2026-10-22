@@ -18,7 +18,22 @@ const DEFAULT_V1_FOR_TEST = {
         { direction: 'row', size: null, children: [slot('media', 290, { style: 'stack' }), slot('placeholder', null, { label: 'Notifications' })] },
       ],
     },
-    { direction: 'column', size: 300, children: [slot('placeholder', 300, { label: 'Uplink' }), slot('storage'), slot('sensors', 184)] },
+    {
+      direction: 'column',
+      size: 300,
+      children: [
+        {
+          direction: 'column',
+          size: 300,
+          children: [
+            { size: null, default: 0, tabs: [tab('uplink', 'UPLINK'), tab('silicon', 'SILICON'), tab('process-tree', 'TREE')] },
+            slot('network', 109, { style: 'scope' }),
+          ],
+        },
+        slot('storage'),
+        slot('sensors', 184),
+      ],
+    },
   ],
 };
 
@@ -36,15 +51,15 @@ const DEFAULT_V2_FOR_TEST = {
           size: null,
           default: 0,
           tabs: [
-            tab('placeholder', 'UPLINK', { label: 'Uplink' }),
-            tab('placeholder', 'SILICON', { label: 'Silicon' }),
-            tab('placeholder', 'PROCESS TREE', { label: 'Process tree' }),
+            tab('uplink', 'UPLINK'),
+            tab('silicon', 'SILICON'),
+            tab('process-tree', 'PROCESS TREE'),
           ],
         },
         slot('media', 120, { style: 'strip' }),
       ],
     },
-    { direction: 'column', size: 300, children: [slot('placeholder', 290, { label: 'Notifications' }), slot('placeholder', 164, { label: 'Network' }), slot('storage')] },
+    { direction: 'column', size: 300, children: [slot('placeholder', 290, { label: 'Notifications' }), slot('network', 164), slot('storage')] },
   ],
 };
 
@@ -57,12 +72,15 @@ const DEFAULT_MONITOR_FOR_TEST = {
       direction: 'row',
       size: null,
       children: [
-        slot('placeholder', null, { label: 'Telemetry' }),
-        { direction: 'column', size: 340, children: [slot('placeholder', null, { label: 'Process tree' }), slot('sensors', 184)] },
+        { direction: 'column', size: null, gutter: 6, children: ['cpu', 'gpu', 'mem', 'net', 'disk', 'therm'].map((metric) => slot('telemetry-lane', null, { metric })) },
+        { direction: 'column', size: 340, children: [slot('process-tree'), slot('sensors', 184)] },
       ],
     },
   ],
 };
+
+// Task 8 measured the network scope's natural height in the shell (108.65 at u 1.739).
+const NETWORK_SCOPE_HEIGHT = 109;
 
 const pick = (rects, widget) => {
   const { x, y, w, h } = rects.find((rect) => rect.widget === widget);
@@ -105,6 +123,12 @@ test('default v1 flex columns fill the space between the fixed ones', () => {
   assert.equal(r.overflow, undefined);
 });
 
+test('v1 scope column', () => {
+  const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
+  assert.equal(pick(r, 'network').h, NETWORK_SCOPE_HEIGHT);
+  assert.equal(r.find((x) => x.tabs).h, 300 - 12 - NETWORK_SCOPE_HEIGHT);
+});
+
 test('default v2 geometry', () => {
   const r = computeRects(DEFAULT_V2_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
   assert.deepEqual(pick(r, 'clock'), { x: 324, y: 42, w: 632, h: 150 });
@@ -118,6 +142,12 @@ test('default monitor geometry', () => {
   assert.deepEqual(pick(r, 'media'), { x: 928, y: 42, w: 340, h: 104 });
   assert.deepEqual(pick(r, 'sensors'), { x: 928, y: 524, w: 340, h: 184 });
   assert.equal(r.overflow, undefined);
+});
+
+test('monitor lanes are six, 6 px apart', () => {
+  const lanes = computeRects(DEFAULT_MONITOR_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12).filter((x) => x.widget === 'telemetry-lane');
+  assert.equal(lanes.length, 6);
+  assert.equal(lanes[1].y - (lanes[0].y + lanes[0].h), 6);
 });
 
 test('rects carry their path and the slot fields', () => {

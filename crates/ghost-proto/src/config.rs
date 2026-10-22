@@ -458,11 +458,11 @@ fn styled(widget: &str, size: Option<f32>, style: &str) -> LayoutNode {
     }
 }
 
-fn placeholder_tab(label: &str, title: &str) -> TabSpec {
+fn tab(widget: &str, title: &str) -> TabSpec {
     TabSpec {
-        widget: "placeholder".into(),
+        widget: widget.into(),
         title: Some(title.into()),
-        settings: Map::from_iter([("label".to_owned(), Value::String(label.into()))]),
+        settings: Map::new(),
     }
 }
 
@@ -509,7 +509,22 @@ fn default_v1() -> LayoutNode {
                 Column,
                 Some(300.0),
                 vec![
-                    placeholder("Uplink", Some(300.0)),
+                    split(
+                        Column,
+                        Some(300.0),
+                        vec![
+                            LayoutNode::Tabs {
+                                tabs: vec![
+                                    tab("uplink", "UPLINK"),
+                                    tab("silicon", "SILICON"),
+                                    tab("process-tree", "TREE"),
+                                ],
+                                size: None,
+                                default: 0,
+                            },
+                            styled("network", Some(109.0), "scope"),
+                        ],
+                    ),
                     slot("storage", None),
                     slot("sensors", Some(184.0)),
                 ],
@@ -540,9 +555,9 @@ fn default_v2() -> LayoutNode {
                     styled("clock", Some(150.0), "band"),
                     LayoutNode::Tabs {
                         tabs: vec![
-                            placeholder_tab("Uplink", "UPLINK"),
-                            placeholder_tab("Silicon", "SILICON"),
-                            placeholder_tab("Process tree", "PROCESS TREE"),
+                            tab("uplink", "UPLINK"),
+                            tab("silicon", "SILICON"),
+                            tab("process-tree", "PROCESS TREE"),
                         ],
                         size: None,
                         default: 0,
@@ -555,7 +570,7 @@ fn default_v2() -> LayoutNode {
                 Some(300.0),
                 vec![
                     placeholder("Notifications", Some(290.0)),
-                    placeholder("Network", Some(164.0)),
+                    slot("network", Some(164.0)),
                     slot("storage", None),
                 ],
             ),
@@ -582,14 +597,26 @@ fn default_monitor() -> LayoutNode {
                 Row,
                 None,
                 vec![
-                    placeholder("Telemetry", None),
+                    LayoutNode::Split {
+                        direction: Column,
+                        size: None,
+                        gutter: Some(6.0),
+                        children: ["cpu", "gpu", "mem", "net", "disk", "therm"]
+                            .into_iter()
+                            .map(|metric| LayoutNode::Slot {
+                                widget: "telemetry-lane".into(),
+                                size: None,
+                                settings: Map::from_iter([(
+                                    "metric".to_owned(),
+                                    Value::String(metric.into()),
+                                )]),
+                            })
+                            .collect(),
+                    },
                     split(
                         Column,
                         Some(340.0),
-                        vec![
-                            placeholder("Process tree", None),
-                            slot("sensors", Some(184.0)),
-                        ],
+                        vec![slot("process-tree", None), slot("sensors", Some(184.0))],
                     ),
                 ],
             ),

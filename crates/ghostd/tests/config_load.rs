@@ -1,4 +1,4 @@
-use ghost_proto::{LayoutNode, ResolvedConfig};
+use ghost_proto::{LayoutConfig, LayoutNode, ResolvedConfig};
 use ghostd::config::{DEFAULT_TOML, load_str_with_user};
 
 #[test]
@@ -259,6 +259,44 @@ fn default_v1_layout_shape() {
         panic!("v1 is not a split");
     };
     assert_eq!(children.len(), 3);
+}
+
+fn collect_placeholder_labels(node: &LayoutNode, labels: &mut Vec<String>) {
+    match node {
+        LayoutNode::Slot {
+            widget, settings, ..
+        } => {
+            if widget == "placeholder" {
+                labels.push(settings["label"].as_str().unwrap().to_owned());
+            }
+        }
+        LayoutNode::Split { children, .. } => {
+            for child in children {
+                collect_placeholder_labels(child, labels);
+            }
+        }
+        LayoutNode::Tabs { tabs, .. } => {
+            for tab in tabs.iter().filter(|tab| tab.widget == "placeholder") {
+                labels.push(tab.settings["label"].as_str().unwrap().to_owned());
+            }
+        }
+    }
+}
+
+/// The labels of every `placeholder` slot and tab, view by view in name order.
+fn placeholder_labels(layout: &LayoutConfig) -> Vec<String> {
+    let mut labels = Vec::new();
+    for view in layout.views.values() {
+        collect_placeholder_labels(view, &mut labels);
+    }
+    labels
+}
+
+#[test]
+fn default_views_have_no_machine_placeholders() {
+    let c = load_str_with_user("", "u").unwrap();
+    let labels = placeholder_labels(&c.layout);
+    assert_eq!(labels, ["Notifications", "Notifications"]);
 }
 
 #[test]
