@@ -15,7 +15,7 @@ use ghost_alerts_inmet::{
 };
 use ghost_proto::{WeatherAlert, WeatherAlerts};
 use tracing::{error, info, warn};
-use ureq::Agent;
+use ureq::{Agent, Body};
 
 const USAGE: &str = "usage: ghost-alerts-inmet --area <code> [--from <language> --to <language>]";
 const AREA_FLAG: &str = "--area";
@@ -29,6 +29,9 @@ const FETCH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const FIRST_RETRY: Duration = Duration::from_secs(60);
 const RETRY_GROWTH: u32 = 2;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
+// About 110 times INMET's 0.6 MB answer for ten alerts, so a national outbreak still parses while a
+// bad response stays bounded; ureq's own default of 10 MiB would fail at around 170 alerts.
+const INMET_MAX_BODY_BYTES: u64 = 64 * 1024 * 1024;
 // The monotonic clock and the socket's read timeout both stop during a suspend and nothing reports
 // the resume, so a wait looks at the wall clock at least this often, as ghostd's weather feed does.
 const WALL_CLOCK_CHECK: Duration = Duration::from_secs(60);
@@ -106,6 +109,15 @@ enum Ended {
 enum FetchError {
     #[error("cannot fetch INMET's alerts: {0}")]
     Http(#[from] ureq::Error),
+    // The read stops at the limit, so only the length INMET declared, if any, tells the real size.
+    #[error(
+        "INMET's answer is larger than the {limit_bytes}-byte limit; it declared {}",
+        .declared_bytes.map_or_else(|| "no length".to_owned(), |bytes| format!("{bytes} bytes"))
+    )]
+    TooLarge {
+        limit_bytes: u64,
+        declared_bytes: Option<u64>,
+    },
     #[error(transparent)]
     Parse(#[from] ParseError),
 }
@@ -179,11 +191,31 @@ struct Fetched {
 }
 
 fn fetch(agent: &Agent, area: &str) -> Result<Fetched, FetchError> {
-    let body = agent.get(ALERTS_URL).call()?.body_mut().read_to_string()?;
+    let body = read_body(
+        agent.get(ALERTS_URL).call()?.body_mut(),
+        INMET_MAX_BODY_BYTES,
+    )?;
     Ok(Fetched {
         updated_s: unix_now_s(),
         issued: parse_alerts(&body, area)?,
     })
+}
+
+/// `body` as text, with broken UTF-8 replaced as ureq's plain `read_to_string` does, unless it is
+/// larger than `limit_bytes`.
+fn read_body(body: &mut Body, limit_bytes: u64) -> Result<String, FetchError> {
+    let declared_bytes = body.content_length();
+    body.with_config()
+        .limit(limit_bytes)
+        .lossy_utf8(true)
+        .read_to_string()
+        .map_err(|error| match error {
+            ureq::Error::BodyExceedsLimit(limit_bytes) => FetchError::TooLarge {
+                limit_bytes,
+                declared_bytes,
+            },
+            other => FetchError::Http(other),
+        })
 }
 
 fn publish(daemon: &mut UnixStream, updated_s: u64, alerts: Vec<WeatherAlert>) -> io::Result<()> {
@@ -250,6 +282,8 @@ mod tests {
     const BEGAN_S: u64 = 1_792_616_400;
     const NIGHT: Duration = Duration::from_secs(8 * 60 * 60);
     const HALF_A_MINUTE: Duration = Duration::from_secs(30);
+    const SMALL_LIMIT_BYTES: u64 = 10;
+    const TEXT_MIME: &str = "text/plain";
 
     fn began() -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(BEGAN_S)
@@ -285,5 +319,31 @@ mod tests {
     #[test]
     fn a_clock_set_back_before_the_wait_began_fetches_now() {
         assert_eq!(read_timeout(began(), FETCH_INTERVAL, began() - NIGHT), None);
+    }
+
+    #[test]
+    fn an_answer_past_the_limit_fails_with_its_byte_counts() {
+        let oversized = vec![b' '; 2 * SMALL_LIMIT_BYTES as usize];
+
+        let error = read_body(&mut Body::builder().data(oversized), SMALL_LIMIT_BYTES).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "INMET's answer is larger than the 10-byte limit; it declared 20 bytes"
+        );
+    }
+
+    #[test]
+    fn an_answer_within_the_limit_reads_as_ureqs_own_read_does() {
+        let text = || {
+            Body::builder()
+                .mime_type(TEXT_MIME)
+                .data(b"[\xff]".to_vec())
+        };
+
+        let body = read_body(&mut text(), SMALL_LIMIT_BYTES).unwrap();
+
+        assert_eq!(body, text().read_to_string().unwrap());
+        assert_eq!(body, "[?]");
     }
 }
