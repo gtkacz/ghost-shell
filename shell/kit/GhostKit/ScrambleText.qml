@@ -12,7 +12,8 @@ Text {
     // The mockup's scramble(el, to, dur = 520).
     property real durationMs: 520
     // Names the write. Empty means the text this item first shows, so later text changes show directly;
-    // a key that changes, as a track's does, scrambles again if FirstWrite has not seen it.
+    // a key that changes, as a track's does, scrambles again if FirstWrite has not seen it. Bind it to the
+    // text's source, never to text, which the scramble overwrites each frame.
     property string scrambleKey
 
     // Widgets do not know their host, so the scope is found up the tree: the nearest WidgetHost's, or

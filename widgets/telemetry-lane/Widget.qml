@@ -61,6 +61,7 @@ Panel {
 
     readonly property string metric: settings.metric
     readonly property var lane: Lanes.LANES[metric]
+    readonly property string laneName: lane ? lane.name : ""
     readonly property var lanes: Lanes.laneText(Fmt)
     readonly property bool isNet: metric === netMetric
 
@@ -189,8 +190,10 @@ Panel {
                 id: nameText
 
                 anchors.verticalCenter: parent.verticalCenter
-                text: root.lane ? root.lane.name : ""
-                scrambleKey: "lane:" + text
+                text: root.laneName
+                // From the name, not the text, which the scramble overwrites each frame: a key read from it
+                // would be new every frame and restart the scramble.
+                scrambleKey: "lane:" + root.laneName
                 durationMs: root.nameScrambleMinMs + Math.random() * root.nameScrambleSpanMs
                 color: Theme.hi
                 font {
