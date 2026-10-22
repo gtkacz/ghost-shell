@@ -19,7 +19,7 @@ Item {
     implicitWidth: Math.max(keyText.implicitWidth, valueText.implicitWidth)
     implicitHeight: valueText.y + valueText.implicitHeight
 
-    Text {
+    ScrambleText {
         id: keyText
 
         width: root.width

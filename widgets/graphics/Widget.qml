@@ -70,7 +70,7 @@ Panel {
 
         implicitHeight: labelText.implicitHeight
 
-        Text {
+        ScrambleText {
             id: labelText
 
             width: Theme.d(row.labelWidthPx)
@@ -133,7 +133,7 @@ Panel {
         color: root.tone(root.load)
     }
 
-    Text {
+    ScrambleText {
         anchors {
             left: big.right
             leftMargin: Theme.d(root.captionGapPx)

@@ -205,7 +205,7 @@ Panel {
                 }
             }
 
-            Text {
+            ScrambleText {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: text !== ""
                 text: root.lane ? Theme.tag(root.lane.tag) : ""
@@ -290,7 +290,7 @@ Panel {
                     required property var modelData
                     required property int index
 
-                    Text {
+                    ScrambleText {
                         visible: part.index > 0
                         text: " · "
                         textFormat: Text.PlainText
@@ -307,7 +307,7 @@ Panel {
                         color: Theme.dim
                     }
 
-                    Text {
+                    ScrambleText {
                         text: (part.modelData.glyph !== "" ? " " : "") + part.modelData.text
                         textFormat: Text.PlainText
                         color: Theme.dim

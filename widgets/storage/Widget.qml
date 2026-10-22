@@ -185,7 +185,7 @@ Panel {
                 width: list.width
                 height: root.rowHeight(drive)
 
-                Text {
+                ScrambleText {
                     id: liveName
 
                     width: Math.min(implicitWidth, parent.width - liveTemp.width - root.inlineGap)
@@ -197,7 +197,7 @@ Panel {
                     font: line.font
                 }
 
-                Text {
+                ScrambleText {
                     anchors {
                         left: liveName.right
                         leftMargin: root.inlineGap
@@ -251,7 +251,7 @@ Panel {
                     color: root.tone(liveRow.drive.used_pct, Theme.hi)
                 }
 
-                Text {
+                ScrambleText {
                     anchors {
                         right: parent.right
                         baseline: livePercent.baseline
@@ -293,7 +293,7 @@ Panel {
                 width: list.width
                 height: root.rowHeight(drive)
 
-                Text {
+                ScrambleText {
                     id: unmountedName
 
                     width: Math.min(implicitWidth, parent.width - unmountedState.width - root.inlineGap)
@@ -304,7 +304,7 @@ Panel {
                     font: line.font
                 }
 
-                Text {
+                ScrambleText {
                     anchors {
                         left: unmountedName.right
                         leftMargin: root.inlineGap
@@ -317,7 +317,7 @@ Panel {
                     font: line.font
                 }
 
-                Text {
+                ScrambleText {
                     id: unmountedState
 
                     anchors.right: parent.right
@@ -342,7 +342,7 @@ Panel {
         }
         height: readKey.implicitHeight
 
-        Text {
+        ScrambleText {
             id: readKey
 
             text: "R"
@@ -366,7 +366,7 @@ Panel {
             color: root.tone(footer.readBps, Theme.hi)
         }
 
-        Text {
+        ScrambleText {
             anchors {
                 right: writeValue.left
                 rightMargin: Theme.d(root.footerGapPx)

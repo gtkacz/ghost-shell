@@ -117,7 +117,7 @@ Panel {
         }
     }
 
-    component DieText: Text {
+    component DieText: ScrambleText {
         property real px
         property real baselineAt
         property bool bold: false

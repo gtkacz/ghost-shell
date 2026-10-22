@@ -42,11 +42,13 @@ Item {
         text: "1"
     }
 
-    Text {
+    // Hidden by opacity rather than visibility, so it still scrambles its first write and the cells
+    // below can show the scramble's frames.
+    ScrambleText {
         id: whole
 
         width: root.width
-        visible: root.monospace
+        opacity: root.monospace ? 1 : 0
         text: root.text
         // Callers pass daemon and provider values, which AutoText would render as markup.
         textFormat: Text.PlainText
@@ -67,11 +69,11 @@ Item {
 
         Repeater {
             // A count rather than the characters, so a changing value rebinds the cells instead of rebuilding them.
-            model: root.monospace ? 0 : root.text.length
+            model: root.monospace ? 0 : whole.text.length
 
             Text {
                 required property int index
-                readonly property string character: root.text.charAt(index)
+                readonly property string character: whole.text.charAt(index)
 
                 width: root.digitPattern.test(character) ? root.cellWidth : implicitWidth
                 // A glyph wider than "0" would otherwise spill into its neighbours' cells.

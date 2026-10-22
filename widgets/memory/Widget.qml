@@ -70,7 +70,7 @@ Panel {
 
         implicitHeight: labelText.implicitHeight
 
-        Text {
+        ScrambleText {
             id: labelText
 
             width: Theme.d(row.labelWidthPx)
@@ -141,7 +141,7 @@ Panel {
         color: root.tone(root.usedKib, Theme.hi)
     }
 
-    Text {
+    ScrambleText {
         anchors {
             left: big.right
             leftMargin: Theme.d(root.captionGapPx)
@@ -211,7 +211,7 @@ Panel {
             width: parent.width
             height: processHeader.implicitHeight
 
-            Text {
+            ScrambleText {
                 id: processHeader
 
                 anchors {
@@ -229,7 +229,7 @@ Panel {
                 }
             }
 
-            Text {
+            ScrambleText {
                 id: cpuHeader
 
                 anchors.right: memHeader.left
@@ -240,7 +240,7 @@ Panel {
                 font: processHeader.font
             }
 
-            Text {
+            ScrambleText {
                 id: memHeader
 
                 anchors.right: parent.right
@@ -265,7 +265,7 @@ Panel {
                 width: processList.width
                 height: processList.rowHeight
 
-                Text {
+                ScrambleText {
                     anchors {
                         left: parent.left
                         right: parent.right

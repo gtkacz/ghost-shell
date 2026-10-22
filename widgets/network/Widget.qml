@@ -86,7 +86,7 @@ Panel {
             color: Theme.dim
         }
 
-        Text {
+        ScrambleText {
             anchors.verticalCenter: parent.verticalCenter
             visible: pair.key !== ""
             text: pair.key
@@ -213,7 +213,7 @@ Panel {
 
             implicitHeight: vpnKey.implicitHeight
 
-            Text {
+            ScrambleText {
                 id: vpnKey
 
                 text: "VPN"
@@ -221,7 +221,7 @@ Panel {
                 font: kvLine.font
             }
 
-            Text {
+            ScrambleText {
                 anchors {
                     left: vpnKey.right
                     leftMargin: Theme.d(root.kvKeyGapPx)
@@ -289,7 +289,7 @@ Panel {
                 width: linkList.width
                 height: linkList.rowHeight
 
-                Text {
+                ScrambleText {
                     id: linkName
 
                     width: Theme.d(root.linkNamePx)
@@ -300,7 +300,7 @@ Panel {
                     font: linkLine.font
                 }
 
-                Text {
+                ScrambleText {
                     anchors {
                         left: linkName.right
                         leftMargin: Theme.d(root.linkGapPx)
@@ -316,7 +316,7 @@ Panel {
                     font: linkLine.font
                 }
 
-                Text {
+                ScrambleText {
                     id: linkState
 
                     anchors {

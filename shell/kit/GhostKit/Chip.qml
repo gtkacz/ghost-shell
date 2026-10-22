@@ -37,7 +37,7 @@ Item {
         }
     }
 
-    Text {
+    ScrambleText {
         id: label
 
         anchors.centerIn: parent

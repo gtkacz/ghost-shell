@@ -11,9 +11,10 @@ Text {
 
     // The mockup's scramble(el, to, dur = 520).
     property real durationMs: 520
-    // Names the write. Empty means the text this item first shows, so later text changes show directly;
-    // a key that changes, as a track's does, scrambles again if FirstWrite has not seen it. Bind it to the
-    // text's source, never to text, which the scramble overwrites each frame.
+    // Names the write; a key that changes, as a track's does, scrambles again if FirstWrite has not seen it.
+    // Bind it to the text's source, never to text, which the scramble overwrites each frame. Empty names
+    // the write by the item's place under its host, so its first written value scrambles and later
+    // values, such as a reading's, show directly.
     property string scrambleKey
 
     // Widgets do not know their host, so the scope is found up the tree: the nearest WidgetHost's, or
@@ -27,14 +28,27 @@ Text {
         return "";
     }
 
+    // Stops below the host: a host destroys its previous widget only later, so the widget's own index
+    // among the host's children differs between showings.
+    function positionKey() {
+        const steps = [];
+        for (let item = root; item.parent && item.parent.firstWriteScope === undefined; item = item.parent) {
+            const siblings = item.parent.children;
+            for (let index = 0; index < siblings.length; index++) {
+                if (siblings[index] === item) {
+                    steps.unshift(index);
+                    break;
+                }
+            }
+        }
+        return FirstWriteLib.positionKey(steps);
+    }
+
     function considerKey() {
         if (!visible) {
             return;
         }
-        if (scrambleKey === "" && run.firstText === "") {
-            run.firstText = text;
-        }
-        const key = scrambleKey !== "" ? scrambleKey : run.firstText;
+        const key = scrambleKey !== "" ? scrambleKey : FirstWriteLib.isWritten(text) ? positionKey() : "";
         if (key === "" || key === run.decidedKey) {
             return;
         }
@@ -53,6 +67,11 @@ Text {
     // Bindings that follow one datum, such as a title and its key, update in no fixed order, so the
     // decision waits until all of them have.
     onScrambleKeyChanged: Qt.callLater(considerKey)
+    onTextChanged: {
+        if (scrambleKey === "" && run.decidedKey === "") {
+            Qt.callLater(considerKey);
+        }
+    }
     onVisibleChanged: considerKey()
     Component.onCompleted: considerKey()
     Component.onDestruction: run.stop()
@@ -64,7 +83,6 @@ Text {
         property string target
         property real startedMs: 0
         property string decidedKey
-        property string firstText
 
         readonly property real progress: active ? Math.min(1, (FrameClock.elapsedMs - startedMs) / root.durationMs) : 0
 

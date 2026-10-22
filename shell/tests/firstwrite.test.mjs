@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { forget, hostScope, scopedKey, slotSignature, viewPrefix } from '../kit/GhostKit/lib/firstwrite.mjs';
+import { forget, holdsClaims, hostScope, isWritten, positionKey, scopedKey, slotSignature, viewPrefix } from '../kit/GhostKit/lib/firstwrite.mjs';
 
 test('a key outside any host stays as it is', () => {
   assert.equal(scopedKey('', 'panel:UPLINK'), 'panel:UPLINK');
@@ -41,4 +41,28 @@ test('a slot signature follows the widget and its settings, not the slot object 
   assert.equal(slotSignature(moved), slotSignature(slot));
   assert.notEqual(slotSignature(restyled), slotSignature(slot));
   assert.notEqual(slotSignature(otherTab), slotSignature(slot));
+});
+
+test('a text without a key is known by its place, which no two places share', () => {
+  assert.equal(positionKey([0, 3, 1]), positionKey([0, 3, 1]));
+  assert.notEqual(positionKey([1, 12]), positionKey([11, 2]));
+  assert.notEqual(positionKey([0]), positionKey([0, 0]));
+  assert.ok(!positionKey([0]).startsWith('panel:') && !positionKey([0]).startsWith('lane:'));
+});
+
+test('a blank or a missing value is not yet a first write, and any other text is', () => {
+  assert.equal(isWritten(''), false);
+  assert.equal(isWritten('   '), false);
+  assert.equal(isWritten('--'), false);
+  assert.equal(isWritten('42%'), true);
+  assert.equal(isWritten(' · '), true);
+  assert.equal(isWritten('CPU'), true);
+});
+
+test('a host holds claims until its showing is forgotten, and a sibling it begins does not count', () => {
+  const claimed = new Set([scopedKey(hostScope('V1', '[1]'), '@2.0'), scopedKey(hostScope('V1', '[10]'), '@2.0')]);
+  assert.equal(holdsClaims(claimed, hostScope('V1', '[1]')), true);
+  forget(claimed, scopedKey(hostScope('V1', '[1]'), ''));
+  assert.equal(holdsClaims(claimed, hostScope('V1', '[1]')), false);
+  assert.equal(holdsClaims(claimed, hostScope('V1', '[10]')), true);
 });

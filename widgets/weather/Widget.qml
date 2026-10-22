@@ -142,7 +142,7 @@ Panel {
                 sourceLive: root.weatherLive
             }
 
-            Text {
+            ScrambleText {
                 id: unit
 
                 anchors {
@@ -184,7 +184,7 @@ Panel {
                 }
                 spacing: Theme.d(root.conditionGapPx)
 
-                Text {
+                ScrambleText {
                     id: conditionLabel
 
                     // The mockup's own condition is the widest the column is given, so that a longer one wraps instead
@@ -205,7 +205,7 @@ Panel {
                     }
                 }
 
-                Text {
+                ScrambleText {
                     text: root.hiLoText
                     textFormat: Text.PlainText
                     color: Theme.dim
@@ -246,7 +246,7 @@ Panel {
                 }
             }
 
-            Text {
+            ScrambleText {
                 width: middle.width
                 text: root.detailText
                 textFormat: Text.PlainText
@@ -265,7 +265,7 @@ Panel {
 
                 // The air quality keeps its place at the right edge and the sky line gives way to it, since a
                 // moon name is the part that can be cut.
-                Text {
+                ScrambleText {
                     id: skyLine
 
                     width: Math.min(implicitWidth, Math.max(0, parent.width - (root.hasAqi ? aqiText.width + Theme.d(root.aqiGapPx) : 0)))
@@ -280,7 +280,7 @@ Panel {
                     }
                 }
 
-                Text {
+                ScrambleText {
                     id: aqiText
 
                     anchors {
@@ -352,7 +352,7 @@ Panel {
                         color: root.weatherLive ? Theme.text : Theme.dim
                     }
 
-                    Text {
+                    ScrambleText {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: cell.label
                         textFormat: Text.PlainText

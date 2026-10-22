@@ -145,7 +145,7 @@ Panel {
                 width: grid.columnWidth
                 height: grid.lineHeight
 
-                Text {
+                ScrambleText {
                     anchors {
                         left: parent.left
                         right: reading.left

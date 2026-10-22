@@ -171,7 +171,7 @@ Panel {
 
         spacing: space.advanceWidth
 
-        Text {
+        ScrambleText {
             id: labelText
 
             text: segment.label
@@ -277,7 +277,7 @@ Panel {
             sourceLive: reading.sourceLive
         }
 
-        Text {
+        ScrambleText {
             id: unit
 
             anchors {
@@ -297,7 +297,7 @@ Panel {
     }
 
     // Design pixels, from the mockup's .wx-cond and .wxs.
-    component Condition: Text {
+    component Condition: ScrambleText {
         readonly property real textPx: 10
         // Letter spacing in em.
         readonly property real tracking: 0.12
@@ -316,7 +316,7 @@ Panel {
         }
     }
 
-    component DimLine: Text {
+    component DimLine: ScrambleText {
         readonly property real textPx: 10
 
         textFormat: Text.PlainText

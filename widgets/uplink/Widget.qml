@@ -147,6 +147,8 @@ Panel {
             // A count rather than the endpoints, so a label keeps its object through the data's updates.
             model: root.endpoints.length
 
+            // Plain, as is the home label: both show and hide as the globe turns, so a first write would
+            // scramble at random moments of a showing, an uncover included.
             Text {
                 required property int index
                 // A message that drops an endpoint may reach this binding before the Repeater drops the label.
@@ -174,7 +176,7 @@ Panel {
             font: labelLine.font
         }
 
-        Text {
+        ScrambleText {
             visible: !area.small
             x: Theme.d(root.footerInsetPx)
             y: area.height - Theme.d(root.footerInsetPx) - baselineOffset

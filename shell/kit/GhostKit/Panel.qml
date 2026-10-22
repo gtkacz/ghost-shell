@@ -217,7 +217,7 @@ Item {
             }
         }
 
-        Text {
+        ScrambleText {
             id: tagText
 
             anchors {
@@ -238,7 +238,7 @@ Item {
             }
         }
 
-        Text {
+        ScrambleText {
             anchors {
                 left: tagText.right
                 leftMargin: root.headerGap

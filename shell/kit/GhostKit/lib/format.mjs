@@ -1,4 +1,4 @@
-const MISSING = '--';
+export const MISSING = '--';
 const BYTES_PER_KB = 1e3;
 const BYTES_PER_MB = 1e6;
 const KB_PER_MB = BYTES_PER_MB / BYTES_PER_KB;

@@ -208,7 +208,7 @@ Panel {
                 rotation: modelData.rotation
                 transformOrigin: Item.TopLeft
 
-                Text {
+                ScrambleText {
                     x: parent.modelData.flip ? -Theme.d(root.labelGapPx) - implicitWidth : Theme.d(root.labelGapPx)
                     y: Theme.d(root.labelBaselinePx) - baselineOffset
                     text: parent.modelData.text
@@ -232,7 +232,7 @@ Panel {
             color: Theme.signal
         }
 
-        Text {
+        ScrambleText {
             visible: root.built !== null
             x: Theme.d((root.built ? root.built.cx : 0) + root.rootLabelGapPx)
             y: Theme.d((root.built ? root.built.cy : 0) - root.rootLabelBaselinePx) - baselineOffset

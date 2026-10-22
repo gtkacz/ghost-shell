@@ -266,7 +266,7 @@ Item {
             borderColor: root.levelColor
         }
 
-        Text {
+        ScrambleText {
             id: messageText
 
             anchors {

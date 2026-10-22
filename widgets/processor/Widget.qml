@@ -80,7 +80,7 @@ Panel {
                 width: groups.groupWidth
                 height: groups.height
 
-                Text {
+                ScrambleText {
                     id: groupTitle
 
                     anchors {

@@ -77,9 +77,9 @@ Item {
             fail(component.errorString().split("\n")[0].replace(requested, slot.source));
             return;
         }
-        instance = component.createObject(root, {
-            settings: slot.settings
-        });
+        instance = FirstWrite.createIn(firstWriteScope, () => component.createObject(root, {
+                settings: slot.settings
+            }));
         if (instance === null) {
             fail("its root object could not be created");
         }
