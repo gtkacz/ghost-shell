@@ -184,6 +184,7 @@ const BLOCK_VALUE_DROP_PX = 4;
 const BLOCK_VALUE_ROOM_PX = 10;
 const METER_FROM_BOTTOM_PX = 9;
 const METER_HEIGHT_PX = 4;
+const STROKE_PX = 1;
 const ROWS_OF_TILES = 2;
 const IOD_BLOCK_COUNT = 4;
 // The hatch's stripes: one every 5 px, each rising 10 px across the strip's 10 px height.
@@ -249,8 +250,11 @@ export function dieLayout(w, h, coreCounts) {
       showsMeter: meterY >= blockY,
     };
   });
+  // A block whose name would cross its bottom stroke is too short to draw; its name moves to the I/O die's head row.
+  const showsBlocks = blockH >= fs + BLOCK_NAME_DROP_PX + STROKE_PX;
   return {
     small, fs,
+    showsBlocks,
     package: { x: pad, y: pad, w: w - 2 * pad, h: h - 2 * pad },
     titleX: x0,
     titleRight: w - pad - INSET,

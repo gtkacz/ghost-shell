@@ -48,7 +48,7 @@ Panel {
     readonly property var freqMhz: cpu && cpu.freq_mhz > 0 ? cpu.freq_mhz : null
     readonly property var tctl: readingValue(tctlLabel)
 
-    readonly property bool wantsClock: visible && !Data.covered
+    readonly property bool wantsClock: visible && !Data.covered && die !== null
     property bool holdsClock: false
     property var die: null
 
@@ -102,7 +102,8 @@ Panel {
     anchors.fill: parent
     label: "Silicon"
     tagKey: "die"
-    meta: Sil.headerMeta(cpu, gpu)
+    // The narrow header has no room for it beside a tab strip, where it would elide to a bare ellipsis.
+    meta: die !== null && !die.small ? Sil.headerMeta(cpu, gpu) : ""
 
     onCoreCountsChanged: Qt.callLater(relayout)
     // A hold changes a turn later, never inside the update of the binding that asked for it.
@@ -344,12 +345,42 @@ Panel {
             }
 
             DieText {
+                id: iodTitle
+
                 x: Theme.d(root.die ? root.die.iodHeadX : 0)
                 px: root.die ? root.die.fs + root.headStepPx : 0
                 bold: true
                 baselineAt: root.die ? root.die.iodBaseline : 0
                 text: "IOD"
                 color: Theme.hi
+            }
+
+            // The blocks' names alone, where the blocks are too short to hold them.
+            Item {
+                readonly property real headRight: root.die ? Theme.d(2 * root.die.iod.x + root.die.iod.w - root.die.iodHeadX) : 0
+
+                visible: root.die !== null && !root.die.showsBlocks
+                x: iodTitle.x + iodTitle.implicitWidth + Theme.d(root.titleGapPx)
+                width: Math.max(0, headRight - x)
+                height: parent.height
+                clip: true
+
+                Row {
+                    spacing: Theme.d(root.titleGapPx)
+
+                    Repeater {
+                        model: root.blocks.length
+
+                        DieText {
+                            required property int index
+
+                            px: root.die ? root.die.fs - root.headStepPx : 0
+                            baselineAt: root.die ? root.die.iodBaseline : 0
+                            text: root.blocks[index].name
+                            color: Theme.signal
+                        }
+                    }
+                }
             }
 
             Repeater {
@@ -359,6 +390,8 @@ Panel {
                     id: blockItem
 
                     required property int index
+
+                    visible: root.die.showsBlocks
                     readonly property var geometry: root.die.blocks[index]
                     readonly property var block: root.blocks[index]
 

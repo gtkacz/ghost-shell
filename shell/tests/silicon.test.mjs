@@ -184,3 +184,31 @@ test('a block too short for its meter leaves it out rather than drawing it above
   assert.ok(dieLayout(900, 400, [8, 8]).blocks.every((block) => block.showsMeter));
   assert.ok(dieLayout(276, 137, [8, 8]).blocks.every((block) => !block.showsMeter));
 });
+
+const within = (baseline, top, height) => baseline >= top && baseline <= top + height;
+
+test('no text baseline falls outside its block or row at the v1 or v2 size', () => {
+  for (const [w, h] of [[276, 137], [276, 158], [1250, 560]]) {
+    const die = dieLayout(w, h, [8, 8]);
+    assert.ok(within(die.titleBaseline, die.package.y, die.package.h), `title at ${w}×${h}`);
+    assert.ok(within(die.iodBaseline, die.iod.y, die.iod.h), `iod head at ${w}×${h}`);
+    for (const ccd of die.ccds) {
+      assert.ok(within(ccd.headBaseline, ccd.y, ccd.h), `ccd head at ${w}×${h}`);
+      assert.ok(within(ccd.l3Baseline, ccd.l3.y, ccd.l3.h), `l3 at ${w}×${h}`);
+      for (const tile of ccd.tiles) {
+        assert.ok(within(tile.labelBaseline, tile.y, tile.h), `tile label at ${w}×${h}`);
+      }
+    }
+    if (die.showsBlocks !== false) {
+      for (const block of die.blocks) {
+        assert.ok(within(block.nameBaseline, block.y, block.h - 1), `block name at ${w}×${h}`);
+        assert.ok(!block.showsValue || within(block.valueBaseline, block.y, block.h - 1), `block value at ${w}×${h}`);
+      }
+    }
+  }
+});
+
+test('blocks too short for their names give way to names on the iod head row', () => {
+  assert.equal(dieLayout(276, 137, [8, 8]).showsBlocks, false);
+  assert.equal(dieLayout(1250, 560, [8, 8]).showsBlocks, true);
+});
