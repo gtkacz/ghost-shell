@@ -56,8 +56,9 @@ export function columnWords(series, columns, rows, graph) {
   for (let at = skippedColumns(columns); at < columns; at += 1) {
     const index = samples.length - columns + at;
     const sample = index >= 0 ? samples[index] : undefined;
-    // A missing sample lights nothing, even below minLit, so it reads as unavailable rather than idle.
-    const lit = graph.live && Number.isFinite(sample) ? litCells(sample, graph.lo, graph.hi, drawn, graph.minLit) : 0;
+    // A missing sample lights nothing, even below minLit, so it reads as unavailable rather than idle. A minLit past
+    // the rows drawn would ask the shader for rows that do not exist and, from 1024, overflow the column's field.
+    const lit = graph.live && Number.isFinite(sample) ? Math.min(drawn, litCells(sample, graph.lo, graph.hi, drawn, graph.minLit)) : 0;
     const code = LEVEL_CODES[level((sample - graph.lo) / (graph.hi - graph.lo), graph.warnAt, graph.critAt)];
     fields.push(lit * LEVELS + code);
   }

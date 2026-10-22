@@ -125,3 +125,9 @@ test('a missing sample lights nothing, even below minLit, and a stale graph ligh
   assert.equal(column(columnWords([0], 1, 10, { ...GRAPH, minLit: 0 }), 0).lit, 0);
   assert.equal(column(columnWords([100], 1, 10, { ...GRAPH, live: false }), 0).lit, 0);
 });
+
+test('a minLit above the rows drawn lights only those rows and keeps the level intact', () => {
+  assert.deepEqual(column(columnWords([0], 1, 3, { ...GRAPH, minLit: 5 }), 0), { lit: 3, level: LEVEL_OK });
+  assert.deepEqual(column(columnWords([95], 1, 10, { ...GRAPH, minLit: 1024 }), 0), { lit: 10, level: LEVEL_CRIT });
+  assert.equal(column(columnWords([0], 1, MAX_ROWS + 1, { ...GRAPH, minLit: 2 * MAX_ROWS }), 0).lit, MAX_ROWS);
+});
