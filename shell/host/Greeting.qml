@@ -163,7 +163,9 @@ Scope {
                 playing: root.playing
                 snapshotPath: root.snapshotPath
                 snapshotDelayMs: root.snapshotDelayMs
-                onSkipRequested: root.skip()
+                // A skip unloads this window, so it waits until the key or click handler that asked has returned;
+                // callLater also folds several requests in one turn into one skip.
+                onSkipRequested: Qt.callLater(root.skip)
             }
         }
     }
