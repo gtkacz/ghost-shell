@@ -13,6 +13,8 @@ use tokio::time::timeout;
 use tracing::debug;
 
 pub const TAILSCALED_SOCKET: &str = "/run/tailscale/tailscaled.sock";
+/// How often each feed that shows Tailscale asks it for its status (user, 2026-10-21).
+pub const TAILSCALE_EVERY: Duration = Duration::from_secs(10);
 const TIMEOUT: Duration = Duration::from_secs(2);
 /// A whole reply, header included. A status this large is not one tailscaled sends, so a reply
 /// past it reads as no status rather than being buffered (user-confirmed 2026-10-22).

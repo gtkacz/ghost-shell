@@ -36,14 +36,12 @@ use tracing::debug;
 use self::geo::{Geo, MmdbGeo, geoip_dir};
 use self::owners::Owners;
 use self::sockets::{ProcNetSockets, RemoteSocket, SocketSource, is_public};
-use super::tailscale::{TAILSCALED_SOCKET, TailscaleClient, TailscalePeer};
+use super::tailscale::{TAILSCALE_EVERY, TAILSCALED_SOCKET, TailscaleClient, TailscalePeer};
 use super::{until_unwanted, until_wanted};
 use crate::server::{Feed, FeedContext};
 use crate::sysroot::SysRoot;
 
 const UPLINK_EVERY: Duration = Duration::from_secs(5);
-/// The cadence `net.links` asks tailscaled at too (user, 2026-10-21).
-const TAILSCALE_EVERY: Duration = Duration::from_secs(10);
 /// The most arcs the globe draws (user, 2026-10-21).
 pub const MAX_ENDPOINTS: usize = 8;
 /// The `[uplink.labels]` value that shows the process owning the socket.

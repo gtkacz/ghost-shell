@@ -28,11 +28,10 @@ use zbus::Connection;
 
 use self::nm::{Changes, NmLinks};
 use self::ping::{IcmpPinger, Pinger};
-use super::tailscale::{TAILSCALED_SOCKET, TailscaleClient, TailscaleStatus};
+use super::tailscale::{TAILSCALE_EVERY, TAILSCALED_SOCKET, TailscaleClient, TailscaleStatus};
 use super::{until_unwanted, until_wanted};
 use crate::server::{Feed, FeedContext, Publisher};
 
-const TAILSCALE_EVERY: Duration = Duration::from_secs(10);
 const PING_EVERY: Duration = Duration::from_secs(5);
 /// NetworkManager answers a full read in milliseconds; one that takes longer is stuck, and the
 /// links read before stay up meanwhile.
