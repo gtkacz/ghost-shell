@@ -170,7 +170,7 @@ impl State {
     pub(super) fn subscribe(&mut self, id: u64, topics: Vec<String>) {
         let mut wanted = HashSet::new();
         let mut replies = Vec::new();
-        if topics.iter().any(|topic| has_history(topic)) {
+        let history = topics.iter().any(|topic| has_history(topic)).then(|| {
             let series = self
                 .series
                 .iter()
@@ -179,11 +179,11 @@ impl State {
                 })
                 .map(|(key, samples)| (key.clone(), samples.clone()))
                 .collect();
-            replies.push(line(&ServerMsg::History {
+            line(&ServerMsg::History {
                 step_ms: self.step_ms,
                 series,
-            }));
-        }
+            })
+        });
         for topic in topics {
             if !wanted.contains(&topic)
                 && let Some(entry) = self.topics.get(&topic)
@@ -198,8 +198,16 @@ impl State {
         };
         client.topics = wanted;
         self.update_demand();
-        for reply in &replies {
-            self.send(id, reply);
+        match history {
+            Some(history) => {
+                let reply: Vec<Arc<str>> = iter::once(history).chain(replies).collect();
+                self.send_by(id, |outbox| outbox.push_history_reply(&reply));
+            }
+            None => {
+                for reply in &replies {
+                    self.send(id, reply);
+                }
+            }
         }
     }
 
@@ -335,10 +343,15 @@ impl State {
     }
 
     fn send(&mut self, id: u64, line: &Arc<str>) {
+        self.send_by(id, |outbox| outbox.push(line));
+    }
+
+    /// Queues a line for one client through `push`, dropping the client if it cannot be reached.
+    fn send_by(&mut self, id: u64, push: impl FnOnce(&Outbox) -> Result<(), Undelivered>) {
         let undelivered = self
             .clients
             .get(&id)
-            .and_then(|client| client.outbox.push(line).err());
+            .and_then(|client| push(&client.outbox).err());
         if let Some(reason) = undelivered {
             self.drop_client(id, reason);
         }
@@ -402,6 +415,27 @@ impl Outbox {
         if unsent > MAX_UNSENT_BYTES {
             return Err(Undelivered::Behind);
         }
+        self.send_line(line)
+    }
+
+    /// Queues a subscription's reply, its `History` line first, unless the bytes already waiting
+    /// are over the cap or the writer has stopped. A long history makes the line longer than the
+    /// cap on its own, and the topics' last values are queued behind it before the writer can
+    /// drain any of it, so only what waits before the reply is held against the cap. The reply's
+    /// own bytes still count toward later pushes.
+    pub(super) fn push_history_reply(&self, lines: &[Arc<str>]) -> Result<(), Undelivered> {
+        let reply_len = lines.iter().map(|line| line.len()).sum();
+        let unsent_before = self.unsent.fetch_add(reply_len, Ordering::Relaxed);
+        if unsent_before > MAX_UNSENT_BYTES {
+            return Err(Undelivered::Behind);
+        }
+        for line in lines {
+            self.send_line(line)?;
+        }
+        Ok(())
+    }
+
+    fn send_line(&self, line: &Arc<str>) -> Result<(), Undelivered> {
         self.lines
             .send(Arc::clone(line))
             .map_err(|_closed| Undelivered::Gone)
@@ -410,9 +444,25 @@ impl Outbox {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+    use tokio::sync::oneshot::error::TryRecvError;
+
     use super::*;
 
     const GREETING_LINES: usize = 3;
+    // `dashboard.history_minutes` at its maximum of 60, at the default one sample a second.
+    const FULL_HOUR_SAMPLES: usize = 3600;
+    const CORE_COUNT: usize = 16;
+    // An f32 reading at the full length it is printed with.
+    const TYPICAL_SAMPLE: f32 = 49.999_996;
+    const HISTORY_TOPICS: [&str; 6] = [
+        topics::CPU,
+        topics::GPU,
+        topics::MEM,
+        topics::SENSORS,
+        topics::DISKS,
+        "net",
+    ];
 
     fn state() -> State {
         State::new(
@@ -440,6 +490,148 @@ mod tests {
 
     fn state_line(live: bool) -> String {
         topic_state(topics::WEATHER_ALERTS, live).to_string()
+    }
+
+    /// A full hour of every series the daemon records, the network's two among them.
+    fn full_hour_of_every_series() -> BTreeMap<String, Vec<Option<f32>>> {
+        let named = [
+            "load",
+            "ccd0",
+            "ccd1",
+            "gpu_load",
+            "temp_gpu",
+            "mem_used",
+            "temp_cpu",
+            "disk_read",
+            "disk_write",
+            "temp_nvme",
+            "net_down",
+            "net_up",
+        ];
+        named
+            .into_iter()
+            .map(str::to_owned)
+            .chain((0..CORE_COUNT).map(|core| format!("core{core}")))
+            .map(|key| (key, vec![Some(TYPICAL_SAMPLE); FULL_HOUR_SAMPLES]))
+            .collect()
+    }
+
+    /// A full hour of history, and a last value for each topic that records one, which a
+    /// subscriber is sent right after the history.
+    fn state_with_a_full_hour() -> State {
+        let mut state = state();
+        state.record_tick(Tick {
+            messages: HISTORY_TOPICS
+                .iter()
+                .map(|&topic| data_msg(topic, 1, &json!({"value": TYPICAL_SAMPLE})))
+                .collect(),
+            perf: None,
+            series: full_hour_of_every_series(),
+        });
+        state
+    }
+
+    /// A client whose lines are queued but never written, as when it stops reading.
+    struct Unread {
+        id: u64,
+        queued: mpsc::UnboundedReceiver<Arc<str>>,
+        released: oneshot::Receiver<()>,
+    }
+
+    impl Unread {
+        fn register(state: &mut State) -> Self {
+            let (outbox, queued) = Outbox::new();
+            let (id, released) = state.register_ui(outbox, None);
+            Self {
+                id,
+                queued,
+                released,
+            }
+        }
+
+        fn subscribe_to_every_history(&self, state: &mut State) {
+            let topics = HISTORY_TOPICS
+                .iter()
+                .map(|&topic| topic.to_owned())
+                .collect();
+            state.subscribe(self.id, topics);
+        }
+
+        fn is_connected(&mut self, state: &State) -> bool {
+            let held = state.clients.contains_key(&self.id);
+            assert_eq!(
+                held,
+                matches!(self.released.try_recv(), Err(TryRecvError::Empty)),
+                "the hub and the session disagree on whether the client is connected"
+            );
+            held
+        }
+
+        fn lines_after_greeting(&mut self) -> Vec<Arc<str>> {
+            let mut lines = Vec::new();
+            while let Ok(line) = self.queued.try_recv() {
+                lines.push(line);
+            }
+            lines.split_off(GREETING_LINES)
+        }
+    }
+
+    #[test]
+    fn a_full_hour_of_history_reaches_a_client_with_room_in_its_outbox() {
+        let mut state = state_with_a_full_hour();
+        let mut client = Unread::register(&mut state);
+
+        client.subscribe_to_every_history(&mut state);
+
+        assert!(client.is_connected(&state));
+        let lines = client.lines_after_greeting();
+        assert_eq!(
+            lines.len(),
+            1 + HISTORY_TOPICS.len(),
+            "the history and each last value"
+        );
+        assert!(
+            lines[0].len() > MAX_UNSENT_BYTES,
+            "the history must not fit the cap on its own, or this proves nothing: {} bytes",
+            lines[0].len()
+        );
+        let history: Value = serde_json::from_str(&lines[0]).unwrap();
+        assert_eq!(history["t"], "history");
+        let series = history["series"].as_object().unwrap();
+        assert_eq!(series.len(), full_hour_of_every_series().len());
+        assert!(
+            series
+                .values()
+                .all(|samples| samples.as_array().unwrap().len() == FULL_HOUR_SAMPLES)
+        );
+    }
+
+    #[test]
+    fn a_client_that_stops_reading_after_a_history_is_dropped_on_the_next_push() {
+        let mut state = state_with_a_full_hour();
+        let mut client = Unread::register(&mut state);
+        client.subscribe_to_every_history(&mut state);
+        assert!(client.is_connected(&state));
+
+        state.record_tick(Tick {
+            messages: vec![data_msg(topics::CPU, 1, &json!({"load": 1.0}))],
+            perf: None,
+            series: full_hour_of_every_series(),
+        });
+
+        assert!(!client.is_connected(&state));
+    }
+
+    #[test]
+    fn a_history_is_refused_to_an_outbox_already_over_the_cap() {
+        let mut state = state_with_a_full_hour();
+        let mut client = Unread::register(&mut state);
+        client.subscribe_to_every_history(&mut state);
+        assert!(client.is_connected(&state));
+
+        client.subscribe_to_every_history(&mut state);
+
+        assert!(!client.is_connected(&state));
     }
 
     #[test]
