@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { footerText, homeLabel, hasHome, shownEndpoints, labelX, shownLabels, MAX_ENDPOINTS } from '../../widgets/uplink/uplink.mjs';
+import { footerText, homeLabel, hasHome, shownEndpoints, labelX, shownLabels, sameFlags, MAX_ENDPOINTS } from '../../widgets/uplink/uplink.mjs';
 import { MAX_ENDPOINTS as GLOBE_MAX_ENDPOINTS } from '../kit/GhostKit/lib/globe.mjs';
 
 test('footer', () => {
@@ -61,4 +61,11 @@ test('the margin keeps a label in its state through sub-pixel motion', () => {
   assert.deepEqual(shownLabels(clear, [true, false], 1), [true, false]);
   assert.deepEqual(shownLabels([rect(0, 0), rect(41.5, 0)], [true, false], 1), [true, true]);
   assert.deepEqual(shownLabels([rect(0, 0), rect(38.5, 0)], [true, true], 1), [true, false]);
+});
+
+test('label flags compare by element, so an unchanged frame reassigns nothing', () => {
+  assert.equal(sameFlags([true, false, true], [true, false, true]), true);
+  assert.equal(sameFlags([true, false, true], [true, true, true]), false);
+  assert.equal(sameFlags([true, false], [true, false, true]), false);
+  assert.equal(sameFlags([], []), true);
 });

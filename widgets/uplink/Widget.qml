@@ -108,7 +108,10 @@ Panel {
             for (let i = 0; i < root.endpoints.length; i++) {
                 rects.push(labelRect(globe.labelAnchors[i], root.endpoints[i].label, Theme.d(root.labelDxPx), Theme.d(root.labelBaselinePx)));
             }
-            root.labelsShown = Uplink.shownLabels(rects, root.labelsShown, Theme.d(root.labelMarginPx));
+            const shown = Uplink.shownLabels(rects, root.labelsShown, Theme.d(root.labelMarginPx));
+            if (!Uplink.sameFlags(shown, root.labelsShown)) {
+                root.labelsShown = shown;
+            }
         }
 
         anchors.fill: parent

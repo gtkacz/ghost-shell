@@ -62,3 +62,9 @@ export function shownLabels(rects, wasShown, margin) {
   });
   return shown;
 }
+
+// Whether two shownLabels results agree, so the widget assigns a new one only on a change: every assignment
+// re-evaluates each label's visible binding, on a path that runs every frame.
+export function sameFlags(a, b) {
+  return a.length === b.length && a.every((flag, i) => flag === b[i]);
+}
