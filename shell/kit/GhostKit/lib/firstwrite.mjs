@@ -35,6 +35,19 @@ export function positionKey(steps) {
   return POSITION_MARK + steps.join(POSITION_STEP);
 }
 
+// The key a text's write goes by, or '' while it has none yet. A key of its own always wins. A position key, once
+// decided, is kept: a sibling created or destroyed while the text is hidden shifts its index, and a new key would
+// scramble a later value. position is called only when a key has to be found.
+export function writeKey({ scrambleKey, decidedKey, written, position }) {
+  if (scrambleKey !== '') {
+    return scrambleKey;
+  }
+  if (decidedKey !== '') {
+    return decidedKey;
+  }
+  return written ? position() : '';
+}
+
 // A value shows the missing dash until its data arrives, and the data's arrival is its first write.
 export function isWritten(text) {
   return text.trim() !== '' && text !== MISSING;

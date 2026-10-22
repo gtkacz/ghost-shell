@@ -48,7 +48,7 @@ Text {
         if (!visible) {
             return;
         }
-        const key = scrambleKey !== "" ? scrambleKey : FirstWriteLib.isWritten(text) ? positionKey() : "";
+        const key = FirstWriteLib.writeKey({ scrambleKey: scrambleKey, decidedKey: run.decidedKey, written: FirstWriteLib.isWritten(text), position: positionKey });
         if (key === "" || key === run.decidedKey) {
             return;
         }

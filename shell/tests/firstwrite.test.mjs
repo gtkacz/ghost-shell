@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { forget, holdsClaims, hostScope, isWritten, positionKey, scopedKey, slotSignature, viewPrefix } from '../kit/GhostKit/lib/firstwrite.mjs';
+import { forget, holdsClaims, hostScope, isWritten, positionKey, scopedKey, slotSignature, viewPrefix, writeKey } from '../kit/GhostKit/lib/firstwrite.mjs';
 
 test('a key outside any host stays as it is', () => {
   assert.equal(scopedKey('', 'panel:UPLINK'), 'panel:UPLINK');
@@ -65,4 +65,13 @@ test('a host holds claims until its showing is forgotten, and a sibling it begin
   forget(claimed, scopedKey(hostScope('V1', '[1]'), ''));
   assert.equal(holdsClaims(claimed, hostScope('V1', '[1]')), false);
   assert.equal(holdsClaims(claimed, hostScope('V1', '[10]')), true);
+});
+
+test('a text keeps the position key it decided on, though its place shifts while it is hidden', () => {
+  const at = (steps) => () => positionKey(steps);
+  const decided = positionKey([0, 2]);
+  assert.equal(writeKey({ scrambleKey: '', decidedKey: decided, written: true, position: at([0, 1]) }), decided);
+  assert.equal(writeKey({ scrambleKey: '', decidedKey: '', written: true, position: at([0, 1]) }), positionKey([0, 1]));
+  assert.equal(writeKey({ scrambleKey: '', decidedKey: '', written: false, position: at([0, 1]) }), '');
+  assert.equal(writeKey({ scrambleKey: 'track', decidedKey: decided, written: true, position: at([0, 1]) }), 'track');
 });
