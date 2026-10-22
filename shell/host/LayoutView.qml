@@ -8,9 +8,8 @@ import "../kit/GhostKit/lib/layout.mjs" as Layout
 Item {
     id: root
 
-    // Design pixels: the band kept free for the bar, and the height of a tab strip.
+    // Design pixels: the band kept free for the bar.
     readonly property real barBandPx: 30
-    readonly property real tabStripPx: 26
 
     // The resolved layout, as Data.layout carries it.
     property var layout: null
@@ -36,24 +35,12 @@ Item {
     // Logical pixels: the top and bottom of the area the slots share, as rects places them.
     readonly property real areaTop: layout ? snap(Theme.d(layout.margin + barBandPx)) : 0
     readonly property real areaBottom: layout ? snap(Theme.d(designHeight - layout.margin)) : 0
-    readonly property real stripHeight: snap(Theme.d(tabStripPx))
-    readonly property var stripRects: rects.filter(place => place.tabs).map(place => {
-        const top = snap(Theme.d(place.y));
-        const left = Math.floor(snap(Theme.d(place.x)));
-        const right = Math.ceil(snap(Theme.d(place.x + place.w)));
-        return {
-            x: left,
-            y: Math.floor(top),
-            width: right - left,
-            height: Math.ceil(top + stripHeight) - Math.floor(top)
-        };
-    })
-    // The widgets' ClickAreas, which hand themselves to the view they sit in.
+    // The ClickAreas of the widgets and of the tab strips, which hand themselves to the view they sit in.
     property var clickAreas: []
-    // Logical pixels, whole ones as the input region takes them, covering every tab strip and every
-    // ClickArea that is visible and enabled; the rest of the view passes clicks through to the desktop.
+    // Logical pixels, whole ones as the input region takes them, covering every ClickArea that is
+    // visible and enabled, each tab among them; the rest of the view passes clicks through to the desktop.
     // The view fills the window from its origin, so window rects are view rects.
-    readonly property var inputRects: stripRects.concat(clickAreas.filter(area => area && area.claimsInput).map(area => wholePixels(area.windowRect)))
+    readonly property var inputRects: clickAreas.filter(area => area && area.claimsInput).map(area => wholePixels(area.windowRect))
 
     property var warnedLayout: null
 
@@ -122,7 +109,6 @@ Item {
                 TabsHost {
                     node: cell.modelData
                     view: root.viewName
-                    stripHeight: root.stripHeight
                 }
             }
         }

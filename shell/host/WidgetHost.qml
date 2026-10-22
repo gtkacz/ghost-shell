@@ -8,6 +8,9 @@ Item {
 
     // A slot as computeRects places it: widget, source, settings and error.
     property var slot: null
+    // Logical pixels at the right end of the widget's header line that a tabs node's strip covers;
+    // 0 outside a tabs node.
+    property real headerReserve: 0
 
     readonly property string widgetId: slot ? slot.widget : ""
     property string failure: ""
@@ -126,6 +129,14 @@ Item {
         }
     }
 
+    // Only a Panel root has the property; widgets never set it themselves.
+    Binding {
+        target: root.instance
+        property: "headerReserve"
+        value: root.headerReserve
+        when: root.headerReserve > 0 && root.instance !== null && root.instance.headerReserve !== undefined
+    }
+
     Loader {
         anchors.fill: parent
         active: root.failure !== ""
@@ -133,6 +144,7 @@ Item {
         sourceComponent: ErrorCard {
             widgetId: root.widgetId
             message: root.failure
+            headerReserve: root.headerReserve
         }
     }
 }

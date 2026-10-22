@@ -38,6 +38,9 @@ Item {
     property string tagKey
     property string meta
     property real padding: Theme.d(paddingPx)
+    // Logical pixels at the right end of the header line that the host draws over: a tabs node's
+    // strip. Only the host sets it; a widget leaves it at 0.
+    property real headerReserve: 0
     default property alias content: body.data
 
     readonly property real chamfer: Theme.d(chamferPx)
@@ -154,6 +157,9 @@ Item {
     Item {
         id: headerItem
 
+        // The reserve plus the gap the header keeps between its items, so nothing runs into the strip.
+        readonly property real reserved: root.headerReserve > 0 ? root.headerReserve + root.headerGap : 0
+
         anchors {
             top: parent.top
             left: parent.left
@@ -194,7 +200,7 @@ Item {
                 leftMargin: root.headerGap
                 verticalCenter: headerLine.verticalCenter
             }
-            width: Math.max(0, Math.min(implicitWidth, headerLine.x + headerLine.width - x))
+            width: Math.max(0, Math.min(implicitWidth, headerLine.x + headerLine.width - headerItem.reserved - x))
             text: root.label
             // Widgets set the label and meta from their own data, which AutoText would render as markup.
             textFormat: Text.PlainText
@@ -219,7 +225,7 @@ Item {
                 leftMargin: text === "" ? 0 : root.headerGap
                 verticalCenter: headerLine.verticalCenter
             }
-            width: Math.max(0, Math.min(implicitWidth, headerLine.x + headerLine.width - x))
+            width: Math.max(0, Math.min(implicitWidth, headerLine.x + headerLine.width - headerItem.reserved - x))
             text: Theme.tag(root.tagKey)
             color: Theme.signal
             opacity: root.tagOpacity
@@ -237,6 +243,7 @@ Item {
                 left: tagText.right
                 leftMargin: root.headerGap
                 right: headerLine.right
+                rightMargin: headerItem.reserved
                 verticalCenter: headerLine.verticalCenter
             }
             text: root.meta
