@@ -1,0 +1,10 @@
+id = "process-tree"
+name = "Process tree"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+# Empty although the widget reads procs.tree: the shell subscribes to every view's and every tab's requires
+# whenever the dashboard shows, so listing it would have ghostd build the whole table every 10 s in any view.
+# The widget wants the topic itself while it is on screen.
+requires = []
+animates = false
