@@ -16,12 +16,14 @@ use tokio::time::timeout;
 
 const SAMPLES_BEFORE_THE_PANIC: usize = 2;
 const TICKS_WITHOUT_PERF: usize = 5;
-const SAMPLED_TOPICS: [&str; 5] = [
+const SAMPLED_TOPICS: [&str; 7] = [
     topics::CPU,
     topics::MEM,
     topics::SENSORS,
     topics::GPU,
     topics::DISKS,
+    topics::PROCS,
+    topics::PROCS_TREE,
 ];
 
 /// Samples normally a fixed number of times, then panics as a buggy collector would.
@@ -80,6 +82,7 @@ async fn serving_stops_with_an_error_when_a_collector_panics() {
         Box::new(Idle),
         Box::new(Idle),
         Box::new(Idle),
+        Box::new(Idle),
     );
     let socket = dir.path().join(SOCKET_FILE);
     let (listener, _lock) = server::bind(&socket).unwrap();
@@ -105,6 +108,7 @@ async fn serving_stops_with_an_error_when_a_collector_panics() {
 async fn serving_goes_on_while_every_collector_keeps_sampling() {
     let dir = tempfile::tempdir().unwrap();
     let sampler = Sampler::new(
+        Box::new(Idle),
         Box::new(Idle),
         Box::new(Idle),
         Box::new(Idle),

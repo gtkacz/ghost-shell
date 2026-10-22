@@ -9,7 +9,7 @@ use std::{env, fs, io, thread};
 
 use ghost_proto::{CpuSnapshot, ResolvedConfig, topics};
 use ghostd::collect::{
-    CpuCollector, DiskCollector, GpuCollector, GpuSource, MemCollector, NvmlSource,
+    CpuCollector, DiskCollector, GpuCollector, GpuSource, MemCollector, NvmlSource, ProcCollector,
     SensorCollector, Source, StatvfsFs,
 };
 use ghostd::config::{DEFAULT_TOML, default_path};
@@ -30,7 +30,7 @@ use tracing::{error, info, warn};
 const EXIT_USAGE: u8 = 2;
 const USAGE: &str = "usage: ghostd run [--socket PATH] [--config PATH] [--widgets-dir DIR] \
                      [--fake] [--tick-ms N]\n       ghostd default-config\n       \
-                     ghostd probe <cpu | mem | sensors | gpu | disks | perf>";
+                     ghostd probe <cpu | mem | procs | sensors | gpu | disks | perf>";
 const DEFAULT_TICK_MS: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 const RUNTIME_DIR_ENV: &str = "XDG_RUNTIME_DIR";
 const SOCKET_FILE: &str = "ghostd.sock";
@@ -280,7 +280,7 @@ fn host_sampler(config: watch::Receiver<ResolvedConfig>) -> Sampler {
     let disks_root = root.clone();
     Sampler::new(
         cpu,
-        Box::new(MemCollector::new(&root, TOP_PROCESSES)),
+        Box::new(MemCollector::new(&root)),
         Box::new(Relabeled::new(
             config.clone(),
             sensor_labels,
@@ -290,6 +290,7 @@ fn host_sampler(config: watch::Receiver<ResolvedConfig>) -> Sampler {
         Box::new(Relabeled::new(config, disk_labels, move |labels| {
             DiskCollector::new(&disks_root, Box::new(StatvfsFs), labels)
         })),
+        Box::new(ProcCollector::new(&root, TOP_PROCESSES)),
     )
 }
 
@@ -378,8 +379,9 @@ fn probe(topic: &str) -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        topics::MEM => probe_with(
-            MemCollector::new(&root, TOP_PROCESSES),
+        topics::MEM => probe_source(MemCollector::new(&root)),
+        topics::PROCS => probe_with(
+            ProcCollector::new(&root, TOP_PROCESSES),
             Baseline::TakenByNew,
         ),
         topics::SENSORS => probe_source(SensorCollector::new(&root, &no_labels)),
@@ -396,7 +398,7 @@ fn probe(topic: &str) -> ExitCode {
 enum Baseline {
     /// A throwaway sample, taken right away.
     SampleFirst,
-    /// The collector's constructor already took it. For the memory collector a throwaway sample
+    /// The collector's constructor already took it. For the process collector a throwaway sample
     /// would also be its first process scan, microseconds after the constructor, and the sample
     /// printed a second later would only repeat that scan's shares.
     TakenByNew,
@@ -563,12 +565,12 @@ mod tests {
         );
     }
 
-    fn probe_memory(baseline: Baseline) -> f32 {
+    fn probe_processes(baseline: Baseline) -> f32 {
         let dir = tempfile::tempdir().unwrap();
         write_machine(dir.path(), IDLE_TICKS, 0);
-        let memory = MemCollector::new(&SysRoot::new(dir.path()), TOP_PROCESSES);
+        let processes = ProcCollector::new(&SysRoot::new(dir.path()), TOP_PROCESSES);
 
-        let sample = sample_after(memory, baseline, || {
+        let sample = sample_after(processes, baseline, || {
             write_machine(dir.path(), IDLE_TICKS + WINDOW_TICKS, BUSY_TICKS);
         });
 
@@ -576,13 +578,13 @@ mod tests {
     }
 
     #[test]
-    fn a_memory_probe_reports_shares_over_the_whole_wait() {
-        assert_eq!(probe_memory(Baseline::TakenByNew), BUSY_SHARE);
+    fn a_procs_probe_reports_shares_over_the_whole_wait() {
+        assert_eq!(probe_processes(Baseline::TakenByNew), BUSY_SHARE);
     }
 
     #[test]
-    fn a_throwaway_sample_would_hide_the_wait_from_the_memory_collector() {
+    fn a_throwaway_sample_would_hide_the_wait_from_the_process_collector() {
         // Its first sample is already the process scan, so a second one only repeats that scan.
-        assert_eq!(probe_memory(Baseline::SampleFirst), 0.0);
+        assert_eq!(probe_processes(Baseline::SampleFirst), 0.0);
     }
 }

@@ -24,6 +24,11 @@ pub struct MemSnapshot {
     pub used_kib: u64,
     pub swap_total_kib: u64,
     pub swap_used_kib: u64,
+}
+
+/// The busiest processes, busiest first.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProcsSnapshot {
     pub top: Vec<ProcUsage>,
 }
 
@@ -34,6 +39,23 @@ pub struct ProcUsage {
     pub name: String,
     pub cpu: f32,
     pub mem: f32,
+}
+
+/// Every user process, by pid. Kernel threads are only counted.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProcTree {
+    pub kernel_threads: u32,
+    pub procs: Vec<ProcNode>,
+}
+
+/// `cpu` is the process's share of the whole machine since the previous process scan.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProcNode {
+    pub pid: u32,
+    pub ppid: u32,
+    pub name: String,
+    pub cpu: f32,
+    pub rss_kib: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

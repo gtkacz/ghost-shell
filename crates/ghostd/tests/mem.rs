@@ -1,61 +1,27 @@
 mod common;
 
-use std::collections::BTreeSet;
-
-use common::{DEFAULT_RSS_KIB, FakeProcess, FakeRoot, Ticks, meminfo, proc_stat};
-use ghost_proto::{MemSnapshot, ServerMsg, topics};
+use common::{FakeRoot, meminfo};
+use ghost_proto::MemSnapshot;
 use ghostd::collect::{MemCollector, Source};
-use ghostd::history::History;
-use ghostd::sampler::Sampler;
 
-const TOP_N: usize = 5;
 const TOTAL_KIB: u64 = 96_388_184;
 const AVAILABLE_KIB: u64 = 77_000_000;
 const SWAP_TOTAL_KIB: u64 = 8_388_604;
 const SWAP_FREE_KIB: u64 = 8_000_000;
-const SMALL_TOTAL_KIB: u64 = 16_000_000;
-const BASELINE_TICKS: u64 = 10_000;
-// One second on a 32-thread machine at 100 ticks per second.
-const INTERVAL_TICKS: u64 = 3_200;
-// A gap of 100 seconds, through which one process keeps half the machine busy.
-const GAP_TICKS: u64 = 100 * INTERVAL_TICKS;
-const BUSY_PROCESS_TICKS: u64 = GAP_TICKS / 2;
 
-/// A machine whose /proc/stat has accumulated `all_cpu_ticks` jiffies, all of them idle.
-fn machine(total_kib: u64, all_cpu_ticks: u64) -> FakeRoot {
+fn machine(total_kib: u64) -> FakeRoot {
     let fake = FakeRoot::new();
     fake.write(
         "proc/meminfo",
         &meminfo(total_kib, AVAILABLE_KIB, SWAP_TOTAL_KIB, SWAP_FREE_KIB),
     );
-    advance_clock(&fake, all_cpu_ticks);
     fake
-}
-
-fn advance_clock(fake: &FakeRoot, all_cpu_ticks: u64) {
-    let idle = Ticks {
-        idle: all_cpu_ticks,
-        ..Ticks::default()
-    };
-    fake.write("proc/stat", &proc_stat(idle, &[]));
-}
-
-/// One scan window: the sample that rescans /proc and the in-between one that repeats its list.
-/// Returns the rescan's snapshot.
-fn scan_window(mem: &mut MemCollector) -> MemSnapshot {
-    let scan = mem.sample();
-    mem.sample();
-    scan
-}
-
-fn pids(snapshot: &MemSnapshot) -> Vec<u32> {
-    snapshot.top.iter().map(|process| process.pid).collect()
 }
 
 #[test]
 fn used_is_total_minus_available() {
-    let fake = machine(TOTAL_KIB, 0);
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+    let fake = machine(TOTAL_KIB);
+    let mut mem = MemCollector::new(&fake.root());
 
     let snapshot = mem.sample();
 
@@ -65,8 +31,8 @@ fn used_is_total_minus_available() {
 
 #[test]
 fn swap_used_is_total_minus_free() {
-    let fake = machine(TOTAL_KIB, 0);
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+    let fake = machine(TOTAL_KIB);
+    let mut mem = MemCollector::new(&fake.root());
 
     let snapshot = mem.sample();
 
@@ -78,7 +44,7 @@ fn swap_used_is_total_minus_free() {
 fn available_above_total_saturates_used_to_zero() {
     let fake = FakeRoot::new();
     fake.write("proc/meminfo", &meminfo(100, 200, 50, 60));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+    let mut mem = MemCollector::new(&fake.root());
 
     let snapshot = mem.sample();
 
@@ -90,9 +56,7 @@ fn available_above_total_saturates_used_to_zero() {
 fn missing_meminfo_keys_read_as_zero() {
     let fake = FakeRoot::new();
     fake.write("proc/meminfo", "MemFree:        1000 kB\n");
-    advance_clock(&fake, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(1, "init"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+    let mut mem = MemCollector::new(&fake.root());
 
     let snapshot = mem.sample();
 
@@ -100,247 +64,22 @@ fn missing_meminfo_keys_read_as_zero() {
     assert_eq!(snapshot.used_kib, 0);
     assert_eq!(snapshot.swap_total_kib, 0);
     assert_eq!(snapshot.swap_used_kib, 0);
-    assert_eq!(snapshot.top[0].mem, 0.0);
 }
 
 #[test]
-fn process_cpu_is_machine_share() {
-    let fake = machine(SMALL_TOTAL_KIB, BASELINE_TICKS);
-    let firefox = |utime, stime| {
-        FakeProcess::new(42, "firefox")
-            .rss_kib(1_600_000)
-            .ticks(utime, stime)
-    };
-    fake.write_process(&firefox(100, 50));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+fn unreadable_root_yields_empty_snapshot() {
+    let fake = FakeRoot::new();
+    let mut mem = MemCollector::new(&fake.root());
 
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    fake.write_process(&firefox(140, 74));
-    let snapshot = mem.sample();
-
-    let process = &snapshot.top[0];
-    assert_eq!(process.pid, 42);
-    assert_eq!(process.name, "firefox");
-    assert_eq!(process.cpu, 2.0);
-    assert_eq!(process.mem, 10.0);
+    assert_eq!(mem.sample(), MemSnapshot::default());
 }
 
 #[test]
-fn process_share_is_clamped_to_the_whole_machine() {
-    let fake = machine(SMALL_TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(1, "hog").rss_kib(32_000_000));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
+fn memory_totals_are_read_afresh_on_every_sample() {
+    let fake = machine(TOTAL_KIB);
+    let mut mem = MemCollector::new(&fake.root());
+    let first = mem.sample();
 
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    fake.write_process(
-        &FakeProcess::new(1, "hog")
-            .rss_kib(32_000_000)
-            .ticks(2 * INTERVAL_TICKS, 0),
-    );
-    let snapshot = mem.sample();
-
-    assert_eq!(snapshot.top[0].cpu, 100.0);
-    assert_eq!(snapshot.top[0].mem, 100.0);
-}
-
-#[test]
-fn process_first_seen_this_tick_reports_zero_cpu() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    fake.write_process(&FakeProcess::new(7, "latecomer").ticks(3_000, 0));
-    let snapshot = mem.sample();
-
-    assert_eq!(pids(&snapshot), vec![7]);
-    assert_eq!(snapshot.top[0].cpu, 0.0);
-}
-
-#[test]
-fn recycled_pid_does_not_inherit_the_previous_baseline() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(5, "old").start_time(1_000).ticks(100, 0));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    fake.write_process(&FakeProcess::new(5, "new").start_time(2_000).ticks(500, 0));
-    let snapshot = mem.sample();
-
-    assert_eq!(snapshot.top[0].name, "new");
-    assert_eq!(snapshot.top[0].cpu, 0.0);
-}
-
-#[test]
-fn no_elapsed_cpu_time_reports_zero_cpu() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(1, "init"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    fake.write_process(&FakeProcess::new(1, "init").ticks(500, 0));
-    let snapshot = mem.sample();
-
-    assert_eq!(snapshot.top[0].cpu, 0.0);
-}
-
-#[test]
-fn unreadable_proc_stat_keeps_the_previous_baseline() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(1, "init"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    fake.remove("proc/stat");
-    fake.write_process(&FakeProcess::new(1, "init").ticks(32, 0));
-    assert_eq!(scan_window(&mut mem).top[0].cpu, 0.0);
-
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    fake.write_process(&FakeProcess::new(1, "init").ticks(64, 0));
-    let snapshot = scan_window(&mut mem);
-
-    // Both intervals of process time against both intervals of total time, not one against two.
-    assert_eq!(snapshot.top[0].cpu, 2.0);
-}
-
-#[test]
-fn comm_with_spaces_and_parentheses_is_parsed() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    let comm = "Web Content (x) y)";
-    fake.write_process(&FakeProcess::new(9, comm));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    fake.write_process(&FakeProcess::new(9, comm).ticks(60, 4));
-    let snapshot = mem.sample();
-
-    assert_eq!(snapshot.top[0].name, comm);
-    assert_eq!(snapshot.top[0].cpu, 2.0);
-}
-
-#[test]
-fn non_utf8_comm_is_kept_with_replacement_characters() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(3, b"bad\xFFname"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    let snapshot = mem.sample();
-
-    assert_eq!(snapshot.top[0].name, "bad\u{FFFD}name");
-}
-
-#[test]
-fn truncated_stat_line_skips_the_process() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_bytes("proc/8/stat", b"8 (short) S 1 2 3\n");
-    fake.write_process(&FakeProcess::new(9, "whole"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    assert_eq!(pids(&mem.sample()), vec![9]);
-}
-
-#[test]
-fn vanished_process_skipped() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    for pid in 1..=3 {
-        fake.write_process(&FakeProcess::new(pid, "worker"));
-    }
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    fake.remove("proc/2");
-    fake.remove("proc/3/stat");
-    assert_eq!(pids(&scan_window(&mut mem)), vec![1]);
-
-    // Back with ticks far above anything they had at the baseline: a baseline that outlived
-    // the missing tick would turn that gap into a cpu share.
-    advance_clock(&fake, BASELINE_TICKS + 2 * INTERVAL_TICKS);
-    for pid in 2..=3 {
-        fake.write_process(&FakeProcess::new(pid, "worker").ticks(640, 0));
-    }
-    let snapshot = scan_window(&mut mem);
-
-    assert_eq!(pids(&snapshot), vec![1, 2, 3]);
-    assert!(snapshot.top.iter().all(|process| process.cpu == 0.0));
-}
-
-#[test]
-fn kernel_threads_excluded() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::kernel_thread(2, "kthreadd"));
-    fake.write_process(&FakeProcess::new(5, "zombie").rss_kib(0));
-    fake.write_process(&FakeProcess::new(4, "bash"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    assert_eq!(pids(&mem.sample()), vec![4]);
-}
-
-#[test]
-fn kernel_thread_with_borrowed_address_space_excluded() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(4, "bash"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    fake.write_process(&FakeProcess::kernel_thread(3, "vhost-worker").rss_kib(DEFAULT_RSS_KIB));
-
-    assert_eq!(pids(&mem.sample()), vec![4]);
-}
-
-#[test]
-fn kernel_thread_is_read_once_then_skipped() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::kernel_thread(2, "kthreadd"));
-    fake.write_process(&FakeProcess::new(4, "bash"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    // Were pid 2 read again, this stat would list it as a user process.
-    fake.write_process(&FakeProcess::new(2, "impostor"));
-    assert_eq!(pids(&scan_window(&mut mem)), vec![4]);
-    fake.write_bytes("proc/2/stat", b"not a stat line\n");
-    assert_eq!(pids(&scan_window(&mut mem)), vec![4]);
-}
-
-#[test]
-fn pid_recycled_after_a_kernel_thread_is_read_again() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::kernel_thread(2, "kworker").start_time(1_000));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    fake.remove("proc/2");
-    assert!(scan_window(&mut mem).top.is_empty());
-    fake.write_process(&FakeProcess::new(2, "reborn").start_time(2_000));
-    let snapshot = scan_window(&mut mem);
-
-    assert_eq!(pids(&snapshot), vec![2]);
-    assert_eq!(snapshot.top[0].name, "reborn");
-}
-
-#[test]
-fn kernel_thread_skip_set_does_not_survive_an_unlistable_proc() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::kernel_thread(2, "kthreadd"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    fake.remove("proc");
-    assert!(scan_window(&mut mem).top.is_empty());
-    // Nothing says pid 2 is the same task after /proc comes back, so it must be read afresh.
-    fake.write(
-        "proc/meminfo",
-        &meminfo(TOTAL_KIB, AVAILABLE_KIB, SWAP_TOTAL_KIB, SWAP_FREE_KIB),
-    );
-    advance_clock(&fake, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(2, "reborn"));
-
-    assert_eq!(pids(&scan_window(&mut mem)), vec![2]);
-}
-
-#[test]
-fn top_repeats_between_scans_while_memory_totals_stay_live() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(1, "init"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-    let scan = mem.sample();
-    assert_eq!(pids(&scan), vec![1]);
-
-    fake.remove("proc/1");
-    fake.write_process(&FakeProcess::new(2, "latecomer"));
     let reclaimed = meminfo(
         TOTAL_KIB,
         AVAILABLE_KIB - 1_000,
@@ -348,122 +87,6 @@ fn top_repeats_between_scans_while_memory_totals_stay_live() {
         SWAP_FREE_KIB,
     );
     fake.write("proc/meminfo", &reclaimed);
-    let between = mem.sample();
 
-    assert_eq!(between.top, scan.top);
-    assert_eq!(between.used_kib, scan.used_kib + 1_000);
-    assert_eq!(pids(&mem.sample()), vec![2]);
-}
-
-#[test]
-fn process_share_is_measured_over_the_scan_window() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    fake.write_process(&FakeProcess::new(1, "worker"));
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    fake.write_process(&FakeProcess::new(1, "worker").ticks(100, 0));
-    let first_scan = mem.sample();
-    advance_clock(&fake, BASELINE_TICKS + 2 * INTERVAL_TICKS);
-    mem.sample();
-    advance_clock(&fake, BASELINE_TICKS + 3 * INTERVAL_TICKS);
-    fake.write_process(&FakeProcess::new(1, "worker").ticks(300, 0));
-    let second_scan = mem.sample();
-
-    assert_eq!(first_scan.top[0].cpu, 3.125);
-    // 200 of the 6400 ticks in the two seconds since the last scan, not 200 of the last 3200.
-    assert_eq!(second_scan.top[0].cpu, 3.125);
-}
-
-#[test]
-fn top_sorted_and_truncated() {
-    let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-    // Pids 9 and 10 tie, and sort differently as numbers than as strings.
-    let busyness = [(14, 5), (13, 10), (12, 20), (11, 30), (10, 50), (9, 50)];
-    for (pid, _) in busyness {
-        fake.write_process(&FakeProcess::new(pid, "worker"));
-    }
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    advance_clock(&fake, BASELINE_TICKS + INTERVAL_TICKS);
-    for (pid, ticks) in busyness {
-        fake.write_process(&FakeProcess::new(pid, "worker").ticks(ticks, 0));
-    }
-    let snapshot = mem.sample();
-
-    assert_eq!(pids(&snapshot), vec![9, 10, 11, 12, 13]);
-}
-
-#[test]
-fn unreadable_root_yields_empty_snapshot() {
-    let fake = FakeRoot::new();
-    let mut mem = MemCollector::new(&fake.root(), TOP_N);
-
-    assert_eq!(mem.sample(), MemSnapshot::default());
-}
-
-/// Stands in for every collector but memory's.
-struct Idle;
-
-impl<T: Default> Source<T> for Idle {
-    fn sample(&mut self) -> T {
-        T::default()
-    }
-}
-
-fn memory_only_sampler(fake: &FakeRoot) -> Sampler {
-    Sampler::new(
-        Box::new(Idle),
-        Box::new(MemCollector::new(&fake.root(), TOP_N)),
-        Box::new(Idle),
-        Box::new(Idle),
-        Box::new(Idle),
-    )
-}
-
-fn memory_data(messages: &[ServerMsg]) -> MemSnapshot {
-    match messages {
-        [ServerMsg::Data { topic, data, .. }] if topic == topics::MEM => {
-            serde_json::from_value(data.clone()).unwrap()
-        }
-        other => panic!("expected one mem message, got {other:?}"),
-    }
-}
-
-#[test]
-fn a_resumed_memory_topic_measures_its_top_from_after_the_gap() {
-    // The scan cadence may stand at either phase when the gap starts.
-    for kept_before_the_gap in 1..=2 {
-        let fake = machine(TOTAL_KIB, BASELINE_TICKS);
-        let worker = |ticks| FakeProcess::new(42, "worker").ticks(ticks, 0);
-        fake.write_process(&worker(0));
-        let mut sampler = memory_only_sampler(&fake);
-        let mut history = History::new(1);
-        let memory = BTreeSet::from([topics::MEM.to_owned()]);
-        let nothing = BTreeSet::new();
-        let mut clock = BASELINE_TICKS;
-        for _ in 0..kept_before_the_gap {
-            clock += INTERVAL_TICKS;
-            advance_clock(&fake, clock);
-            sampler.tick(&mut history, &memory);
-        }
-
-        clock += GAP_TICKS;
-        advance_clock(&fake, clock);
-        fake.write_process(&worker(BUSY_PROCESS_TICKS));
-        for _ in 0..GAP_TICKS / INTERVAL_TICKS {
-            sampler.tick(&mut history, &nothing);
-        }
-        let rebaseline = sampler.tick(&mut history, &memory);
-        clock += INTERVAL_TICKS;
-        advance_clock(&fake, clock);
-        let resumed = memory_data(&sampler.tick(&mut history, &memory));
-
-        assert!(rebaseline.is_empty());
-        assert_eq!(resumed.top[0].pid, 42);
-        assert_eq!(
-            resumed.top[0].cpu, 0.0,
-            "the worker's share spans the gap after {kept_before_the_gap} kept samples"
-        );
-    }
+    assert_eq!(mem.sample().used_kib, first.used_kib + 1_000);
 }

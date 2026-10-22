@@ -2,11 +2,11 @@ use std::collections::BTreeSet;
 use std::iter;
 
 use ghost_proto::{
-    CpuSnapshot, DiskSnapshot, GpuSnapshot, MemSnapshot, SensorSnapshot, ServerMsg, data_msg,
-    topics,
+    CpuSnapshot, DiskSnapshot, GpuSnapshot, MemSnapshot, ProcsSnapshot, SensorSnapshot, ServerMsg,
+    data_msg, topics,
 };
 
-use crate::collect::{Source, attach_temps};
+use crate::collect::{ProcSample, Source, attach_temps};
 use crate::history::History;
 
 const CPU_LOAD_KEY: &str = "load";
@@ -86,6 +86,7 @@ pub struct Sampler {
     sensors: Tracked<SensorSnapshot>,
     gpu: Tracked<GpuSnapshot>,
     disks: Tracked<DiskSnapshot>,
+    procs: Tracked<ProcSample>,
     seq: u64,
 }
 
@@ -96,6 +97,7 @@ impl Sampler {
         sensors: BoxedSource<SensorSnapshot>,
         gpu: BoxedSource<GpuSnapshot>,
         disks: BoxedSource<DiskSnapshot>,
+        procs: BoxedSource<ProcSample>,
     ) -> Self {
         Self {
             cpu: Tracked::new(cpu, Measure::SincePrevious),
@@ -103,12 +105,14 @@ impl Sampler {
             sensors: Tracked::new(sensors, Measure::Instant),
             gpu: Tracked::new(gpu, Measure::Instant),
             disks: Tracked::new(disks, Measure::SincePrevious),
+            procs: Tracked::new(procs, Measure::SincePrevious),
             seq: 0,
         }
     }
 
     /// Samples the sources of the `wanted` topics and returns one `Data` message per wanted topic
-    /// that has a value to publish, in the order `cpu`, `mem`, `sensors`, `gpu`, `disks`.
+    /// that has a value to publish, in the order `cpu`, `mem`, `sensors`, `gpu`, `disks`, `procs`,
+    /// `procs.tree`.
     ///
     /// The messages share a `seq` that is 1 on the first tick and rises by 1 on every tick after
     /// it, whether or not anything is sampled, so a jump in `seq` shows the ticks a topic missed.
@@ -156,6 +160,20 @@ impl Sampler {
             }
             messages.push(data_msg(topics::DISKS, seq, &disks.value));
         }
+        // The tree comes from the same scans as the top list, hence one source for both topics.
+        if (is_wanted(topics::PROCS) || is_wanted(topics::PROCS_TREE))
+            && let Some(procs) = self.procs.sample(seq)
+        {
+            let ProcSample { top, tree } = procs.value;
+            if is_wanted(topics::PROCS) {
+                messages.push(data_msg(topics::PROCS, seq, &ProcsSnapshot { top }));
+            }
+            if is_wanted(topics::PROCS_TREE)
+                && let Some(tree) = &tree
+            {
+                messages.push(data_msg(topics::PROCS_TREE, seq, tree));
+            }
+        }
         messages
     }
 }
@@ -175,7 +193,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use ghost_proto::{CcdLoad, Drive, Reading};
+    use ghost_proto::{CcdLoad, Drive, ProcTree, Reading};
 
     use super::*;
 
@@ -224,12 +242,12 @@ mod tests {
         }
     }
 
-    /// Samples taken of cpu, mem, sensors, gpu and disks, in that order.
+    /// Samples taken of cpu, mem, sensors, gpu, disks and procs, in that order.
     #[derive(Default)]
-    struct SampleCounts([Arc<AtomicUsize>; 5]);
+    struct SampleCounts([Arc<AtomicUsize>; 6]);
 
     impl SampleCounts {
-        fn get(&self) -> [usize; 5] {
+        fn get(&self) -> [usize; 6] {
             self.0
                 .each_ref()
                 .map(|samples| samples.load(Ordering::Relaxed))
@@ -249,6 +267,7 @@ mod tests {
         sensors: SensorSnapshot,
         gpu: GpuSnapshot,
         disks: DiskSnapshot,
+        procs: ProcSample,
     }
 
     impl Machine {
@@ -259,18 +278,20 @@ mod tests {
                 Box::new(Fixed(self.sensors)),
                 Box::new(Fixed(self.gpu)),
                 Box::new(Fixed(self.disks)),
+                Box::new(Fixed(self.procs)),
             )
         }
 
         fn counted_sampler(self) -> (Sampler, SampleCounts) {
             let counts = SampleCounts::default();
-            let [cpu, mem, sensors, gpu, disks] = &counts.0;
+            let [cpu, mem, sensors, gpu, disks, procs] = &counts.0;
             let sampler = Sampler::new(
                 counted(self.cpu, cpu),
                 counted(MemSnapshot::default(), mem),
                 counted(self.sensors, sensors),
                 counted(self.gpu, gpu),
                 counted(self.disks, disks),
+                counted(self.procs, procs),
             );
             (sampler, counts)
         }
@@ -333,7 +354,14 @@ mod tests {
 
     #[test]
     fn tick_order_and_seq() {
-        let mut sampler = Machine::default().sampler();
+        let mut sampler = Machine {
+            procs: ProcSample {
+                top: vec![],
+                tree: Some(ProcTree::default()),
+            },
+            ..Default::default()
+        }
+        .sampler();
         let mut history = History::new(3);
 
         for expected_seq in 1..=3 {
@@ -346,6 +374,8 @@ mod tests {
                 (topics::SENSORS, expected_seq),
                 (topics::GPU, expected_seq),
                 (topics::DISKS, expected_seq),
+                (topics::PROCS, expected_seq),
+                (topics::PROCS_TREE, expected_seq),
             ];
             assert_eq!(observed, expected);
         }
@@ -357,7 +387,7 @@ mod tests {
 
         let msgs = sampler.tick(&mut History::new(3), &wanted(&[topics::CPU]));
 
-        assert_eq!(counts.get(), [1, 0, 0, 0, 0]);
+        assert_eq!(counts.get(), [1, 0, 0, 0, 0, 0]);
         assert_eq!(topics_of(&msgs), [topics::CPU]);
     }
 
@@ -367,7 +397,7 @@ mod tests {
 
         let msgs = sampler.tick(&mut History::new(3), &wanted(&[topics::DISKS]));
 
-        assert_eq!(counts.get(), [0, 0, 1, 0, 1]);
+        assert_eq!(counts.get(), [0, 0, 1, 0, 1, 0]);
         assert_eq!(topics_of(&msgs), [topics::DISKS]);
         let disks: DiskSnapshot = serde_json::from_value(data_for(&msgs, topics::DISKS).clone())
             .expect("disks message holds a DiskSnapshot");
@@ -397,6 +427,7 @@ mod tests {
                 ..Default::default()
             })),
             Box::new(Fixed(DiskSnapshot::default())),
+            Box::new(Fixed(ProcSample::default())),
         );
         let mut history = History::new(10);
         let watched = wanted(&[topics::CPU, topics::MEM, topics::GPU, topics::DISKS]);
@@ -459,6 +490,7 @@ mod tests {
             Box::new(Fixed(SensorSnapshot::default())),
             Box::new(Journal(Arc::clone(&journal))),
             Box::new(Fixed(DiskSnapshot::default())),
+            Box::new(Fixed(ProcSample::default())),
         );
         let mut history = History::new(3);
         let gpu = wanted(&[topics::GPU]);
@@ -482,6 +514,7 @@ mod tests {
             Box::new(Fixed(SensorSnapshot::default())),
             Box::new(Fixed(GpuSnapshot::default())),
             Box::new(Fixed(DiskSnapshot::default())),
+            Box::new(Fixed(ProcSample::default())),
         );
         let mut history = History::new(3);
 

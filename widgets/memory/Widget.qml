@@ -24,6 +24,7 @@ Panel {
     property var settings
 
     readonly property var mem: Data.topic("mem").value
+    readonly property var procs: Data.topic("procs").value
     readonly property bool live: Data.connected && !Data.stale
 
     readonly property var usedKib: mem ? mem.used_kib : null
@@ -31,7 +32,7 @@ Panel {
     readonly property var swapUsedKib: mem ? mem.swap_used_kib : null
     readonly property var swapTotalKib: mem ? mem.swap_total_kib : null
     readonly property var ramShare: share(usedKib, totalKib)
-    readonly property var processes: mem ? mem.top : []
+    readonly property var processes: procs ? procs.top : []
 
     // The widest text each row can reach, so the meters keep one length while the values change.
     readonly property string widestValue: [Fmt.pct(Theme.percent), swapText(swapTotalKib)].reduce((widest, text) => text.length > widest.length ? text : widest)

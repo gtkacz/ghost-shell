@@ -16,6 +16,8 @@ const MAX_TOPIC_LEN: usize = 64;
 pub mod topics {
     pub const CPU: &str = "cpu";
     pub const MEM: &str = "mem";
+    pub const PROCS: &str = "procs";
+    pub const PROCS_TREE: &str = "procs.tree";
     pub const SENSORS: &str = "sensors";
     pub const GPU: &str = "gpu";
     pub const DISKS: &str = "disks";
@@ -29,8 +31,9 @@ pub mod topics {
     pub const WEATHER_ALERTS: &str = "weather.alerts";
 
     // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
-    pub const BUILTIN: [&str; 11] = [
-        CPU, MEM, SENSORS, GPU, DISKS, PERF, HOST, DESKTOP, WEATHER, SKY, SPECTRUM,
+    pub const BUILTIN: [&str; 13] = [
+        CPU, MEM, SENSORS, GPU, DISKS, PERF, HOST, DESKTOP, WEATHER, SKY, SPECTRUM, PROCS,
+        PROCS_TREE,
     ];
 }
 

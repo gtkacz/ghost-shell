@@ -4,12 +4,14 @@ mod gpu;
 mod hwmon;
 mod labels;
 mod mem;
+mod procs;
 
 pub use cpu::{CpuCollector, parse_cpu_list};
 pub use disk::{DiskCollector, FsStat, StatvfsFs, attach_temps};
 pub use gpu::{GpuCollector, GpuReading, GpuSource, NvmlSource};
 pub use hwmon::SensorCollector;
 pub use mem::MemCollector;
+pub use procs::{ProcCollector, ProcSample};
 
 use crate::sysroot::SysRoot;
 

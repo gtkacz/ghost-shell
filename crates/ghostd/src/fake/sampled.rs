@@ -4,7 +4,7 @@ use ghost_proto::{
 };
 
 use super::Wave;
-use crate::collect::Source;
+use crate::collect::{ProcSample, Source};
 use crate::sampler::Sampler;
 
 /// A [`Sampler`] over the fake sources.
@@ -15,6 +15,7 @@ pub fn sampler() -> Sampler {
         Box::new(FakeSensors::default()),
         Box::new(FakeGpu::default()),
         Box::new(FakeDisks::default()),
+        Box::new(FakeProcs::default()),
     )
 }
 
@@ -141,6 +142,28 @@ struct FakeMem {
 impl Source<MemSnapshot> for FakeMem {
     fn sample(&mut self) -> MemSnapshot {
         self.samples += 1;
+        MemSnapshot {
+            total_kib: MEM_TOTAL_KIB,
+            used_kib: share_of(MEM_TOTAL_KIB, MEM_USED_SHARE.at(self.samples)),
+            swap_total_kib: SWAP_TOTAL_KIB,
+            swap_used_kib: share_of(SWAP_TOTAL_KIB, SWAP_USED_SHARE.at(self.samples)),
+        }
+    }
+}
+
+fn share_of(total: u64, share: f32) -> u64 {
+    (total as f64 * f64::from(share)) as u64
+}
+
+/// The busiest processes, without a tree.
+#[derive(Default)]
+struct FakeProcs {
+    samples: u64,
+}
+
+impl Source<ProcSample> for FakeProcs {
+    fn sample(&mut self) -> ProcSample {
+        self.samples += 1;
         let mut top: Vec<ProcUsage> = PROCESSES
             .iter()
             .enumerate()
@@ -154,18 +177,8 @@ impl Source<MemSnapshot> for FakeMem {
             })
             .collect();
         top.sort_by(|a, b| b.cpu.total_cmp(&a.cpu));
-        MemSnapshot {
-            total_kib: MEM_TOTAL_KIB,
-            used_kib: share_of(MEM_TOTAL_KIB, MEM_USED_SHARE.at(self.samples)),
-            swap_total_kib: SWAP_TOTAL_KIB,
-            swap_used_kib: share_of(SWAP_TOTAL_KIB, SWAP_USED_SHARE.at(self.samples)),
-            top,
-        }
+        ProcSample { top, tree: None }
     }
-}
-
-fn share_of(total: u64, share: f32) -> u64 {
-    (total as f64 * f64::from(share)) as u64
 }
 
 struct FakeSensor {

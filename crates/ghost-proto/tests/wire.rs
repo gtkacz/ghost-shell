@@ -267,3 +267,12 @@ fn spectrum_snapshot_wire_form() {
         r#"{"bands":[]}"#
     );
 }
+
+#[test]
+fn mem_no_longer_carries_top() {
+    assert!(
+        !serde_json::to_string(&MemSnapshot::default())
+            .unwrap()
+            .contains("top")
+    );
+}
