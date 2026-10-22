@@ -137,6 +137,24 @@ fn a_number_of_another_type_is_read_as_none_and_keeps_the_alert() {
 }
 
 #[test]
+fn the_title_and_severity_lose_their_surrounding_spaces() {
+    let json = document(
+        &[entry(51, "2026-10-22", "09:00").replace(
+            r#""descricao": "Tempestade", "severidade": "Perigo""#,
+            r#""descricao": " Tempestade ", "severidade": " Perigo ""#,
+        )],
+        &[],
+    );
+
+    let alerts = sample_alerts(&json);
+
+    assert_eq!(
+        (alerts[0].title.as_str(), alerts[0].severity.as_str()),
+        ("TEMPESTADE", "PERIGO")
+    );
+}
+
+#[test]
 fn reads_brasilia_time() {
     let alerts = sample_alerts(SAMPLE);
     let storm = by_id(&alerts, "1");

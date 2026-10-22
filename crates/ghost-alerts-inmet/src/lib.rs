@@ -195,7 +195,7 @@ fn alert(aviso: Aviso, zone: &TimeZone) -> Option<IssuedAlert> {
         },
         alert: WeatherAlert {
             id: aviso.id.to_string(),
-            title: aviso.descricao.to_uppercase(),
+            title: aviso.descricao.trim().to_uppercase(),
             level: level(aviso.id, &severity),
             severity,
             original_title: None,
