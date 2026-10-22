@@ -951,6 +951,71 @@ After the reinstall the shell was restarted once to warm the shader caches. The 
 
 At about 12:24 on 2026-10-22, with the RAPL udev rule installed, the live daemon's `package_w` read **38.9 W** and then **41.3 W**. These are two readings from the live desktop, with no load control, so they show that the counter is readable and plausible, not a power figure for any state.
 
+### Plan 2b: uplink widget (V1 and V2, UPLINK tab)
+
+Headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, a release `ghostd --fake` on its own socket with the history warmed for at least 300 s, default appearance. A new `qs` per run, a 15 s settle, then `measure-cpu.sh` on the shell and the daemon for 60 s. Frames from `QSG_RENDER_TIMING`, `Rss` from `smaps_rollup` at the end of the window. Views interleaved, one warm-up run of each discarded.
+
+| View | Combined, median (range) | Shell | Daemon | Frames/s | Shell Rss (KiB) |
+|---|---|---|---|---|---|
+| V2 centre, UPLINK | **1.34 %** (1.32–1.50) | 1.32 % | 0.02 % | 14.92 | 233 524 |
+| V1 scope, UPLINK | **1.57 %** (1.55–1.59) | 1.55 % | 0.02 % | 15.22 | 241 032 |
+
+- **With the real daemon** (release, not `--fake`, one run each, V2): a placeholder in the tab reads 0.38 % shell and 0.32 % daemon at 2.00 frames/s; UPLINK reads 1.42 % shell and 0.37 % daemon at 14.92 frames/s, **1.79 %** combined. The daemon's Rss goes from 41 284 to 48 624 KiB, **+7.3 MiB**, while the topic is wanted: the GeoIP pages the lookups touch and the 5 s cycle. They are unmapped once the tab is left.
+- The shell's cost is the 15 frames/s loop over the whole window, not the globe alone: the gallery's globe-only page cost +0.52 to 0.6 points, the full V2 +1.0 to 1.2. The labels' share was not separated.
+- Shell Rss moved by ±30 MiB from run to run in both arms, so no Rss delta for the widget could be resolved.
+- After the fix that stops and dims a stale globe, one check on V2 (fake release daemon, warm-up discarded) read **1.45 %** (1.40 % shell, 0.05 % daemon) at 14.98 frames/s and 234 152 KiB, inside the first round's range. With the daemon stopped, the frame-clock hold dropped and the topic want stayed.
+- **Outcome: under 2.00 % and under 307 200 KiB.** The real-daemon V1 was not measured here. Its fake shell figure plus the real daemon's 0.37 % gave an estimate of about 1.9 %; see the acceptance run below.
+
+### Plan 2b: every text scrambles on its first write in a showing
+
+A text now scrambles on its first write in each showing of its widget: labels and values alike, numbers and the clock included. Headless debug fake. Each run switches V1 to MONITOR and measures the 2 s after the switch with `measure-cpu.sh <qs pid> 2`, frames from `QSG_RENDER_TIMING`, three runs a build:
+
+| Build | Frames in 2 s | Shell CPU over 2 s | Scrambles |
+|---|---|---|---|
+| Titles only (before) | 43–45 | 6.0–7.0 % | 8 |
+| Every first write (after) | 42–45 | 7.0–9.0 % | 99–103 |
+
+- **Frames** are flat: the print swap already holds the frame clock through a switch, and the scrambles ride on its ticks. The CPU is about +1.3 points over the 2 s, about 25 ms of CPU per switch.
+- The holds peak at 95–99 and are back to the baseline 0.72–0.74 s after the switch, the length of the longest scramble.
+- A still MONITOR afterwards (10 s) reads 0.4–0.5 % before and 0.5–0.6 % after, unchanged within noise.
+- **Rss** (settle, then MONITOR and V1 three times each, `smaps_rollup` 12 s after each switch):
+
+| Build | V1 at start (MiB) | Round 3, MONITOR | Round 3, V1 |
+|---|---|---|---|
+| Titles only | 209.0 / 211.5 | 239.2 / 237.3 | 240.3 / 238.8 |
+| Every first write | 221.7 / 221.1 | 254.2 / 254.9 | 257.0 / 254.9 |
+
+- About **+12 to 17 MiB** at steady state, decomposed roughly (run noise about ±2 MiB) into the per-text objects (about +4 MiB), glyph atlases for weights and sizes that never scrambled before (about +4 MiB), and the katakana of the scramble alphabet, which Kode Mono lacks, so they load Noto Sans Mono CJK and its atlases (about +7 MiB). Headless, under software GL; on the NVIDIA desktop the atlases may sit in VRAM instead.
+- **Outcome: accepted by the user on 2026-10-22**, the full katakana alphabet included.
+
+### Plan 2b: MONITOR's right rail
+
+The process tree left the default views (user decision, 2026-10-22). MONITOR's right rail is now storage above sensors:
+
+- **Storage, 188 design px:** all five drives (three NVMe, two SATA) and the R/W line, with no spare space.
+- **Sensors, the rest:** 350 design px at the default 1256×666 area, of which its rows use about 270.
+
+V1 and V2 keep two tabs, UPLINK and SILICON. The CPU figure for the new MONITOR is in the acceptance run below.
+
+### Plan 2b acceptance: the budget states (2026-10-22, installed build)
+
+The installed `ghostd` and shell (installed at 14:36 from HEAD `a907735`), each run in its own headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, with the service's environment (the unit's import path and atlas size, the NVIDIA drop-in, a per-run copy of the shader cache). The shell and a real `ghostd` shared a private bus; the system bus was real and read-only. PipeWire was shut out (`PIPEWIRE_REMOTE=/nonexistent` and an empty `PIPEWIRE_RUNTIME_DIR`), and the shell's state lived in a temporary directory. The config was the defaults with São Paulo's location and no alert provider, and each state was chosen by config: V1 with UPLINK, V2 with SILICON, and MONITOR reached from V1 through `Activate("monitor")`. `measure-cpu.sh` ran on the shell and its daemon at once for 60 s from 26 s after the start; frames counted from 2 s after the window opened. One warm-up run per state discarded, then three rounds with the states interleaved. Default appearance; the user's own settings were not measured.
+
+| State | Combined, median (range) | Frames/s | Rss (KiB), shell + daemon | Target | Outcome |
+|---|---|---|---|---|---|
+| V1 animating, UPLINK | **1.60 %** (1.56–1.68) | 14.92 | 176 884 + 49 412 = 226 296 | ≤ 2.00 %, ≤ 307 200 KiB | pass |
+| V2, SILICON | **1.87 %** (1.67–1.88) | 14.93 | 181 356 + 42 136 = 223 492 | ≤ 2.00 % | pass, thin margin |
+| MONITOR, with the process tree | 1.05 % (1.02–1.24) | 2.20 | 205 512 + 42 380 = 247 892 | ≤ 1.00 % | over the target |
+| MONITOR, storage in its place (HEAD `2f170f7`) | **0.80 %** (0.80–0.81) | 2.00 | 209 152 + 42 356 = 251 508 | ≤ 1.00 % | pass |
+| Covered | **0.04 %** (0.04–0.05) | 0 | 175 792 + 42 124 | 0 frames, ≤ 0.50 % | pass |
+
+- **V1** shell 1.18–1.30 %, daemon 0.37–0.38 %. The real-daemon estimate of about 1.9 % from the uplink measurement above is not reproduced.
+- **V2 SILICON** shell 1.32–1.55 %, daemon 0.33–0.37 %. The 2.02 % mean of the silicon measurement above is not reproduced; the margin is 0.13 points.
+- **MONITOR with the tree:** the 1.24 % run had the load average rising from 2.05 to 3.98 from something else on the machine; the two quiet runs read 1.02 and 1.05 %. The user had accepted MONITOR up to 1.25 % on 2026-10-22.
+- **MONITOR now** (reinstalled from HEAD `2f170f7`, with storage instead of the process tree and every first write scrambling): shell 0.43–0.48 %, daemon 0.32–0.37 %, load average below 0.3 in every run. That is 0.25 points below the earlier reading, all of it in the shell. **Outcome: 0.80 %, inside the 1.00 % target**; the 1.25 % acceptance is no longer needed.
+- **Covered:** both the installed-build runs and `scripts/measure-covered.sh 60` (three kept runs, repo build) read 0.04–0.05 % at 0 frames. The daemon's GeoIP mappings went from 2 before the cover to 0. Its read syscalls fell to exactly 240 a minute, the 1 Hz topics the covered shell keeps, against about 490 a second with V1 visible. This suggests no system-bus traffic for `uplink`, `net.links`, `disks.health` or `batteries`, but it is not proof: the bus itself was not captured.
+- Shell Rss here (171–210 MB) is below the live service's, which holds more NVIDIA chunks; the live figure is not part of this reading.
+
 ## License
 
 Copyright (C) 2026 Gabriel Mitelman Tkacz
