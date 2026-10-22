@@ -1,0 +1,8 @@
+id = "silicon"
+name = "Silicon"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+requires = ["cpu", "sensors", "mem", "gpu", "disks"]
+# A packet runs along each Infinity Fabric link for as long as the schematic is on screen.
+animates = true
