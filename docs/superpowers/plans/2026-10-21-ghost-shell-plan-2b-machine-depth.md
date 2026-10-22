@@ -108,7 +108,7 @@ Plan 2a's Global Constraints all still apply: pluggable contract, design units, 
 - **Branch and base (P1):** Part 2b runs one task at a time on branch `plan-2b`, in the worktree `.claude/worktrees/plan-2b`. Each brief re-reads the files it edits at its own base, and cites the Plan 2a ledger through R51 and C27.
 - **Live facts ("fx"):** `/home/gtkacz/Codes/ghost-shell/.superpowers/sdd/2026-10-21-ghost-shell-plan-2b-machine-depth/fixtures/` holds read-only captures of this machine (NetworkManager, Tailscale, `/proc/net/*`, UDisks2, UPower, KDE Connect, RAPL), anonymised. `fx/<file>` names one. Fixtures that a test needs are copied into the repo's `crates/ghostd/tests/fixtures/` by the task that uses them; the directory itself is git-ignored and is never committed.
 - **Shader drawing:**
-  - every graph and the globe are `ShaderEffect`s in `shell/kit/GhostKit/`, with `.frag`/`.vert` sources in `shaders/` compiled by `make shaders`; widgets never use a shader directly, only the kit's components;
+  - every graph and the globe are `ShaderEffect`s in `shell/kit/GhostKit/`, with `.frag` sources in `shaders/` compiled by `make shaders`; widgets never use a shader directly, only the kit's components;
   - the per-sample work stays in a `lib/*.mjs` module with node tests, and the shader restates no colour or alpha that `segments.mjs` or `lib/globe.mjs` defines: they reach it as uniforms or packed bytes;
   - the spike's kit notes are binding (P3; `docs/superpowers/notes/2026-10-21-blockgraph-shader-spike.md` and `shell/kit/GhostKit/shaders/blockgraph.frag`):
     - counts bound to uniforms are `real` (an `int` reaches a float uniform as ≈ 0);
@@ -154,7 +154,7 @@ Plan 2a's Global Constraints all still apply: pluggable contract, design units, 
   - KDE Connect battery values are read, and no refresh is ever requested from the phone.
 - **Services that come and go (the R30 pattern):** every D-Bus feed reads the full state when its service's name gains an owner (`NameOwnerChanged`), not only at start. An absent service publishes an empty value and waits. A feed never ends (Plan 2a R4(d)).
 - **Long cadences use the wall clock (R25):** `disks.health` (10 min) and the KDE Connect poll (60 s) decide due-ness on wall-clock seconds, and every sleep is capped at 60 s while the topic is wanted.
-- **Values the user confirmed (2026-10-21):** Tailscale status every 10 s; 2 s timeouts for Tailscale and ping; the process tree every 10 s; at most 8 globe endpoints; Task 1's targets (page creation ≤ 100 ms, Rss ≤ 30 MiB, CPU ≤ 0.30 %); 1000 processes laid out in under 20 ms; the 1024 × 512 lattice map; the spectrum retry delays of Task 17b (1 s, doubling, 30 s cap). The task that uses each one marks it.
+- **Values the user confirmed (2026-10-21):** Tailscale status every 10 s; 2 s timeouts for Tailscale and ping; the process tree every 10 s; at most 8 globe endpoints; Task 1's targets (page creation ≤ 100 ms, Rss ≤ 30 MiB, CPU ≤ 0.30 %); 1000 processes laid out in under 20 ms; the spectrum retry delays of Task 17b (1 s, doubling, 30 s cap). The task that uses each one marks it.
 - **Measure every new collector and feed:**
   - its cadence;
   - wall and on-CPU time per run;
@@ -1082,110 +1082,142 @@ git commit -m "feat(ghostd): publish live connection endpoints with offline geol
 
 ---
 
-### Task 11: Land mask, lattice map and the shader globe
+### Task 11: Land mask, dot land bits and the shader globe
+
+The globe is one fragment shader (ruling G1, the ledger's ruling after the globe spike `docs/superpowers/notes/2026-10-21-globe-shader-spike.md`, which is on branch `spike/globe-shader` and is read with `git show spike/globe-shader:<path>`; G1 replaces P23 and P24). The spike's files are read the same way: `git show spike/globe-shader~1:spikes/globe-shader/globe.frag`, `GlobeSpike.qml`, `globe.mjs`, `reference.py`, `run.sh`, `shell.qml`. Nothing is checked out and nothing from `spikes/` is committed.
+
+The 1024 × 512 lattice map the user confirmed on 2026-10-21 is superseded by G1. There is no lattice map, and no replacement number.
 
 **Files:**
 - Create:
   - `scripts/land-mask.py`;
-  - `widgets/uplink/land-mask.png`, committed: 2048 × 1024, 1-bit, equirectangular, 180° W at the left, 90° N at the top (unchanged, Decision 2);
-  - `widgets/uplink/globe-lattice.png`, committed: **1024 × 512** RGB (no alpha, no `gAMA`/`iCCP`/`sRGB` chunk), equirectangular like the mask; each texel holds the index of the lattice point nearest its centre and that point's land bit (P23). The size is user-confirmed (2026-10-21);
+  - `widgets/uplink/land-mask.png`, committed: 2048 × 1024, 1-bit, equirectangular, 180° W at the left, 90° N at the top (unchanged, Decision 2). The shell never loads it. It is the script's input for the land bits and for the `landAt` checks;
+  - `shell/kit/GhostKit/lib/landbits.mjs`, committed and generated: the land bit of each of the 3200 dots, with a header line naming `scripts/land-mask.py` as its generator;
   - `shell/kit/GhostKit/Globe.qml` (public), `shell/kit/GhostKit/lib/globe.mjs`;
-  - `shell/kit/GhostKit/shaders/globe.frag`, `shell/kit/GhostKit/shaders/arc.vert`, `shell/kit/GhostKit/shaders/arc.frag`;
+  - `shell/kit/GhostKit/shaders/globe.frag`;
   - `shell/tests/globe.test.mjs`.
 - Modify:
-  - `Makefile` (`%.vert.qsb: %.vert`, and `.vert` sources in `shaders`; P5), `scripts/install.sh` (refuse a missing `.vert.qsb` as for `.frag`);
   - `shell/kit/GhostKit/qmldir` (`Globe 1.0`);
-  - `shell/host/Gallery.qml` (`GHOST_GALLERY_GLOBE=<lattice png path>`: the globe at V2-centre and V1-scope sizes with the fake's six endpoints and São Paulo home, holding `FrameClock` while shown).
+  - `shell/host/Gallery.qml` (`GHOST_GALLERY_GLOBE=1`: the globe at V2-centre and V1-scope sizes with the fake's six endpoints and São Paulo home, holding `FrameClock` while shown).
+- Not touched: `Makefile` and `scripts/install.sh`. `make shaders` already builds every `shaders/*.frag`, and there is no `.vert`.
 
 **Interfaces:**
 - Produces:
-  - **`scripts/land-mask.py`**, run as `uv run --no-project --with pyshp --with pillow --with numpy python -I scripts/land-mask.py --mask <mask.png> --lattice <lattice.png>`:
+  - **`scripts/land-mask.py`**, run as `uv run --no-project --with pyshp --with pillow --with numpy python -I scripts/land-mask.py --mask <mask.png> --bits <landbits.mjs>`:
     - downloads `https://naciscdn.org/naturalearth/50m/physical/ne_50m_land.zip` into a new temporary directory and checks a SHA-256 recorded in the script;
     - rasterises the polygons with pyshp and Pillow `ImageDraw.polygon` into the mask (unchanged from the plan);
-    - computes `LATTICE_POINTS = 3200` points by the mockup's formula (`y = 1 − 2i/(N − 1)`, `θ = i·π(3 − √5)`), each point's land bit from the mask at the point, and for each lattice-map texel centre the nearest point (numpy, in chunks);
-    - writes the texel as R = index mod 256, G = ⌊index / 256⌋ + 16·land, B = 0;
-    - `--check <mask.png> <lattice.png>` (no network) asserts:
-      - the plan's six points: land at (−23.55, −46.63), (51.5, −0.12), (−25.0, 135.0); sea at (−25.0, −44.5), (0.0, −30.0), (35.0, −40.0);
-      - for every lattice point j, the texel containing j decodes to j, with j's land bit;
-      - the PNG is 8-bit RGB without the three colour chunks, so its bytes reach the shader unchanged.
-  - **`lib/globe.mjs`** (mockup `drawGlobe` constants, named and cited there): `LATTICE_POINTS = 3200`, `ROT_BASE = 0.6`, `ROT_PER_MS = 0.00009`, `TILT = 0.38`, `SMALL_BELOW = 240`, `MARGIN_SMALL = 10`, `MARGIN = 30`, `DOT_MIN = 1.3`, `DOT_PER_R = 1 / 70`, `LAND_ALPHA_FLOOR = 0.2`, `LAND_ALPHA_SPAN = 0.75`, `SEA_ALPHA_SPAN = 0.07`, `RING_ALPHA = 0.2`, `RING_WIDTH = 0.8`, `ARC_SEGMENTS = 40`, `ARC_LIFT_BASE = 0.08`, `ARC_LIFT_SPAN = 0.22`, `ARC_ALPHA = 0.5`, `PACKET_PER_MS = 0.00025`, `PACKET_STAGGER = 0.37`, `PACKET = 3`, `END = 4`, `HOME = 5`, `PULSE_MS = 1800`, `PULSE_FROM = 6`, `PULSE_GROW = 16`, `MAX_ARCS = 8` (= Task 10's `MAX_ENDPOINTS`); and:
-    - `fibonacciPoint(i, n) -> { lat, lon }`, `unitVector({ lat, lon }) -> [x, y, z]`, `view(v, rot, tilt)`, `inverseView(v, rot, tilt)`, `slerp(a, b, t) -> { point, omega }`, `arcAltitude(omega, i, segments)` = 1 + (0.08 + 0.22·omega/π)·sin(π·i/segments);
-    - `packetSegment(elapsedMs, k)` = ⌊((elapsedMs·0.00025 + k·0.37) mod 1)·40⌋;
-    - `decodeLattice(r, g) -> { index, land }` (bytes, as the shader decodes them);
-    - `LATTICE_NEIGHBOUR_OFFSETS`: the index offsets the shader also tests around the texel's point, derived by the coverage test below (Fibonacci numbers, both signs), not chosen;
-    - `coveringIndex(px, py, frame, nearestAt)`: the shader's selection in JavaScript — the nearest point from `nearestAt(lat, lon)` plus the offsets, keeping the highest index whose square (land: `dot`, sea: `dot / 2`, centred on its projection, front hemisphere only) contains the pixel — so the node test can hold the shader's logic to a brute force;
-    - `globeFrame({ width, height, unit, elapsedMs, hasHome, home, endpoints }) -> { small, radius, dot, rot, arcs: [{ home, end, omega }], ends: [{ x, y, visible }], packets: [{ x, y, visible }], home: { x, y, visible, pulse }, anchors }`: per frame, at most 2·`MAX_ARCS` + 1 projections. `anchors` is `labelAnchors`: one `{ x, y, visible }` per endpoint, then home. Visibility is the mockup's `q.z > 0 || hypot(q.x, q.y) > 1`.
-  - **`globe.frag`** (dots and outline), uniforms: `itemSize`, `centreX`, `centreY`, `radius`, `rot`, `tilt`, `dot`, `ringWidth`, `pixelRatio`, `latticePoints`, `landAlphaFloor`, `landAlphaSpan`, `seaAlphaSpan`, `ringAlpha`, `dotColor` (`signal` at alpha 1); `sampler2D lattice` at binding 1, from a hidden `Image { smooth: false; mipmap: false }`. Per fragment:
-    1. the outline: `signal` at 20 % within `ringWidth / 2` of radius `R + 1u`, with a one-pixel coverage edge;
-    2. inside the disc, the view point (dx, dy, √(1 − dx² − dy²)) → `inverseView` → latitude and longitude → one `texture()` fetch → `decodeLattice`;
-    3. the candidates are that index and each `index ± offset`, **unrolled** (GLSL ES 100 has no array constructors), each skipped outside `[0, latticePoints)`; a candidate's position comes from the Fibonacci formula, its land bit from one more fetch at its own position;
-    4. the pixel takes the highest-index candidate whose screen square contains it: land `signal` at (0.2 + 0.75·z), sea `signal` at 0.07·z, premultiplied.
-  - **`arc.vert` / `arc.frag`** (one `ShaderEffect` per arc, `mesh: GridMesh { resolution: Qt.size(ARC_SEGMENTS, 1) }`); both stages declare the **same** uniform block: `qt_Matrix`, `qt_Opacity`, `centreX`, `centreY`, `radius`, `rot`, `tilt`, `home` and `end` (`vector4d`, w unused), `omega`, `segments`, `liftBase`, `liftSpan`, `halfWidth`, `feather`, `arcColor` (`hi` at 50 %). The vertex shader takes `t = qt_MultiTexCoord0.x` and the side from `.y`; it places `slerp(home, end, t)·arcAltitude` through `view` and the projection, offset along the screen normal (from `t ± 1/segments`) by `±(halfWidth + feather)`, and passes `across` and a per-vertex `visible` (mockup rule). The fragment shader discards where the interpolated `visible` is below 1, so a segment with a hidden end is dropped as in the mockup, and shades `arcColor` by `clamp(halfWidth + feather − |across|, 0, 1)` coverage. `halfWidth` = `(small ? 0.7 : 1)·unit / 2`, `feather` = one device pixel.
+    - computes `LATTICE_POINTS = 3200` dots by the mockup's formula (`y = 1 − 2i/(N − 1)`, longitude `θ = i·π(3 − √5)` wrapped to (−180°, 180°]), and sets a dot's land bit when the mask is land at the dot's latitude and longitude (texel `⌊(lon + 180)/360 · 2048⌋`, `⌊(90 − lat)/180 · 1024⌋`);
+    - packs the bits 24 to a component and 4 components to a word: bit `k` of component `c` is dot `24c + k`, so 3200 dots fill 34 words, with the unused bits of component 133 and the two components after it all 0;
+    - writes `landbits.mjs`: the header `// Generated by scripts/land-mask.py from widgets/uplink/land-mask.png. Do not edit.`, `export const LAND_BIT_POINTS = 3200;` and `export const LAND_WORDS = [` followed by one `[a, b, c, d],` line per word `]`;
+    - `--check <mask.png> <landbits.mjs>` (no network) asserts:
+      - the PNG is 2048 × 1024 and 1-bit;
+      - `landAt` on the PNG, for the plan's six points: land at (−23.55, −46.63), (51.5, −0.12), (−25.0, 135.0); sea at (−25.0, −44.5), (0.0, −30.0), (35.0, −40.0);
+      - the module parses (a regular expression over its one-word-per-line format) into 34 words of 4 integers below 2^24, and the bit of every dot equals the mask at that dot, recomputed by the script.
+  - **`lib/landbits.mjs`**: as above, and nothing else.
+  - **`lib/globe.mjs`** (mockup `drawGlobe` constants, named and cited there): `LATTICE_POINTS = 3200`, `ROT_BASE = 0.6`, `ROT_PER_MS = 0.00009`, `TILT = 0.38`, `SMALL_BELOW = 240`, `MARGIN_SMALL = 10`, `MARGIN = 30`, `DOT_MIN = 1.3`, `DOT_PER_R = 1 / 70`, `LAND_ALPHA_FLOOR = 0.2`, `LAND_ALPHA_SPAN = 0.75`, `SEA_ALPHA_SPAN = 0.07`, `RING_ALPHA = 0.2`, `RING_WIDTH = 0.8`, `ARC_SEGMENTS = 40`, `ARC_LIFT_BASE = 0.08`, `ARC_LIFT_SPAN = 0.22`, `ARC_ALPHA = 0.5`, `PACKET_PER_MS = 0.00025`, `PACKET_STAGGER = 0.37`, `PACKET = 3`, `END = 4`, `HOME = 5`, `PULSE_MS = 1800`, `PULSE_FROM = 6`, `PULSE_GROW = 16`, `MAX_ENDPOINTS = 8` (= Task 10's); and, ported from the spike's `globe.mjs` and `globe.frag` as the node-tested JavaScript half:
+    - `fibonacciPoint(i, n) -> { lat, lon }`, `unitVector({ lat, lon }) -> [x, y, z]`, `view(v, rot, tilt)`, `rotation(elapsedMs)` = `ROT_BASE + elapsedMs·ROT_PER_MS`, `slerp(a, b, t) -> { point, omega }`, `arcAltitude(omega, i, segments)` = 1 + (0.08 + 0.22·omega/π)·sin(π·i/segments);
+    - `nearestIndex(v)`: the index of the lattice point nearest the unit vector `v`, by Keinert et al. 2015 ("Spherical Fibonacci Mapping") adapted to the mockup's lattice (points on both poles, `z` steps of 2/(N − 1)): the four corners of the lattice cell around `v` plus the nearer pole, with the index split as 64a + b for the golden fraction. It never loops over the 3200 points. The shader's rim re-lookups belong to the shader alone, because they serve the foreshortened pixel and not the direction;
+    - `landBit(i)`: bit `i` of `LAND_WORDS`;
+    - `globeLayout({ width, height, unit }) -> { small, radius, dot }`: `small` is `min(width, height) < 240·unit`, `radius` is `min(width, height)/2 − (small ? 10 : 30)·unit`, `dot` is `max(1.3·unit, radius/70)`;
+    - `labelAnchors({ width, height, unit, elapsedMs, hasHome, home, endpoints }) -> [{ x, y, visible }]`: one anchor per endpoint (at most `MAX_ENDPOINTS`), then home (hidden when there is no home), projected with the same `rotation`, `TILT` and radius as the shader, so at most 9 projections a frame. Visibility is the mockup's `q.z > 0 || hypot(q.x, q.y) > 1`.
+  - **`globe.frag`**, the whole picture. Lengths are logical pixels, colours arrive premultiplied and `fragColor` is premultiplied. Uniforms:
+    - `itemSize`, `pixelRatio`, `unit`, `radius`, `dotSize`, `rot`, `tilt`, `pointCount` (`real`), `elapsedMs`, `arcWidth`, `signalColor`, `hiColor`;
+    - `landAlphaFloor`, `landAlphaSpan`, `seaAlphaSpan`, `ringAlpha`, `arcAlpha`, from `lib/globe.mjs`'s constants (the shader restates no colour or alpha that `lib/globe.mjs` defines);
+    - `home` and `endpoint0`…`endpoint7`: `vec4` world unit vectors, `w = 1` when present, set only when `uplink` changes;
+    - `landWord0`…`landWord33`: `vec4` words of `LAND_WORDS`, set once.
+
+    Geometry constants that are not colours (`ARC_SEGMENTS`, `ARC_LIFT_BASE`, `ARC_LIFT_SPAN`, `PACKET_PER_MS`, `PACKET_STAGGER`, `PACKET`, `END`, `HOME`, `PULSE_MS`, `PULSE_FROM`, `PULSE_GROW`) are shader constants with `lib/globe.mjs`'s names, and a node test holds them equal to the JavaScript ones. Per fragment:
+    1. the outline: `signal` at `ringAlpha` within `RING_WIDTH / 2` units of radius `R + 1u`, with the spike's one-physical-pixel box-filter edge;
+    2. the dots, by the spike's lookup:
+       - the point under the pixel, a Fibonacci basis chosen from its latitude, the 2 × 2 solve for the lattice cell, and that cell's four corners;
+       - the nearer pole as a fifth candidate;
+       - within 4 dots of the limb, the lookup repeats a quarter and a half dot inwards and outwards (5 lookups, up to 25 candidates, repeats skipped with a local `float seen[25]`);
+       - each candidate's position from the Fibonacci formula with the split index; its land bit from the `landWord`s, the word picked by comparison as `BlockGraph` picks its words, the component by comparison, and the bit as `mod(floor(component / 2^k), 2)`, so a packed component is divided only by powers of two;
+       - a dot is a square of `dotSize` (land) or `dotSize / 2` (sea) with box-filter coverage: land `signal` at (0.2 + 0.75·z), sea `signal` at 0.07·z, front hemisphere only;
+    3. each present endpoint's arc from home: 40 segments walked by a rotation recurrence, a bounding-circle reject per arc, `hi` at `arcAlpha`, width `arcWidth` (`(small ? 0.7 : 1)·unit`), a segment drawn only when both ends are visible (the mockup's rule); the packet (3u) at segment `⌊((elapsedMs·0.00025 + k·0.37) mod 1)·40⌋`; the end square (4u). The end square is drawn for every present endpoint, home or not;
+    4. home, when present: the 5u `signal` square and the pulse outline, side `6 + 16p` units with `p = (elapsedMs mod 1800) / 1800`, 1u wide, `signal` at alpha `1 − p`.
+
+    Without a home there are no arcs, packets or home marker, only end squares.
   - **`Globe`**, public:
-    - **inputs:** `latticeMap: url`, `elapsedMs`, `unit` (`Theme.u`), `hasHome`, `homeLat`, `homeLon`, `endpoints: var` (`[{ lat, lon }]`, the first `MAX_ARCS` used), `signalColor`, `hiColor`. (The plan's `landMask` and `points` go, P23.)
-    - **children:** the `globe.frag` effect; a `Repeater { model: MAX_ARCS }` of arc effects, each visible while `hasHome` and its endpoint exists; `Repeater { model: MAX_ARCS }`s of packet (3u) and end (4u) `Rectangle`s in `hi`; the home `Rectangle` (5u, `signal`) and its pulse `Rectangle` (transparent, 1u border in `signal` at alpha 1 − p, side `6 + 16p` units). Every model is a number, never an array, so a frame never recreates a delegate; delegates read `frame.*[index]`. Rectangles snap to device pixels. Without a home there are no arcs, packets or home marker, only end squares.
-    - **output:** `readonly labelAnchors: var`, as the plan states.
-    - Nothing renders except on `elapsedMs`, new endpoints or a resize.
+    - **inputs:** `elapsedMs`, `unit` (`Theme.u`), `hasHome`, `homeLat`, `homeLon`, `endpoints: var` (`[{ lat, lon }]`, the first `MAX_ENDPOINTS` used), `signalColor`, `hiColor`. There is no `landMask`, `latticeMap` or `points`;
+    - **children:** one `ShaderEffect` with `fragmentShader` `globe.frag.qsb`, whose properties are the uniforms above (`pointCount` as `real`, the 8 endpoints and 34 words as named `vector4d` properties, because `ShaderEffect` ignores array uniforms). Nothing else draws: no `Image`, `Shape`, `Rectangle` or `Repeater`;
+    - **output:** `readonly property var labelAnchors`, from `lib/globe.mjs`'s `labelAnchors`, for Task 12's `Text`s;
+    - nothing renders except on `elapsedMs`, new endpoints or a resize: the endpoint uniforms change only with `endpoints`.
+- Kit notes from the spike, binding for this task (they join the Global Constraints' shader notes):
+  - `half` is a reserved word in GLSL, and a variable called that fails to compile;
+  - float32 index precision: `fract(i·0.618…)` for `i` up to 3199 loses about 5·10⁻⁴ rad (a third of a pixel at V2 size), so the index is split as 64a + b with `fract(64·0.618…)` as a constant;
+  - `ThemeLib.withAlpha` takes a percentage: 0.5 gives 0.2 % alpha;
+  - counts bound to uniforms are `real`, and colours arrive premultiplied;
+  - GLSL ES 100 rules (what `qsb --qt6` also bakes): loops have constant bounds, with a uniform-dependent count as a `break` inside; there are no array constructors; a local `float seen[25]` indexed by an expression of loop counters compiles;
+  - the NVIDIA shader cache directory must exist. Otherwise every start compiles, which costs the first frame 90–160 ms and keeps 60–70 MiB of Rss. The service's `CacheDirectory=` covers the installed shell. This task checks it for the headless runs and reports where it is, and Task 19 checks that the service's environment has it.
 
-- [ ] **Step 1: Generate and check the mask and the lattice map** (the Natural Earth download is approved: user, 2026-10-21)
+- [ ] **Step 1: Generate and check the mask and the land bits** (the Natural Earth download is approved: user, 2026-10-21)
 
-Run the generator, then `--check` on both files. Expected: the check prints `ok` and the six points. Record the archive's SHA-256 in the script and the two PNG sizes (bytes) in the report.
+Run the generator, then `--check`. Expected: the check prints `ok` and the six points. Record the archive's SHA-256 in the script and the two output sizes (bytes) in the report.
 
-- [ ] **Step 2: Gate the vertex-shader route**
-
-In a headless KWin, a throwaway gallery page draws one arc effect (fixed home and end, `GridMesh` 40 × 1) and the globe effect over the lattice map. Expected:
-- `qsb-qt6 --qt6` compiles `arc.vert` with its default targets (GLSL ES 100 included);
-- the arc and the dots render, and the shell log has no shader warning.
-
-If either fails, stop with NEEDS_CONTEXT. The controller's fallback is the arcs as one `Shape` with a `PathPolyline` per arc, re-pathed per frame from `globe.mjs`, measured as in Step 7 (P24).
-
-- [ ] **Step 3: Write the failing tests**
+- [ ] **Step 2: Write the failing tests**
 
 ```js
 test('lattice ends at the poles', () => { assert.equal(fibonacciPoint(0, 3200).lat, 90); assert.equal(fibonacciPoint(3199, 3200).lat, -90); });
-test('view and its inverse', () => { const v = unitVector({ lat: -23.55, lon: -46.63 }); assert.ok(dist(inverseView(view(v, 0.6, 0.38), 0.6, 0.38), v) < 1e-12); assert.deepEqual(view(unitVector({ lat: 0, lon: 0 }), 0, 0).map(round9), [0, 0, 1]); });
+test('view faces latitude 0 longitude 0 to the viewer with no rotation', () => { assert.deepEqual(view(unitVector({ lat: 0, lon: 0 }), 0, 0).map(round9), [0, 0, 1]); });
 test('slerp São Paulo–London', () => { const { point, omega } = slerp(unitVector({ lat: -23.55, lon: -46.63 }), unitVector({ lat: 51.5, lon: -0.12 }), 0.5); assert.ok(Math.abs(norm(point) - 1) < 1e-9); assert.ok(omega > 1.4 && omega < 1.6); });
 test('arc altitude', () => { assert.ok(Math.abs(arcAltitude(Math.PI, 20, 40) - 1.3) < 1e-9); assert.equal(arcAltitude(1, 0, 40), 1); });
-test('packets', () => { assert.equal(packetSegment(0, 1), 14); assert.equal(packetSegment(4000, 0), 0); });
-test('frame sizes', () => { const big = globeFrame(FRAME(400, 300, 1)); assert.deepEqual([big.small, big.radius], [false, 120]); const small = globeFrame(FRAME(200, 200, 1)); assert.deepEqual([small.small, small.radius], [true, 90]); assert.equal(small.dot, Math.max(1.3, 90 / 70)); });
-test('lattice texels decode', () => { assert.deepEqual(decodeLattice(127, 12 + 16), { index: 3199, land: true }); assert.deepEqual(decodeLattice(0, 0), { index: 0, land: false }); });
-test('the shader selection matches a brute force', () => { /* nearestAt = brute-force nearest point to the 1024 × 512 texel centre containing (lat, lon); radii 90 and 200; rot 0.6, 2.2, 4.1; every pixel in the outer 10 % of the disc plus every 8th pixel inside */ assert.equal(mismatches, 0); });
-test('the shader unrolls exactly the derived offsets', () => { const source = readFileSync(GLOBE_FRAG, 'utf8'); assert.deepEqual(offsetsIn(source), [...LATTICE_NEIGHBOUR_OFFSETS].sort((a, b) => a - b)); });
-test('a home behind the globe has a hidden anchor', () => { const f = globeFrame({ ...FRAME(400, 400, 1), elapsedMs: HOME_BEHIND_MS }); assert.equal(f.anchors.at(-1).visible, false); });
+test('layout sizes', () => { const big = globeLayout({ width: 400, height: 300, unit: 1 }); assert.deepEqual([big.small, big.radius], [false, 120]); const small = globeLayout({ width: 200, height: 200, unit: 1 }); assert.deepEqual([small.small, small.radius], [true, 90]); assert.equal(small.dot, Math.max(1.3, 90 / 70)); });
+test('the Keinert lookup agrees with brute force on random directions', () => { /* 2000 directions from a seeded generator; for each, nearestIndex's point is at least as near as the brute-force best, less 1e-12 */ assert.equal(disagreements, 0); });
+test('the Keinert lookup agrees with brute force within 2 degrees of both poles', () => { /* 200 seeded directions around each pole, same comparison */ assert.equal(disagreements, 0); });
+test('the Keinert lookup names the pole points at the poles', () => { assert.equal(nearestIndex([0, 1, 0]), 0); assert.equal(nearestIndex([0, -1, 0]), 3199); });
+test('land bits: the dot nearest São Paulo is land and the one south-east of it is sea', () => { assert.equal(landNearest(-23.55, -46.63), true); assert.equal(landNearest(-25.0, -44.5), false); });
+test('land bits: London and Australia are land', () => { assert.equal(landNearest(51.5, -0.12), true); assert.equal(landNearest(-25.0, 135.0), true); });
+test('land bits: the mid-Atlantic and the mid-North-Atlantic are sea', () => { assert.equal(landNearest(0.0, -30.0), false); assert.equal(landNearest(35.0, -40.0), false); });
+test('land words are 34 words of 4 integers below 2^24 and no bit past the last dot', () => { assert.equal(LAND_WORDS.length, 34); assert.ok(LAND_WORDS.flat().every((c) => Number.isInteger(c) && c >= 0 && c < 2 ** 24)); const c = LAND_WORDS.flat(); assert.equal(c[133] >> (3200 - 24 * 133), 0); assert.deepEqual(c.slice(134), [0, 0]); });
+test('a home behind the globe has a hidden anchor', () => { const anchors = labelAnchors({ ...FRAME(400, 400, 1), elapsedMs: HOME_BEHIND_MS }); assert.equal(anchors.at(-1).visible, false); });
+test('label anchors are one per endpoint, then home', () => { const anchors = labelAnchors({ ...FRAME(400, 400, 1), endpoints: SIX_ENDPOINTS }); assert.equal(anchors.length, 7); });
+test('globe.frag names the mockup constants as globe.mjs does', () => { const source = readFileSync(GLOBE_FRAG, 'utf8'); for (const [name, value] of SHADER_CONSTANTS) { assert.equal(shaderConstant(source, name), value, name); } });
 ```
 
-(`HOME_BEHIND_MS` is computed in the test from `ROT_BASE`/`ROT_PER_MS` so that São Paulo's view z is negative. The coverage test must run in under 5 s; it sets `LATTICE_NEIGHBOUR_OFFSETS` to the smallest set of Fibonacci offsets that gives zero mismatches.)
+(`landNearest(lat, lon)` is `landBit(nearestIndex(unitVector({ lat, lon })))`. The dots are 3.6° apart, so the dot nearest a sea point near a coast can itself be land: if either sea test fails on the generated bits, the task reports the dot's index and its distance rather than moving the point. `HOME_BEHIND_MS` is computed in the test from `ROT_BASE`/`ROT_PER_MS` so that São Paulo's view z is negative. `SHADER_CONSTANTS` is `ARC_SEGMENTS`, `ARC_LIFT_BASE`, `ARC_LIFT_SPAN`, `PACKET_PER_MS`, `PACKET_STAGGER`, `PACKET`, `END`, `HOME`, `PULSE_MS`, `PULSE_FROM`, `PULSE_GROW` with their `globe.mjs` values. The whole file runs in under 5 s.)
 
-- [ ] **Step 4: Run them and watch them fail**
+- [ ] **Step 3: Run them and watch them fail**
 
 Run: `node --test 'shell/tests/*.test.mjs'`
 Expected: FAIL.
 
-- [ ] **Step 5: Implement `globe.mjs`, the three shaders, `Globe.qml`, the build lines and the gallery page, then run everything**
+- [ ] **Step 4: Implement `globe.mjs`, `globe.frag`, `Globe.qml` and the gallery page, then run everything**
 
 Run: `node --test 'shell/tests/*.test.mjs' && make shaders && GHOST_SMOKE_SOCKET=/tmp/ghost-smoke-2b-t11.sock scripts/qml-smoke.sh` (headless).
-Expected: PASS and `smoke: ok`. `scripts/install.sh` run against a temporary target refuses a tree whose `arc.vert.qsb` is removed (a harness, not the user's install dir).
+Expected: PASS and `smoke: ok`, with no shader warning in the shell log.
 
-Hold test (the gallery globe page is a `FrameClock` holder): run `GHOST_VIEW=gallery GHOST_GALLERY_GLOBE=widgets/uplink/globe-lattice.png GHOST_SMOKE_SOCKET=/tmp/ghost-smoke-2b-t11.sock make smoke-holds` (Task 8b). Expected: `holds: ok`; the page releases its hold when hidden, when the dashboard is covered, and when destroyed.
+Hold test (the gallery globe page is a `FrameClock` holder): run `GHOST_VIEW=gallery GHOST_GALLERY_GLOBE=1 GHOST_SMOKE_SOCKET=/tmp/ghost-smoke-2b-t11.sock make smoke-holds` (Task 8b). Expected: `holds: ok`; the page releases its hold, through `Qt.callLater`, when hidden, when the dashboard is covered, and when destroyed.
 
-- [ ] **Step 6: Check the geography and the look**
+- [ ] **Step 5: Check the geography and the look**
 
 On the gallery globe page at the mockup's `u` and scale 1.15, snapshots 2 s apart at both sizes:
 - the São Paulo marker sits on Brazil's south-east coast, and the sea just south-east of it has no land dots (spec 234);
 - the continents are unmistakable in each snapshot while the globe turns;
-- dots, arcs, packets, end squares and the pulse match the mockup's `drawGlobe` at the same size (record a montage beside the mockup's canvas).
+- dots, arcs, packets, end squares and the pulse match the mockup's `drawGlobe` at the same size (record a montage beside the mockup's canvas);
+- the dots match a brute-force drawing: run the spike's `reference.py` (read with `git show`, run from a scratch directory outside the repo, with Python as `uv run --no-project --with pillow --with numpy python -I`) against a frozen frame. Expected: at most 25 pixels differ by more than 2/255 at either size, and none by more than 11/255 (the spike's figures: 4 at V2 and 25 at V1, from rim dots only).
 
-- [ ] **Step 7: Measure**
+- [ ] **Step 6: Measure against the spike**
 
-The gallery globe page at V2-centre size, 60 s, three runs, against the gallery idle: frames/s (≤ 15.9 after C21's settle: the spec's 15 fps cap), shell CPU, `smaps_rollup` Rss delta, and the GPU time per frame from `QSG_RENDER_TIMING`. Expected from the Global Constraints' spike figure: ≈ 0.53 % for 15 frames/s plus the per-frame JavaScript. No pass mark here; Task 12 checks V1 against the 2 % budget.
+Headless, with the spike's harness (`run.sh` and `shell.qml` from `git show spike/globe-shader~1:spikes/globe-shader/…`, copied to a scratch directory outside the repo, with `GlobeSpike` replaced by the kit's `Globe`):
+- the same setup: a private headless KWin at 2560 × 1440, `QT_SCALE_FACTOR=1.15`, a fake daemon, `scripts/measure-cpu.sh <qs pid> 60` after a 15 s settle;
+- `QT_LOGGING_RULES=qt.rhi.general=true`, and the log's `OpenGL RENDERER` line recorded, to show that the renderer is the NVIDIA GPU;
+- three runs per size, interleaved with the spike's six-`BlockGraph`-lane baseline (`lanes`) and its `empty` mode (clock held, no globe);
+- the driver's shader cache directory made before the first run, with its path reported (the run's own directory, never the user's).
 
-- [ ] **Step 8: Commit**
+Sizes, in design px: **V2 centre 608 × 330**, and **V1 scope 276 × 146**. The V1 size is the spike's estimate, which took about 100 for Task 8's scope height. Task 18 re-checks it once Task 8 reports the real height.
+
+Report for each size: shell CPU, frames/s, the `smaps_rollup` Rss delta over `empty`, and the first-frame time after creation with warm caches. The spike's figures to compare with: about 0.57 % at 14.93 frames/s (runs from 0.53 to 0.77 %), a first frame of 6–7 ms, and an Rss delta of +33 MiB at 2048 × 1024 and +21 MiB at 1024 × 512 for the texture route. Expected: frames/s ≤ 15.9 after C21's settle; the Rss delta well under the texture's, and not above 5 MiB.
+
+Stop and report the numbers, without committing, if the median CPU of the three V2-centre runs is above the spike's worst run (0.77 %), or if the Rss delta exceeds 5 MiB. Task 12 checks V1 against the 2 % budget.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add scripts/land-mask.py widgets/uplink/land-mask.png widgets/uplink/globe-lattice.png
-git commit -m "feat(scripts): rasterise Natural Earth land and the globe's dot lattice"
-git add Makefile scripts/install.sh shell/kit/GhostKit/Globe.qml shell/kit/GhostKit/lib/globe.mjs shell/kit/GhostKit/shaders/globe.frag shell/kit/GhostKit/shaders/arc.vert shell/kit/GhostKit/shaders/arc.frag shell/kit/GhostKit/qmldir shell/host/Gallery.qml shell/tests/globe.test.mjs
-git commit -m "feat(kit): draw the dot globe and its arcs with shaders"
+git add scripts/land-mask.py widgets/uplink/land-mask.png shell/kit/GhostKit/lib/landbits.mjs
+git commit -m "feat(scripts): rasterise Natural Earth land and the globe's dot land bits"
+git add shell/kit/GhostKit/Globe.qml shell/kit/GhostKit/lib/globe.mjs shell/kit/GhostKit/shaders/globe.frag shell/kit/GhostKit/qmldir shell/host/Gallery.qml shell/tests/globe.test.mjs
+git commit -m "feat(kit): draw the dot globe and its arcs with one shader"
 ```
 
 ---
@@ -1197,18 +1229,18 @@ git commit -m "feat(kit): draw the dot globe and its arcs with shaders"
 - Modify: none in the kit (`Globe` comes from Task 11).
 
 **Interfaces:**
-- Consumes: `uplink` (Task 10), `host`, `Data.config.location`, `Globe` and `widgets/uplink/globe-lattice.png` (Task 11), `FrameClock`.
+- Consumes: `uplink` (Task 10), `host`, `Data.config.location`, `Globe` and its `labelAnchors` (Task 11; ruling G1), `FrameClock`, and `make smoke-holds` (Task 8b). The widget passes `Globe` no mask and no lattice map: the land is in the kit.
 - Produces:
-  - **Manifest:** `id = "uplink"`, `requires = ["host"]`, `animates = true`, no settings (the plan's `dots` setting goes with the baked lattice, P23).
+  - **Manifest:** `id = "uplink"`, `requires = ["host"]`, `animates = true`, no settings (the plan's `dots` setting goes with the dots' fixed land bits, G1).
   - **Data:** the widget calls `Data.want("uplink")` while it is visible and `Data.release("uplink")` when hidden or destroyed, as the clock does for weather (P6), so the 5 s socket and GeoIP cycle runs only while a globe is shown.
+  - **Hold:** while visible the widget holds `FrameClock` (`acquire()`) and binds `Globe.elapsedMs` to `FrameClock.elapsedMs`. It releases the hold through `Qt.callLater`, never inside a binding's own update, when it is hidden, when the dashboard is covered, and on destruction.
   - **`uplink.mjs`:** `footerText(snapshot)`, `homeLabel(host)`, `hasHome(config)`, as the plan states.
   - **Widget:**
-    - a header `Uplink`, tag `scope`; the `Globe` fills the body with `latticeMap: Qt.resolvedUrl("globe-lattice.png")`;
-    - endpoint labels are `Text`s (`textFormat: Text.PlainText`, C6(b): organisation and host names are foreign text), weight 600, 9 px (8 px when small), `hi` at 75 %, at `labelAnchors[i]` + (6, 3), shown only while that anchor is visible;
+    - a header `Uplink`, tag `scope`; the `Globe` fills the body with `endpoints` from the snapshot's `lat` and `lon`, `hasHome`, `homeLat` and `homeLon` from the configured location, and `unit: Theme.u`;
+    - endpoint labels are `Text`s (`textFormat: Text.PlainText`, C6(b): organisation and host names are foreign text), weight 600, 9 px (8 px when small), `hi` at 75 %, at `globe.labelAnchors[i]` + (6, 3), shown only while that anchor is visible. `labelAnchors` is recomputed from `lib/globe.mjs` on every `elapsedMs` tick, 9 projections a frame, which Task 11's measurement includes;
     - the home label at the last anchor + (9, −6) in `signal`;
     - the footer in `dim` 9 px at (10, h − 10), hidden when small;
-    - without a location there is no home, no arcs and no packets; endpoints show as end squares only;
-    - while visible it holds `FrameClock.acquire()` and binds `Globe.elapsedMs` to `FrameClock.elapsedMs`; it releases when hidden or destroyed.
+    - without a location there is no home, no arcs and no packets; endpoints show as end squares only.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1230,13 +1262,14 @@ Expected: PASS, `smoke: ok` and `holds: ok`. The second is this widget's hold te
 Snapshot both sizes with `--fake` at the mockup's `u` and scale 1.15, three snapshots 2 s apart. Check that:
 - the São Paulo marker sits on Brazil's south-east coast;
 - the continents are unmistakable in all three;
+- every label sits on its end square as the globe turns, and a label disappears when its endpoint goes behind the globe;
 - the small size shows endpoint labels (spec 192), and none overflows the panel.
 
 Check with the daemon log at debug that `uplink` is subscribed only while the UPLINK tab is shown.
 
 - [ ] **Step 4: Measure**
 
-Release daemon `--fake` on its own socket, defaults, 60 s each, C21's settle: V2 with the UPLINK tab and V1 with the UPLINK tab. Report frames/s, shell and daemon CPU, and `smaps_rollup` Rss of both. V1 is Task 19's animating pass mark (≤ 2.00 % combined, ≤ 307 200 KiB): if either is over, stop and report rather than commit.
+Release daemon `--fake` on its own socket, defaults, 60 s each, C21's settle: V2 with the UPLINK tab and V1 with the UPLINK tab. Report frames/s, shell and daemon CPU, and `smaps_rollup` Rss of both, beside Task 11's globe-only figures for the same sizes (the difference is the labels and the widget). V1 is Task 19's animating pass mark (≤ 2.00 % combined, ≤ 307 200 KiB): if either is over, stop and report rather than commit.
 
 - [ ] **Step 5: Commit**
 
