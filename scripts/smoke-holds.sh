@@ -115,6 +115,7 @@ view_line='qml: view [^ ]+ -> [^ ]+'
 # What FrameClock and Data log under GHOST_DEBUG=1.
 holds_prefix='qml: holds '
 wants_prefix='qml: wants '
+claim_line='qml: (holds|wants) '
 reload_line='config reloaded'
 # The IPC target Views serves under GHOST_DEBUG=1 to list and choose the tabs on screen.
 tabs_target=tabs
@@ -140,6 +141,10 @@ baseline_holds=
 baseline_wants=
 rows=()
 tabs_shown=0
+# The count of holds and wants lines when the running phase began.
+phase_lines=0
+# The view the views phase found the dashboard on, if any action moved it.
+start_view=
 
 # Takes the name of a pid variable and clears it, so a later call (the EXIT trap) never signals a pid
 # that has already been reaped.
@@ -162,7 +167,7 @@ cleanup() {
 }
 
 print_table() {
-    printf '  %-9s %-34s %-30s %s\n' phase "what ran" holds wants
+    printf '  %-9s %-34s %-6s %-30s %s\n' phase "what ran" lines holds wants
     printf '  %s\n' "${rows[@]}"
 }
 
@@ -208,13 +213,34 @@ ipc() {
     qs ipc --pid "$shell_pid" "$@" || fail "qs ipc $* failed; see $shell_log"
 }
 
-# Settles, then adds the latest counts to the table and fails unless they equal the baseline's.
+# The log's last counts outlive the shell, so a shell that crashed would otherwise go on reporting the
+# baseline.
+require_alive() {
+    if ! kill -0 "$shell_pid" 2> /dev/null; then
+        fail "$1: the shell exited; see $shell_log"
+    fi
+    if ! kill -0 "$daemon_pid" 2> /dev/null; then
+        fail "$1: the daemon exited; see $daemon_log"
+    fi
+}
+
+begin_phase() {
+    phase_lines=$(line_count "$shell_log" "$claim_line")
+}
+
+# Settles, then adds the latest counts to the table and fails unless they equal the baseline's. With $3
+# set, the phase must also have logged a holds or wants line: one that changed no claim tested nothing.
 check() {
-    local phase=$1 ran=$2 holds wants
+    local phase=$1 ran=$2 must_log=${3:-} holds wants lines
     sleep "$settle_s"
+    require_alive "$phase"
+    lines=$(( $(line_count "$shell_log" "$claim_line") - phase_lines ))
     holds=$(latest "$holds_prefix")
     wants=$(latest "$wants_prefix")
-    rows+=("$(printf '%-9s %-34s %-30s %s' "$phase" "$ran" "$holds" "$wants")")
+    rows+=("$(printf '%-9s %-34s %-6s %-30s %s' "$phase" "$ran" "$lines" "$holds" "$wants")")
+    if [[ -n $must_log ]] && (( lines == 0 )); then
+        fail "$phase: no holds or wants line was logged, so the phase changed no claim"
+    fi
     if [[ $holds != "$baseline_holds" ]]; then
         fail "$phase: holds $holds where the baseline is holds $baseline_holds"
     fi
@@ -250,6 +276,7 @@ visit_views() {
         fi
         read -r from to <<< "$change"
         start=${start:-$from}
+        start_view=$start
         if [[ $to == "$start" ]]; then
             break
         fi
@@ -308,10 +335,11 @@ style_values() {
     fi
 }
 
-# "<line> <widget> <style>" for each slot of the config that sets a style, as the config is written:
-# a slot's widget comes before its settings in the same table, or on the same line in a tabs list.
+# "<line> <widget> <style>" for each slot of view $2 in config $1 that sets a style, as the config is
+# written: a slot's widget comes before its settings in the same table, or on the same line in a tabs
+# list. Only the view on screen counts, since only its widgets are rebuilt by a change.
 styled_slots() {
-    awk '
+    awk -v view="$2" '
         function quoted(key) {
             if (match($0, key " *= *\"[^\"]+\"")) {
                 value = substr($0, RSTART, RLENGTH)
@@ -321,14 +349,29 @@ styled_slots() {
             }
             return ""
         }
-        /^[[:space:]]*\[/ { widget = "" }
-        { found = quoted("widget"); if (found != "") { widget = found } }
-        { style = quoted("style"); if (style != "" && widget != "") { print NR, widget, style } }
+        /^[[:space:]]*\[/ {
+            widget = ""
+            header = $0
+            gsub(/[[:space:]\[\]]/, "", header)
+            in_view = header == "layout.views." view || index(header, "layout.views." view ".") == 1
+        }
+        in_view { found = quoted("widget"); if (found != "") { widget = found } }
+        in_view { style = quoted("style"); if (style != "" && widget != "") { print NR, widget, style } }
     ' "$1"
 }
 
-# Writes to config the sed script that moves every styled slot to the next style its widget lists, and
-# prints how many it moves.
+# The view the dashboard shows when no action has moved it: the config's default_view, or the daemon's.
+default_view() {
+    local view
+    view=$(sed -n 's/^default_view *= *"\([^"]*\)".*/\1/p' "$config_original")
+    if [[ -z $view ]]; then
+        view=$("$daemon" default-config | sed -n 's/^default_view *= *"\([^"]*\)".*/\1/p')
+    fi
+    echo "$view"
+}
+
+# Writes to config.next the config with every styled slot of view $1 moved to the next style its widget
+# lists, and prints how many it moves.
 flip_styles() {
     local line widget style values index next moved=0 script=()
     while read -r line widget style; do
@@ -343,20 +386,27 @@ flip_styles() {
             script+=(-e "${line}s/style *= *\"$style\"/style = \"$next\"/")
             moved=$((moved + 1))
         fi
-    done < <(styled_slots "$config_original")
+    done < <(styled_slots "$config_original" "$1")
     if (( moved > 0 )); then
         sed "${script[@]}" "$config_original" > "$config.next"
     fi
     echo "$moved"
 }
 
-# Replaces the config by rename, as an editor saves it, and waits for the daemon to apply it.
+# Replaces the config by rename, as an editor saves it, and waits for the daemon to reload it and for
+# the shell to rebuild the restyled widgets, which their new holds or wants lines show: a reload the
+# shell never applied would leave the counts at the baseline and test nothing.
 replace_config() {
-    local before
-    before=$(line_count "$daemon_log" "$reload_line")
+    local reloads claims
+    reloads=$(line_count "$daemon_log" "$reload_line")
+    claims=$(line_count "$shell_log" "$claim_line")
     mv -- "$1" "$config"
-    wait_for_more "$daemon_log" "$reload_line" "$before" "$reload_within_s" \
+    wait_for_more "$daemon_log" "$reload_line" "$reloads" "$reload_within_s" \
         || fail "style: the daemon did not reload $config; see $daemon_log"
+    if ! wait_for_more "$shell_log" "$claim_line" "$claims" "$reload_within_s"; then
+        require_alive style
+        fail "style: no holds or wants line within $reload_within_s s of the reload, so the shell did not apply the new styles"
+    fi
     sleep "$action_gap_s"
 }
 
@@ -424,8 +474,9 @@ fi
 if [[ -z $baseline_wants ]]; then
     fail "no wants line was ever logged; see $shell_log"
 fi
-rows+=("$(printf '%-9s %-34s %-30s %s' baseline "start, uncovered" "$baseline_holds" "$baseline_wants")")
+rows+=("$(printf '%-9s %-34s %-6s %-30s %s' baseline "start, uncovered" "" "$baseline_holds" "$baseline_wants")")
 
+begin_phase
 covered_before=$(line_count "$shell_log" "$covered_line")
 desktop_call Report sb "$output" false
 wait_for_more "$shell_log" "$covered_line" "$covered_before" "$change_within_s" \
@@ -436,25 +487,38 @@ desktop_call Report sb "" true
 wait_for_more "$shell_log" "$visible_line" "$visible_before" "$change_within_s" \
     || fail "cover: the shell never logged \"${visible_line#qml: }\" after the uncover"
 sleep "$action_gap_s"
-check cover "$output covered, then uncovered"
+# Covering destroys every widget, so a shell with any claim logs a change here.
+check cover "$output covered, then uncovered" must_log
 
+# A config with one view, or tabs whose widgets claim nothing, may log no line in these two.
+begin_phase
 views_before=$(line_count "$shell_log" "$view_line")
 visit_views no_visit
 check views "$(( $(line_count "$shell_log" "$view_line") - views_before )) view changes"
 
+begin_phase
 views_before=$(line_count "$shell_log" "$view_line")
 visit_views cycle_tabs
 check tabs "$tabs_shown tabs shown, $(( $(line_count "$shell_log" "$view_line") - views_before )) view changes"
 
-moved=$(flip_styles)
+begin_phase
+if [[ ${GHOST_VIEW:-} == gallery ]]; then
+    skipped="skipped (the gallery shows no view)"
+    moved=0
+else
+    style_view=${start_view:-$(default_view)}
+    skipped="skipped (no styled widget in $style_view)"
+    moved=$(flip_styles "$style_view")
+fi
 if (( moved == 0 )); then
-    echo "style: skipped (no styled widget)"
-    rows+=("$(printf '%-9s %s' style "skipped (no styled widget)")")
+    require_alive style
+    echo "style: $skipped"
+    rows+=("$(printf '%-9s %s' style "$skipped")")
 else
     replace_config "$config.next"
     cp -- "$config_original" "$config.next"
     replace_config "$config.next"
-    check style "$moved styles changed, then back"
+    check style "$moved styles in $style_view changed, then back" must_log
 fi
 
 stop shell_pid
