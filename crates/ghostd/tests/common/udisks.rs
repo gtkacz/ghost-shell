@@ -1,12 +1,14 @@
 //! A fake UDisks2 on the private bus, shaped as fx/udisks2-drives.json found the live one: drive
 //! objects whose SMART values arrive with `GetManagedObjects`, and NVMe controllers that answer
 //! `SmartGetAttributes` from their cache. It counts every method call it receives, including ones
-//! it does not implement, so a test can prove a call was never made.
+//! it does not implement, so a test can prove a call was never made. Every call must carry
+//! `NO_AUTO_START`, or the system bus would start a stopped udisksd; the fake checks that when it
+//! is dropped, so every test that uses it checks it too.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
-use zbus::message::Type;
+use zbus::message::{Flags, Type};
 use zbus::names::OwnedInterfaceName;
 use zbus::{Connection, Message, MessageStream, OwnedObjectPath, OwnedVariant, Variant, interface};
 
@@ -48,10 +50,11 @@ fn interface_name(name: &str) -> OwnedInterfaceName {
 type Properties = HashMap<String, OwnedVariant>;
 type ManagedObjects = HashMap<OwnedObjectPath, BTreeMap<OwnedInterfaceName, Properties>>;
 
-/// Every method call the fake received, as (interface, member). A property read counts against
-/// the interface it reads, not against `org.freedesktop.DBus.Properties`.
+/// Every method call the fake received, as (interface, member, whether the bus could have started
+/// UDisks2 for it). A property read counts against the interface it reads, not against
+/// `org.freedesktop.DBus.Properties`.
 #[derive(Clone, Default)]
-pub struct Calls(Arc<Mutex<Vec<(String, String)>>>);
+pub struct Calls(Arc<Mutex<Vec<(String, String, bool)>>>);
 
 impl Calls {
     fn note(&self, message: &Message) {
@@ -64,7 +67,25 @@ impl Calls {
         } else {
             interface.to_string()
         };
-        self.0.lock().unwrap().push((interface, member.to_string()));
+        let auto_starts = !message
+            .primary_header()
+            .flags()
+            .contains(Flags::NO_AUTO_START);
+        self.0
+            .lock()
+            .unwrap()
+            .push((interface, member.to_string(), auto_starts));
+    }
+
+    /// The members of every call that came without `NO_AUTO_START`.
+    fn auto_starting(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(.., auto_starts)| *auto_starts)
+            .map(|(_, member, _)| member.clone())
+            .collect()
     }
 
     /// Calls of `member`, on any interface.
@@ -73,7 +94,7 @@ impl Calls {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, called)| called == member)
+            .filter(|(_, called, _)| called == member)
             .count()
     }
 
@@ -82,7 +103,7 @@ impl Calls {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(on, _)| on == interface)
+            .filter(|(on, ..)| on == interface)
             .count()
     }
 
@@ -262,6 +283,19 @@ impl FakeUdisks {
 
     pub fn total_calls(&self) -> usize {
         self.calls.total_calls()
+    }
+}
+
+impl Drop for FakeUdisks {
+    fn drop(&mut self) {
+        // A second panic while a failing test unwinds would abort the run and hide its message.
+        if !std::thread::panicking() {
+            assert_eq!(
+                self.calls.auto_starting(),
+                Vec::<String>::new(),
+                "calls the system bus could have started UDisks2 for"
+            );
+        }
     }
 }
 

@@ -21,16 +21,20 @@ use std::time::Duration;
 use ghost_proto::{DiskHealth, DriveHealth, topics};
 use tokio::time::sleep;
 use tracing::{debug, warn};
-use zbus::fdo::{self, NameOwnerChangedStream, ObjectManagerProxy};
+use zbus::fdo::{self, NameOwnerChangedStream};
 use zbus::names::OwnedInterfaceName;
-use zbus::proxy::CacheProperties;
-use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, proxy};
+use zbus::proxy::{self, CacheProperties, MethodFlags};
+use zbus::wire::DynamicDeserialize;
+use zbus::{Connection, DynamicType, OwnedObjectPath, OwnedVariant, Proxy, Variant};
 
 use super::{WallClock, drain, next, unix_now_s, until_unwanted, until_wanted};
 use crate::server::{Feed, FeedContext, Publisher};
 
 const UDISKS: &str = "org.freedesktop.UDisks2";
 const UDISKS_PATH: &str = "/org/freedesktop/UDisks2";
+const OBJECT_MANAGER_INTERFACE: &str = "org.freedesktop.DBus.ObjectManager";
+const GET_MANAGED_OBJECTS: &str = "GetManagedObjects";
+const SMART_GET_ATTRIBUTES: &str = "SmartGetAttributes";
 const DRIVE_INTERFACE: &str = "org.freedesktop.UDisks2.Drive";
 const ATA_INTERFACE: &str = "org.freedesktop.UDisks2.Drive.Ata";
 const NVME_INTERFACE: &str = "org.freedesktop.UDisks2.NVMe.Controller";
@@ -48,15 +52,6 @@ const WALL_CLOCK_CHECK: Duration = Duration::from_secs(60);
 
 type Properties = HashMap<String, OwnedVariant>;
 type Interfaces = BTreeMap<OwnedInterfaceName, Properties>;
-
-#[proxy(
-    interface = "org.freedesktop.UDisks2.NVMe.Controller",
-    default_service = "org.freedesktop.UDisks2"
-)]
-trait NvmeController {
-    fn smart_get_attributes(&self, options: HashMap<&str, Variant<'_>>)
-    -> zbus::Result<Properties>;
-}
 
 /// Reads UDisks2 on the system bus, which is connected to only once the topic is first wanted.
 pub fn feed() -> Feed {
@@ -239,29 +234,56 @@ impl Reader {
 }
 
 async fn managed_objects(bus: &Connection) -> zbus::Result<HashMap<OwnedObjectPath, Interfaces>> {
-    ObjectManagerProxy::builder(bus)
-        .destination(UDISKS)
-        .path(UDISKS_PATH)
-        .cache_properties(CacheProperties::No)
-        .build()
-        .await?
-        .get_managed_objects()
-        .await
-        .map_err(zbus::Error::from)
+    call_udisks(
+        bus,
+        UDISKS_PATH,
+        OBJECT_MANAGER_INTERFACE,
+        GET_MANAGED_OBJECTS,
+        &(),
+    )
+    .await
 }
 
 /// `percent_used` from the controller's cached SMART log, `None` if the log lacks it.
 async fn percent_used(bus: &Connection, path: &OwnedObjectPath) -> zbus::Result<Option<u8>> {
-    let attributes = NvmeControllerProxy::builder(bus)
-        .path(path.clone())
-        .cache_properties(CacheProperties::No)
-        .build()
-        .await?
-        .smart_get_attributes(HashMap::new())
-        .await?;
+    let options: HashMap<&str, Variant<'_>> = HashMap::new();
+    let attributes: Properties = call_udisks(
+        bus,
+        path.as_str(),
+        NVME_INTERFACE,
+        SMART_GET_ATTRIBUTES,
+        &(options,),
+    )
+    .await?;
     Ok(attributes
         .get(PERCENT_USED)
         .and_then(|value| value.downcast_ref().ok()))
+}
+
+/// Calls `method` on UDisks2 without letting the bus start it: the system bus can activate
+/// udisksd, whose start-up probes every drive, so a stopped UDisks2 answers `ServiceUnknown` here
+/// and is read once it gains an owner.
+async fn call_udisks<B, R>(
+    bus: &Connection,
+    path: &str,
+    interface: &str,
+    method: &str,
+    body: &B,
+) -> zbus::Result<R>
+where
+    B: serde::Serialize + DynamicType,
+    R: for<'d> DynamicDeserialize<'d>,
+{
+    let reply = proxy::Builder::<Proxy<'_>>::new(bus)
+        .destination(UDISKS)
+        .path(path)
+        .interface(interface)
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await?
+        .call_with_flags(method, MethodFlags::NO_AUTO_START, body)
+        .await?;
+    Ok(reply.expect("a call not flagged NO_REPLY_EXPECTED always has a reply"))
 }
 
 /// Hours only, from the properties: ATA drives report no wear.
