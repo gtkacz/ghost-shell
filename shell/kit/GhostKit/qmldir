@@ -13,6 +13,7 @@ SegMeter 1.0 SegMeter.qml
 BlockGraph 1.0 BlockGraph.qml
 MirrorGraph 1.0 MirrorGraph.qml
 HeatGraph 1.0 HeatGraph.qml
+Globe 1.0 Globe.qml
 AlertBox 1.0 AlertBox.qml
 WeatherAlertState 1.0 WeatherAlertState.qml
 Digits 1.0 Digits.qml

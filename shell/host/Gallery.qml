@@ -88,15 +88,56 @@ Item {
     readonly property bool lanesReady: showsLanes && Data.connected && !Data.stale
     property int laneTick: 0
 
+    // GHOST_GALLERY_GLOBE=1 swaps this page for the uplink globe at the body sizes of the V2 centre and the V1 scope
+    // (the globe spike's estimate), holding the frame clock while it is shown. With GHOST_GALLERY_GRAB_DIR set, each
+    // globe is grabbed twice, 2 s apart.
+    readonly property bool showsGlobe: Quickshell.env("GHOST_GALLERY_GLOBE") === "1"
+    readonly property bool showsKit: !showsLanes && !showsGlobe
+    readonly property real globeV2WidthPx: 608
+    readonly property real globeV2HeightPx: 330
+    readonly property real globeV1WidthPx: 276
+    readonly property real globeV1HeightPx: 146
+    // The fake daemon's uplink: the reference mockup's six PEERS, and São Paulo home.
+    readonly property var globeEndpoints: [
+        {
+            lat: 39.04,
+            lon: -77.49
+        },
+        {
+            lat: 59.33,
+            lon: 18.07
+        },
+        {
+            lat: 47.61,
+            lon: -122.33
+        },
+        {
+            lat: 50.11,
+            lon: 8.68
+        },
+        {
+            lat: 37.77,
+            lon: -122.42
+        },
+        {
+            lat: -22.9,
+            lon: -43.2
+        }
+    ]
+    readonly property real homeLat: -23.55
+    readonly property real homeLon: -46.63
+    readonly property int globeGrabGapMs: 2000
+    readonly property int globeGrabRounds: 2
+
     // The window passes every click through except these, the way the layout view does for its tab strips.
-    readonly property var inputRects: showsLanes ? [] : [
+    readonly property var inputRects: showsKit ? [
         {
             x: Math.floor(fastToggle.x),
             y: Math.floor(fastToggle.y),
             width: Math.ceil(fastToggle.x + fastToggle.width) - Math.floor(fastToggle.x),
             height: Math.ceil(fastToggle.y + fastToggle.height) - Math.floor(fastToggle.y)
         }
-    ]
+    ] : []
 
     function ramp(count, top) {
         return Array.from({
@@ -161,7 +202,7 @@ Item {
     }
 
     Row {
-        visible: !root.showsLanes
+        visible: root.showsKit
         x: Theme.d(root.marginPx)
         y: Theme.d(root.marginPx + root.barBandPx)
         spacing: Theme.d(root.gutterPx)
@@ -257,7 +298,7 @@ Item {
     }
 
     Row {
-        visible: !root.showsLanes
+        visible: root.showsKit
         x: Theme.d(root.marginPx)
         y: root.secondRowY
         spacing: Theme.d(root.gutterPx)
@@ -355,7 +396,7 @@ Item {
     }
 
     Row {
-        visible: !root.showsLanes
+        visible: root.showsKit
         x: Theme.d(root.marginPx)
         y: root.thirdRowY
         spacing: Theme.d(root.gutterPx)
@@ -390,7 +431,7 @@ Item {
     Rectangle {
         id: fastToggle
 
-        visible: !root.showsLanes
+        visible: root.showsKit
         x: Theme.d(root.marginPx) + 2 * root.columnStep
         y: root.thirdRowY
         width: toggleLabel.implicitWidth + Theme.d(2 * (root.toggleSidePx + root.toggleBorderPx))
@@ -515,6 +556,94 @@ Item {
                 interval: root.grabDelayMs
                 running: !root.movingLanes && root.lanesReady && !lanes.grabbed
                 onTriggered: lanes.grabLanes()
+            }
+        }
+    }
+
+    Loader {
+        x: Theme.d(root.marginPx)
+        y: Theme.d(root.marginPx + root.barBandPx)
+        active: root.showsGlobe
+        sourceComponent: Row {
+            id: globes
+
+            readonly property bool wantsClock: visible
+            property bool holdsClock: false
+            property int grabs: 0
+
+            function holdClock() {
+                if (wantsClock === holdsClock) {
+                    return;
+                }
+                if (wantsClock) {
+                    FrameClock.acquire();
+                } else {
+                    FrameClock.release();
+                }
+                holdsClock = wantsClock;
+            }
+
+            // At the screen's own scale in both directions, as the lanes are grabbed.
+            function grabGlobes() {
+                const ratio = QsWindow.window ? QsWindow.window.devicePixelRatio : 1;
+                const round = grabs;
+                grabs += 1;
+                for (const [globe, name] of [[v2Globe, "v2"], [v1Globe, "v1"]]) {
+                    const path = root.grabDir + "/globe-" + name + "-" + round + ".png";
+                    const size = Qt.size(Math.round(globe.width * ratio) / ratio, Math.round(globe.height * ratio) / ratio);
+                    const elapsedMs = globe.elapsedMs;
+                    globe.grabToImage(result => {
+                        if (result.saveToFile(path)) {
+                            console.info("gallery grab saved " + path + " at " + elapsedMs + " ms");
+                        } else {
+                            console.warn("gallery grab not written to " + path);
+                        }
+                    }, size);
+                }
+            }
+
+            spacing: Theme.d(root.gutterPx)
+
+            // A hold changes a turn later, never inside the update of the binding that asked for it.
+            onWantsClockChanged: Qt.callLater(holdClock)
+            Component.onCompleted: holdClock()
+            // Directly: a call left for later is dropped once the page is gone, and its hold would stay.
+            Component.onDestruction: {
+                if (holdsClock) {
+                    FrameClock.release();
+                    holdsClock = false;
+                }
+            }
+
+            Globe {
+                id: v2Globe
+
+                width: Theme.d(root.globeV2WidthPx)
+                height: Theme.d(root.globeV2HeightPx)
+                elapsedMs: FrameClock.elapsedMs
+                hasHome: true
+                homeLat: root.homeLat
+                homeLon: root.homeLon
+                endpoints: root.globeEndpoints
+            }
+
+            Globe {
+                id: v1Globe
+
+                width: Theme.d(root.globeV1WidthPx)
+                height: Theme.d(root.globeV1HeightPx)
+                elapsedMs: FrameClock.elapsedMs
+                hasHome: true
+                homeLat: root.homeLat
+                homeLon: root.homeLon
+                endpoints: root.globeEndpoints
+            }
+
+            Timer {
+                interval: root.globeGrabGapMs
+                repeat: true
+                running: root.grabDir !== "" && globes.grabs < root.globeGrabRounds
+                onTriggered: globes.grabGlobes()
             }
         }
     }
