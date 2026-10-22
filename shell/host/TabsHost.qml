@@ -13,11 +13,12 @@ Item {
     readonly property real textPx: 10
     // Letter spacing in em.
     readonly property real tracking: 0.14
-    // Design pixels, from the mockup's .ph: Panel's header row, whose line the strip sits on.
-    readonly property real headerHeightPx: 26
-    readonly property real headerTopPx: 9
-    readonly property real headerBottomPx: 6
-    readonly property real headerSidePx: 12
+    // Design pixels of Panel's header row, from the mockup's .ph, for a tab widget that is not a Panel. A
+    // Panel's own values are read from it, so the strip follows any change to its header.
+    readonly property real fallbackHeaderHeightPx: 26
+    readonly property real fallbackHeaderTopPx: 9
+    readonly property real fallbackHeaderBottomPx: 6
+    readonly property real fallbackHeaderSidePx: 12
 
     // A tabs node as computeRects places it: `tabs` (each a slot with a `title`), `default` and `path`.
     required property var node
@@ -30,6 +31,12 @@ Item {
     }
 
     readonly property real textSize: Theme.d(textPx)
+    // The header row whose line the strip sits on.
+    readonly property var panel: body.instance !== null && body.instance.headerHeightPx !== undefined ? body.instance : null
+    readonly property real headerHeightPx: panel ? panel.headerHeightPx : fallbackHeaderHeightPx
+    readonly property real headerTopPx: panel ? panel.headerTopPx : fallbackHeaderTopPx
+    readonly property real headerBottomPx: panel ? panel.headerBottomPx : fallbackHeaderBottomPx
+    readonly property real headerSidePx: panel ? panel.headerSidePx : fallbackHeaderSidePx
 
     onCurrentChanged: Views.setTabIndex(view, node.path, current)
 
@@ -44,9 +51,18 @@ Item {
     }
 
     WidgetHost {
+        id: body
+
         anchors.fill: parent
         slot: root.node.tabs[root.current]
         headerReserve: strip.width
+
+        // Once per widget: one without a shown Panel header leaves the strip nowhere but over its body.
+        onInstanceChanged: {
+            if (body.instance !== null && (body.instance.headerReserve === undefined || body.instance.header === false)) {
+                console.warn("tab widget \"" + body.widgetId + "\" in the tabs node at \"" + root.node.path + "\" has no panel header, so the tab strip will overlap its body");
+            }
+        }
     }
 
     Item {

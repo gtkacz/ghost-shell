@@ -129,12 +129,14 @@ Item {
         }
     }
 
-    // Only a Panel root has the property; widgets never set it themselves.
+    // The contract for a tab's widget: a Panel root with its header shown, the only place the strip can
+    // sit without covering the body. Widgets never set the reserve themselves; TabsHost warns about a
+    // widget that breaks the contract, whose body the strip then overlaps.
     Binding {
         target: root.instance
         property: "headerReserve"
         value: root.headerReserve
-        when: root.headerReserve > 0 && root.instance !== null && root.instance.headerReserve !== undefined
+        when: root.headerReserve > 0 && root.instance !== null && root.instance.headerReserve !== undefined && root.instance.header !== false
     }
 
     Loader {
