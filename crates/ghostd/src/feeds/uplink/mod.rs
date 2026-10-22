@@ -1,14 +1,17 @@
 //! The `uplink` topic: where this machine's live connections lead, for the uplink globe.
 //!
 //! Nothing runs until some client wants the topic, and everything stops once none does; the
-//! GeoIP databases are not even opened before the first want. Every 5 s while it is wanted:
+//! GeoIP databases are not even opened before the first want, and are unmapped whenever it is
+//! unwanted, so their resident pages count only while a globe is shown. Every 5 s while it is
+//! wanted:
 //! 1. the established TCP and connected UDP sockets are read from `/proc/net`;
 //! 2. remotes outside the public internet are dropped;
 //! 3. each remote is located, and its autonomous system looked up, in the offline databases;
 //! 4. each is labelled: by `[uplink.labels]`, by its organisation, by `AS<n>`, or by its address;
 //! 5. sockets sharing a label and a city become one endpoint, and those with no city are counted
 //!    but not shown;
-//! 6. each online Tailscale peer with a direct path is added as `TAILNET:<HOST>`;
+//! 6. each online Tailscale peer with a direct path to a public address is added as
+//!    `TAILNET:<HOST>`;
 //! 7. the 8 busiest endpoints are published, if anything changed.
 //!
 //! No address is ever resolved to a name, and nothing leaves the machine but the request to
@@ -98,7 +101,10 @@ async fn run(
         loop {
             tokio::select! {
                 biased;
-                () = until_unwanted(&mut context.demand, topics::UPLINK) => break,
+                () = until_unwanted(&mut context.demand, topics::UPLINK) => {
+                    geo.release();
+                    break;
+                }
                 _ = ticks.tick() => {}
             }
             let peers = peers.current().await.to_vec();
@@ -213,7 +219,7 @@ fn snapshot(
         .iter()
         .filter(|peer| peer.online)
         .filter_map(|peer| {
-            let address = peer.cur_addr?;
+            let address = peer.cur_addr.filter(|address| is_public(&address.ip()))?;
             let label = format!("{TAILNET_PREFIX}{}", peer.host_name.to_uppercase());
             Some((label, geo.city(address.ip())))
         })

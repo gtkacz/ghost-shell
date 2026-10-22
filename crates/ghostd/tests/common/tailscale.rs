@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::task::JoinHandle;
 
-const TAILSCALE_STATUS: &str = include_str!("../fixtures/tailscale-status.json");
+pub const TAILSCALE_STATUS: &str = include_str!("../fixtures/tailscale-status.json");
 
 /// Tailscale's local API on a socket of its own, answering every request with the fixture.
 pub struct FakeTailscale {
@@ -21,6 +21,11 @@ impl FakeTailscale {
     pub const SOCKET: &str = "tailscaled.sock";
 
     pub fn start() -> Self {
+        Self::start_with(TAILSCALE_STATUS.to_owned())
+    }
+
+    /// As [`FakeTailscale::start`], answering with `status` instead of the fixture.
+    pub fn start_with(status: String) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let listener = UnixListener::bind(dir.path().join(Self::SOCKET)).unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -37,9 +42,8 @@ impl FakeTailscale {
                     }
                 }
                 seen.lock().unwrap().push(request);
-                let response = format!(
-                    "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{TAILSCALE_STATUS}"
-                );
+                let response =
+                    format!("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{status}");
                 writer.write_all(response.as_bytes()).await.unwrap();
                 writer.shutdown().await.unwrap();
             }

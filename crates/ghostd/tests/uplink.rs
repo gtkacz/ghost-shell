@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use common::FakeRoot;
-use common::tailscale::{FakeTailscale, missing_tailscale};
+use common::tailscale::{FakeTailscale, TAILSCALE_STATUS, missing_tailscale};
 use ghost_proto::{ResolvedConfig, UplinkSnapshot, topics};
 use ghostd::feeds::tailscale::TailscaleClient;
 use ghostd::feeds::uplink::geo::Geo;
@@ -30,8 +30,13 @@ const USER_UID: u32 = 1000;
 const ROOT_UID: u32 = 0;
 const SPOTIFY_INODE: u64 = 5_123_456;
 const UNWANTED_FOR: Duration = Duration::from_secs(60);
-/// The fixture's direct tailnet peer, `phone`, at its `CurAddr`.
-const PHONE_ADDR: &str = "203.0.113.7";
+/// The fixture's direct tailnet peer, `phone`, at its `CurAddr`, which as a documentation
+/// address is never shown.
+const FIXTURE_PHONE_ADDR: &str = "203.0.113.7";
+/// A public address for `phone` to be reachable at instead.
+const PHONE_ADDR: &str = "8.8.4.4";
+const RELEASE_WAIT: Duration = Duration::from_secs(10);
+const UPLINK_EVERY: Duration = Duration::from_secs(5);
 const AKAMAI: (u32, &str) = (20940, "Akamai International B.V.");
 const SAO_PAULO: (f32, f32) = (-23.55, -46.63);
 
@@ -275,11 +280,16 @@ struct FakeGeo {
     asns: HashMap<IpAddr, (u32, String)>,
     attribution: &'static str,
     lookups: AtomicUsize,
+    releases: AtomicUsize,
 }
 
 impl FakeGeo {
     fn lookups(&self) -> usize {
         self.lookups.load(Ordering::SeqCst)
+    }
+
+    fn releases(&self) -> usize {
+        self.releases.load(Ordering::SeqCst)
     }
 }
 
@@ -299,6 +309,10 @@ impl Geo for FakeGeo {
     }
 
     fn refresh(&self) {}
+
+    fn release(&self) {
+        self.releases.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 fn socket(remote: &str, inode: u64) -> RemoteSocket {
@@ -312,7 +326,7 @@ fn socket(remote: &str, inode: u64) -> RemoteSocket {
 /// The real feed over injected sockets and database, and everything it publishes.
 struct RunningUplink {
     published: mpsc::UnboundedReceiver<(String, Value)>,
-    _demand: watch::Sender<BTreeSet<String>>,
+    demand: watch::Sender<BTreeSet<String>>,
     _config: watch::Sender<ResolvedConfig>,
     task: JoinHandle<()>,
 }
@@ -344,10 +358,19 @@ impl RunningUplink {
         let feed = uplink::feed_on(sockets, geo, owners, tailscale);
         Self {
             published,
-            _demand: demand,
+            demand,
             _config: config,
             task: tokio::spawn(feed.run(context)),
         }
+    }
+
+    fn want(&self, wanted: bool) {
+        let topics = if wanted {
+            BTreeSet::from([topics::UPLINK.to_owned()])
+        } else {
+            BTreeSet::new()
+        };
+        self.demand.send_replace(topics);
     }
 
     async fn next_snapshot(&mut self) -> UplinkSnapshot {
@@ -471,7 +494,8 @@ async fn a_process_override_labels_the_endpoint_by_its_owner() {
 async fn a_direct_tailnet_peer_is_located_and_a_relayed_one_is_not() {
     let mut geo = FakeGeo::default();
     geo.cities.insert(PHONE_ADDR.parse().unwrap(), SAO_PAULO);
-    let tailscale = FakeTailscale::start();
+    let tailscale =
+        FakeTailscale::start_with(TAILSCALE_STATUS.replace(FIXTURE_PHONE_ADDR, PHONE_ADDR));
     let root = FakeRoot::new();
     let mut uplink = RunningUplink::start(
         CountingSockets::new(Vec::new()),
@@ -521,4 +545,56 @@ async fn nothing_is_read_while_unwanted() {
     assert_eq!((geo.lookups(), sockets.reads()), (0, 0));
     assert!(tailscale.requests().is_empty());
     assert!(uplink.published.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_tailnet_peer_at_a_non_public_address_is_not_shown() {
+    let mut geo = FakeGeo::default();
+    // Even a database that places the address cannot put it on the globe.
+    geo.cities
+        .insert(FIXTURE_PHONE_ADDR.parse().unwrap(), SAO_PAULO);
+    let tailscale = FakeTailscale::start();
+    let root = FakeRoot::new();
+    let mut uplink = RunningUplink::start(
+        CountingSockets::new(Vec::new()),
+        Arc::new(geo),
+        Owners::new(root.root()),
+        tailscale.client(),
+        ResolvedConfig::default(),
+        true,
+    );
+    let snap = uplink.next_snapshot().await;
+    assert!(snap.endpoints.is_empty());
+    assert_eq!(snap.total, 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_databases_are_released_while_unwanted_and_used_again_once_wanted() {
+    let mut geo = FakeGeo::default();
+    geo.cities.insert(ip(), SAO_PAULO);
+    let geo = Arc::new(geo);
+    let (_dir, tailscale) = missing_tailscale();
+    let root = FakeRoot::new();
+    let mut uplink = RunningUplink::start(
+        CountingSockets::new(vec![socket("1.1.1.1", 1)]),
+        Arc::clone(&geo),
+        Owners::new(root.root()),
+        tailscale,
+        ResolvedConfig::default(),
+        true,
+    );
+    uplink.next_snapshot().await;
+    assert_eq!(geo.releases(), 0);
+
+    uplink.want(false);
+    sleep(RELEASE_WAIT).await;
+    assert_eq!(geo.releases(), 1);
+    let lookups_when_released = geo.lookups();
+    sleep(UNWANTED_FOR).await;
+    assert_eq!(geo.lookups(), lookups_when_released);
+
+    uplink.want(true);
+    sleep(UPLINK_EVERY).await;
+    assert!(geo.lookups() > lookups_when_released);
+    assert_eq!(geo.releases(), 1);
 }

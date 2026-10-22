@@ -33,8 +33,12 @@ pub trait Geo: Send + Sync {
     fn asn(&self, ip: IpAddr) -> Option<(u32, String)>;
     /// The licence notice the city database asks to be shown, `""` while none is loaded.
     fn attribution(&self) -> &'static str;
-    /// Picks up databases that appeared, changed or went away since the last call.
+    /// Picks up databases that appeared, changed or went away since the last call, and maps
+    /// them again after [`Geo::release`].
     fn refresh(&self);
+    /// Lets go of the databases until the next [`Geo::refresh`], so their pages stop counting
+    /// while nothing shows the globe.
+    fn release(&self);
 }
 
 /// `geoip_dir`, or `$XDG_DATA_HOME/ghost-shell/geoip` when it is `""`.
@@ -130,8 +134,20 @@ impl Geo for MmdbGeo {
     fn refresh(&self) {
         let mut databases = self.lock();
         databases.city.refresh();
-        databases.fallback_city.refresh();
+        // The fallback is never read while DB-IP's city is mapped, so it is not mapped then.
+        if databases.city.reader.is_some() {
+            databases.fallback_city.release();
+        } else {
+            databases.fallback_city.refresh();
+        }
         databases.asn.refresh();
+    }
+
+    fn release(&self) {
+        let mut databases = self.lock();
+        databases.city.release();
+        databases.fallback_city.release();
+        databases.asn.release();
     }
 }
 
@@ -160,6 +176,12 @@ impl Database {
         }
         self.mapped_at = modified;
         self.reader = modified.and_then(|_| self.map());
+    }
+
+    /// Unmaps the file; the next refresh maps it again, whatever its mtime.
+    fn release(&mut self) {
+        self.reader = None;
+        self.mapped_at = None;
     }
 
     fn map(&self) -> Option<Reader<Mmap>> {
@@ -207,5 +229,62 @@ mod tests {
         let ip = "1.1.1.1".parse().unwrap();
         assert_eq!((geo.city(ip), geo.asn(ip)), (None, None));
         assert_eq!(geo.attribution(), "");
+    }
+
+    /// The smallest database `Reader` accepts: one search-tree node whose records both mean "no
+    /// data", an empty data section, and the metadata map.
+    fn empty_mmdb() -> Vec<u8> {
+        const NO_DATA_NODE: [u8; 6] = [0, 0, 1, 0, 0, 1];
+        const SEPARATOR: [u8; 16] = [0; 16];
+        const MARKER: &[u8] = b"\xAB\xCD\xEFMaxMind.com";
+        let key = |name: &str| [&[0x40 | name.len() as u8][..], name.as_bytes()].concat();
+        let metadata = [
+            vec![0xE9],
+            key("binary_format_major_version"),
+            vec![0xA1, 2],
+            key("binary_format_minor_version"),
+            vec![0xA0],
+            key("build_epoch"),
+            vec![0x00, 0x02],
+            key("database_type"),
+            key("Test"),
+            key("description"),
+            vec![0xE0],
+            key("ip_version"),
+            vec![0xA1, 4],
+            key("languages"),
+            vec![0x00, 0x04],
+            key("node_count"),
+            vec![0xC1, 1],
+            key("record_size"),
+            vec![0xA1, 24],
+        ]
+        .concat();
+        [&NO_DATA_NODE[..], &SEPARATOR, MARKER, &metadata].concat()
+    }
+
+    #[test]
+    fn released_databases_are_unmapped_until_the_next_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(DBIP_CITY), empty_mmdb()).unwrap();
+        fs::write(dir.path().join(DBIP_ASN), empty_mmdb()).unwrap();
+        let geo = MmdbGeo::open(dir.path());
+        {
+            let databases = geo.lock();
+            assert!(databases.city.reader.is_some() && databases.asn.reader.is_some());
+            assert!(databases.fallback_city.reader.is_none());
+        }
+        assert_eq!(geo.attribution(), "IP GEOLOCATION BY DB-IP");
+
+        geo.release();
+        {
+            let databases = geo.lock();
+            assert!(databases.city.reader.is_none() && databases.asn.reader.is_none());
+            assert!(databases.fallback_city.reader.is_none());
+        }
+        assert_eq!(geo.attribution(), "");
+
+        geo.refresh();
+        assert!(geo.lock().city.reader.is_some() && geo.lock().asn.reader.is_some());
     }
 }
