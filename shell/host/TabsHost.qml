@@ -30,6 +30,16 @@ Item {
 
     onCurrentChanged: Views.setTabIndex(view, node.path, current)
 
+    Connections {
+        target: Views
+
+        function onTabRequested(view, path, index) {
+            if (view === root.view && path === root.node.path) {
+                root.current = index;
+            }
+        }
+    }
+
     Item {
         id: strip
 

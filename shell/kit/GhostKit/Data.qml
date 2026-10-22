@@ -34,14 +34,26 @@ Singleton {
     // widgets that want the same topic each release their own claim.
     function want(name) {
         link.want(name);
+        if (link.logsWants) {
+            link.logWants();
+        }
     }
 
     function release(name) {
         link.release(name);
+        if (link.logsWants) {
+            link.logWants();
+        }
     }
 
     onCoveredChanged: link.subscribeLater()
-    Component.onCompleted: link.start()
+    Component.onCompleted: {
+        // A shell whose widgets never want a topic still logs its counts once, so the harness has a baseline.
+        if (link.logsWants) {
+            link.logWants();
+        }
+        link.start();
+    }
 
     // The protocol lives in here so widgets see only the properties, functions and signal above.
     QtObject {
@@ -60,6 +72,9 @@ Singleton {
         readonly property var barRequires: []
 
         readonly property string socketPath: Quickshell.env("GHOST_SOCKET") || runtimeSocket()
+        // Read once, so with the flag off a want or release costs one bool read and logs nothing.
+        // scripts/smoke-holds.sh reads the counts from the log to find a widget that never releases.
+        readonly property bool logsWants: Quickshell.env("GHOST_DEBUG") === "1"
 
         property Socket socket: null
         property bool connected: false
@@ -244,6 +259,13 @@ Singleton {
             }
             wantCounts.delete(name);
             subscribeLater();
+        }
+
+        // Sorted by topic, so the same counts print the same line whatever order the widgets wanted them in.
+        function logWants() {
+            const counts = {};
+            Array.from(wantCounts.keys()).sort().forEach(name => counts[name] = wantCounts.get(name));
+            console.info("wants " + JSON.stringify(counts));
         }
 
         // Changes in one event-loop turn, such as a release followed by a want, add up to one list.

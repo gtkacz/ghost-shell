@@ -2,6 +2,8 @@ pragma Singleton
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
+import "lib/layout.mjs" as Layout
 import "lib/views.mjs" as ViewsLib
 
 // Which view the dashboard shows, changed by the view shortcuts (through the daemon's desktop topic)
@@ -24,6 +26,9 @@ Singleton {
     }
 
     readonly property var dashboard: Data.config ? Data.config.dashboard : null
+
+    // Asks the tabs host at `path` in `view` to show tab `index`. Only the debug handler below emits it.
+    signal tabRequested(string view, string path, int index)
 
     function toggleMonitor() {
         views.perform(ViewsLib.MONITOR_ACTION);
@@ -117,6 +122,40 @@ Singleton {
             if (accepted.action !== null) {
                 perform(accepted.action);
             }
+        }
+    }
+
+    // Lets scripts/smoke-holds.sh show each tab, which otherwise only a click can, and the headless KWin it
+    // runs in has no pointer to click with. Served only under GHOST_DEBUG=1. It lives in this singleton
+    // because Quickshell 0.2.1 keeps a destroyed handler registered, and calling it then crashes qs.
+    // Nodes are named by their place in list() rather than by path, because `qs ipc call` strips the
+    // brackets a path is made of.
+    IpcHandler {
+        enabled: Quickshell.env("GHOST_DEBUG") === "1"
+        target: "tabs"
+
+        function tabsNodes() {
+            const node = Data.layout && views.current !== "" ? Data.layout.views[views.current] : null;
+            if (!node) {
+                return [];
+            }
+            // Only the paths are used, so any rect will do.
+            const bounds = {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0
+            };
+            return Layout.computeRects(node, bounds, 0).filter(place => place.tabs);
+        }
+
+        // One line per tabs node of the view shown now: how many tabs it has and the one it shows.
+        function list(): string {
+            return tabsNodes().map(place => place.tabs.length + " " + root.tabIndex(views.current, place.path, place.default)).join("\n");
+        }
+
+        function select(node: int, index: int): void {
+            root.tabRequested(views.current, tabsNodes()[node].path, index);
         }
     }
 

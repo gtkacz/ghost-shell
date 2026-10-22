@@ -34,9 +34,16 @@ Singleton {
     // does not drift from the wall clock, so a holder of acquire() can step on wall-clock boundaries with it.
     readonly property double epochMs: ticker.epochMs
 
+    // Read once, so with the flag off a hold change costs one bool read and logs nothing.
+    // scripts/smoke-holds.sh reads the counts from the log to find a holder that never releases.
+    readonly property bool logsHolds: Quickshell.env("GHOST_DEBUG") === "1"
+
     function acquire() {
         ticker.users += 1;
         ticker.epochMs = Date.now();
+        if (logsHolds) {
+            logHolds();
+        }
     }
 
     function release() {
@@ -45,11 +52,17 @@ Singleton {
             return;
         }
         ticker.users -= 1;
+        if (logsHolds) {
+            logHolds();
+        }
     }
 
     // Runs the clock like acquire(), at the fast interval for as long as any fast holder remains.
     function acquireFast() {
         ticker.fastUsers += 1;
+        if (logsHolds) {
+            logHolds();
+        }
     }
 
     function releaseFast() {
@@ -58,11 +71,17 @@ Singleton {
             return;
         }
         ticker.fastUsers -= 1;
+        if (logsHolds) {
+            logHolds();
+        }
     }
 
     function acquireSeconds() {
         seconds.users += 1;
         seconds.sync();
+        if (logsHolds) {
+            logHolds();
+        }
     }
 
     function releaseSeconds() {
@@ -71,6 +90,20 @@ Singleton {
             return;
         }
         seconds.users -= 1;
+        if (logsHolds) {
+            logHolds();
+        }
+    }
+
+    function logHolds() {
+        console.info("holds normal=" + ticker.users + " fast=" + ticker.fastUsers + " seconds=" + seconds.users);
+    }
+
+    // A shell whose widgets never hold the clock still logs its counts once, so the harness has a baseline.
+    Component.onCompleted: {
+        if (logsHolds) {
+            logHolds();
+        }
     }
 
     Timer {
