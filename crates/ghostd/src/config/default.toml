@@ -169,7 +169,8 @@ geoip_dir = ""
 [uplink.labels]
 
 # The dashboard is a tree of nodes, one tree per named view.
-#   Split: lays out children in a "row" or a "column".
+#   Split: lays out children in a "row" or a "column", `gutter` apart if it sets one, or else the
+#          layout's own gutter apart.
 #   Slot:  shows one widget; `settings` is passed to it.
 #   Tabs:  shows one of several widgets at a time, starting at `default` (counted from 0).
 # `size` is in design pixels along the parent's direction; a node without it shares the leftover
@@ -180,8 +181,8 @@ gutter = 12
 margin = 12
 
 # The view the dashboard starts on: a large clock over the media player and the notifications,
-# between a column of processor, graphics and memory and one of tabs (uplink, silicon and process
-# tree) over the network, then storage and sensors.
+# between a column of processor, graphics and memory and one of tabs (uplink and silicon) over the
+# network scope, then storage and sensors.
 [layout.views.v1]
 direction = "row"
 
@@ -302,8 +303,8 @@ size = 164
 [[layout.views.v2.children.children]]
 widget = "storage"
 
-# The view the monitor shortcut opens: a slim band of clock, weather and media over telemetry, the
-# storage and sensors.
+# The view the monitor shortcut opens: a slim band of clock, weather and media over the six
+# telemetry lanes, beside a rail of storage above sensors.
 [layout.views.monitor]
 direction = "column"
 

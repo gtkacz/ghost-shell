@@ -17,7 +17,8 @@ const WRAP_PLAUSIBLE_DIVISOR: u64 = 2;
 /// Watts drawn by the CPU package, from the energy counter of the powercap zone `package-0`.
 ///
 /// The counter is in microjoules and wraps at the zone's own `max_energy_range_uj`, so a reading
-/// below the previous one is a wrap, not negative energy.
+/// below the previous one is a wrap, not negative energy, unless the wrapped delta is more than half
+/// the range: that is a reset, as across a suspend, and reads `None`.
 pub(super) struct PackagePower {
     root: SysRoot,
     energy_rel: String,

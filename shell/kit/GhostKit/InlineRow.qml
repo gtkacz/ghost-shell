@@ -3,7 +3,8 @@ import QtQuick
 // Lays out its children left to right as Row does, skipping the hidden ones and those with no width or height, but
 // from a binding instead of Row's polish pass. A Row whose child changes size re-lays out while the frame is being
 // drawn, and the basic render loop then draws a second, empty frame, so a reading that changes width every tick
-// would cost two frames a tick.
+// would cost two frames a tick. A child reads as hidden while the row or any item above it is hidden, so a hidden
+// row lays out nothing and is 0 wide: measure what it would show some other way.
 Item {
     id: root
 

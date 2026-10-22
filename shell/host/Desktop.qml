@@ -85,8 +85,8 @@ Scope {
             WlrLayershell.layer: root.surfaceLayer
             WlrLayershell.namespace: root.surfaceNamespace
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-            // The input region is the view's tab strips and nothing else, so every other click passes
-            // through to the desktop. This is the one place it is built.
+            // The input region is the view's claiming ClickAreas, its tab strips among them, and nothing
+            // else, so every other click passes through to the desktop. This is the one place it is built.
             mask: Region {
                 regions: inputRegions.instances
             }

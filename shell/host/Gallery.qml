@@ -129,7 +129,7 @@ Item {
     readonly property int globeGrabGapMs: 2000
     readonly property int globeGrabRounds: 2
 
-    // The window passes every click through except these, the way the layout view does for its tab strips.
+    // The window passes every click through except these, the way the layout view does for its claiming ClickAreas.
     readonly property var inputRects: showsKit ? [
         {
             x: Math.floor(fastToggle.x),
