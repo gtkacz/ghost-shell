@@ -7,6 +7,7 @@ pub mod disk;
 pub mod kdeconnect;
 pub mod nm;
 pub mod server;
+pub mod session;
 pub mod tailscale;
 pub mod udisks;
 pub mod upower;

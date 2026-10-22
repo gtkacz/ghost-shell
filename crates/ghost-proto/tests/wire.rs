@@ -310,3 +310,28 @@ fn links_exact_wire_form() {
         )
     );
 }
+#[test]
+fn session_snapshot_wire_form() {
+    let snapshot = SessionSnapshot {
+        id: "2".into(),
+        locked: false,
+        sleeping: false,
+        greeting: Some(GreetingKind::Unlock),
+        greeting_seq: 3,
+    };
+    let wire = r#"{"id":"2","locked":false,"sleeping":false,"greeting":"unlock","greeting_seq":3}"#;
+
+    assert_eq!(serde_json::to_string(&snapshot).unwrap(), wire);
+    assert_eq!(
+        serde_json::from_str::<SessionSnapshot>(wire).unwrap(),
+        snapshot
+    );
+    assert_eq!(
+        serde_json::to_value(GreetingKind::Wake).unwrap(),
+        serde_json::json!("wake")
+    );
+    assert_eq!(
+        serde_json::to_value(SessionSnapshot::default()).unwrap()["greeting"],
+        serde_json::Value::Null
+    );
+}

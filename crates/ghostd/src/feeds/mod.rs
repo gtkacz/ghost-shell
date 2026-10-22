@@ -7,6 +7,7 @@ pub mod host;
 pub mod http;
 mod kwin_script;
 pub mod links;
+pub mod session;
 pub mod shortcuts;
 pub mod sky;
 pub mod spectrum;

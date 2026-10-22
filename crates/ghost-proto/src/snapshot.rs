@@ -176,6 +176,26 @@ pub enum ViewAction {
     Swap,
 }
 
+/// Whether the screen is locked or the machine asleep, and the latest greeting to play.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionSnapshot {
+    /// logind's id for the graphical session, "" until known.
+    pub id: String,
+    pub locked: bool,
+    pub sleeping: bool,
+    /// The latest greeting asked for, `None` before the first.
+    pub greeting: Option<GreetingKind>,
+    /// Counts greetings, so two unlocks in a row are two changes.
+    pub greeting_seq: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GreetingKind {
+    Unlock,
+    Wake,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PerfSnapshot {
     pub daemon_cpu: f32,

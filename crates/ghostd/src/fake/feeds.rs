@@ -3,8 +3,9 @@ use std::time::Duration;
 
 use ghost_proto::{
     AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, Endpoint, HostSnapshot,
-    LanLink, LinkState, LinksSnapshot, RainPeak, SkySnapshot, SpectrumSnapshot, TailscaleLink,
-    UplinkSnapshot, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, topics,
+    LanLink, LinkState, LinksSnapshot, RainPeak, SessionSnapshot, SkySnapshot, SpectrumSnapshot,
+    TailscaleLink, UplinkSnapshot, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour,
+    WeatherSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -27,6 +28,7 @@ pub fn feeds() -> Vec<Feed> {
         disks_health(),
         batteries(),
         uplink(),
+        session(),
     ]
 }
 
@@ -376,4 +378,21 @@ fn mockup_uplink() -> UplinkSnapshot {
         endpoints,
         attribution: UPLINK_ATTRIBUTION.to_owned(),
     }
+}
+
+/// The mockup's session number.
+const SESSION_ID: &str = "0412";
+
+/// A session at rest, so a fake run touches neither the screen locker nor logind.
+fn session() -> Feed {
+    Feed::new(topics::SESSION, |context| async move {
+        context.publisher.publish(
+            topics::SESSION,
+            &SessionSnapshot {
+                id: SESSION_ID.to_owned(),
+                ..SessionSnapshot::default()
+            },
+        );
+        pending::<()>().await;
+    })
 }
