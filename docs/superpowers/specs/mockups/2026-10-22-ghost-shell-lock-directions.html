@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ghost-shell · lock + login directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kode+Mono:wght@400..700&family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #040506; }
+body { color: #b7d1cd; font-family: 'Kode Mono', 'Noto Sans JP', monospace; padding: 24px 36px 80px; }
+.intro { max-width: 1240px; margin: 0 auto; }
+.intro .kick { font-size: 11px; letter-spacing: .3em; color: #587170; }
+.intro h1 { font-size: 24px; font-weight: 700; letter-spacing: .04em; color: #e4f1ef; margin-top: 6px; }
+.intro p { color: #8a9e9c; font-size: 13px; line-height: 1.65; margin-top: 8px; max-width: 1080px; }
+.intro p strong { color: #e4f1ef; font-weight: 500; }
+.controls { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+.controls .gl { font-size: 10px; letter-spacing: .22em; color: #587170; margin-right: 6px; }
+.sbtn { background: none; border: 1px solid #2a3a3d; color: #8a9e9c; font: 600 11px 'Kode Mono', monospace; letter-spacing: .12em; padding: 5px 12px; cursor: pointer; }
+.sbtn:hover { color: #e4f1ef; border-color: #587170; }
+.sbtn.on { background: #a3d4cc; color: #071012; border-color: #a3d4cc; }
+
+.dir { max-width: 1240px; margin: 26px auto 0; border: 1px solid #161b1e; padding: 14px; cursor: pointer; }
+.dir.selected { border-color: #a3d4cc; }
+.dir.active .viewport { outline: 1px dashed #2a3a3d; outline-offset: 3px; }
+.dir header { display: flex; gap: 14px; align-items: baseline; margin-bottom: 10px; }
+.dir header .lt { font-size: 22px; font-weight: 700; color: #a3d4cc; }
+.dir header h3 { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: #e4f1ef; }
+.dir header p { font-size: 12px; color: #8a9e9c; line-height: 1.5; }
+.viewport { width: 100%; aspect-ratio: 16 / 9; position: relative; overflow: hidden; }
+
+.stage { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform-origin: 0 0; overflow: hidden;
+  --ground: #0a0f11; --op: .55; --hair: #2a3a3d; --hair2: #1a2527; --text: #b7d1cd; --hi: #e4f1ef; --dim: #587170;
+  --sig: #a3d4cc; --warn: #e9a84c; --crit: #ff3b45; --cut: 12px;
+  background: var(--ground); color: var(--text); font: 500 11px 'Kode Mono', 'Noto Sans JP', monospace; cursor: text; }
+.dots { position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(circle, rgba(163, 212, 204, .16) 1px, transparent 1.4px); background-size: 24px 24px; background-position: 12px 12px; }
+.stage::after { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 9; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .15) 0 1px, transparent 1px 3px); }
+.stage b { font-weight: inherit; color: var(--dim); }
+.stage em { font-style: normal; color: var(--hi); }
+.sig { color: var(--sig); } .hi { color: var(--hi); } .dim { color: var(--dim); }
+
+.panel { position: absolute; background: rgba(10, 15, 17, var(--op)); display: flex; flex-direction: column;
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut))); }
+.fr { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.fr .edge { fill: none; stroke: var(--hair); stroke-width: 1; }
+.fr .brk { fill: none; stroke: var(--sig); stroke-width: 1.5; }
+.ph { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 10px 14px 6px; font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--hi); white-space: nowrap; }
+.ph::before { content: ''; width: 5px; height: 5px; background: var(--sig); flex-shrink: 0; }
+.ph .tag { color: var(--sig); letter-spacing: .06em; text-transform: none; font-weight: 500; opacity: .85; }
+.ph .meta { margin-left: auto; color: var(--dim); letter-spacing: .1em; font-weight: 500; }
+.pb { position: relative; z-index: 1; padding: 6px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 500; letter-spacing: .08em; color: var(--sig); border: 1px solid color-mix(in srgb, var(--sig) 35%, transparent); padding: 0 6px; line-height: 15px; white-space: nowrap; }
+.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.chip.click { cursor: pointer; }
+.chip.click:hover { border-color: var(--sig); }
+.caps { display: none; }
+.capson .caps { display: inline-flex; }
+
+/* password: one lit cell per character, never the characters themselves */
+.pw { display: flex; align-items: center; gap: 3px; height: 18px; }
+.pw i { width: 9px; height: 14px; background: rgba(163, 212, 204, .06); flex-shrink: 0; }
+.pw i.on { background: var(--sig); }
+.pw .cur { width: 9px; height: 16px; background: var(--sig); animation: blink 1s steps(1) infinite; flex-shrink: 0; }
+@keyframes blink { 0% { opacity: 1; } 25% { opacity: .5; } 50% { opacity: 0; } 75% { opacity: .5; } }
+.busy .cur { animation: none; opacity: 0; }
+
+.clock { font-weight: 700; color: var(--hi); line-height: 1; white-space: nowrap; letter-spacing: -.01em; }
+.clock sup { font-size: .32em; color: var(--sig); vertical-align: top; margin-left: .08em; position: relative; top: .1em; font-weight: 600; }
+
+.acts { display: flex; gap: 18px; align-items: center; }
+.act { display: flex; align-items: center; gap: 6px; font-size: 9.5px; letter-spacing: .14em; color: var(--dim); cursor: pointer; text-transform: uppercase; }
+.act:hover { color: var(--hi); }
+.act svg, .ico { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: square; display: block; flex-shrink: 0; }
+.act:hover svg { color: var(--sig); }
+.login-only { display: none !important; }
+.mode-login .login-only { display: flex !important; }
+.mode-login .lock-only { display: none !important; }
+
+/* boxed alert: crit edge, stepped stripes, stepped arrival flicker then the cursor blink */
+.alert { display: none; position: relative; isolation: isolate; border-left: 3px solid var(--crit); padding: 5px 10px; font-size: 10px; font-weight: 600; letter-spacing: .12em; color: var(--crit); overflow: hidden; white-space: nowrap; }
+.alert::before { content: ''; position: absolute; inset: 0; z-index: -1; opacity: .16;
+  background: repeating-linear-gradient(-45deg, var(--crit) 0 4px, transparent 4px 11.3px); background-size: 16px 16px; animation: stripes 1.6s steps(8) infinite; }
+@keyframes stripes { to { background-position: 16px 0; } }
+.alert span { display: inline-block; animation: arrive 1.6s steps(1) both, blink 1s steps(1) 1.6s 8; }
+@keyframes arrive { 0% { opacity: 0; } 12% { opacity: 1; } 22% { opacity: 0; } 34% { opacity: .5; } 46% { opacity: 0; } 60% { opacity: 1; } 72% { opacity: .5; } 84% { opacity: 1; } }
+.failed .alert { display: block; }
+
+.scan { position: absolute; left: 0; right: 0; height: 2px; background: rgba(228, 241, 239, .55); z-index: 8; display: none; pointer-events: none; }
+.wipe { position: absolute; left: 0; right: 0; top: 0; background: var(--ground); z-index: 7; display: none; pointer-events: none; }
+.wipe .dots { position: absolute; }
+.handoff { position: absolute; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; font-size: 12px; letter-spacing: .22em; color: var(--dim); }
+
+/* ---------- A: prompt ---------- */
+.A .panel { left: 450px; top: 268px; width: 380px; }
+.A .who { display: flex; align-items: baseline; gap: 10px; font-size: 18px; font-weight: 700; color: var(--sig); letter-spacing: .04em; }
+.A .who small { font-size: 10px; font-weight: 500; color: var(--dim); letter-spacing: .14em; }
+.A .row { display: flex; align-items: center; gap: 6px; }
+.A .acts { position: absolute; left: 0; right: 0; bottom: 34px; justify-content: center; }
+
+/* ---------- B: terminal ---------- */
+.B .block { position: absolute; left: 108px; top: 178px; }
+.B .clock { font-size: 118px; }
+.B .date { margin-top: 14px; font-size: 12px; letter-spacing: .14em; color: var(--dim); }
+.B .date em { color: var(--text); }
+.B .term { margin-top: 54px; font-size: 15px; line-height: 30px; letter-spacing: .02em; }
+.B .term .ln { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.B .term .pw { height: 30px; }
+.B .term .alert { margin-top: 8px; width: 420px; }
+.B .foot { position: absolute; left: 108px; right: 108px; bottom: 34px; display: flex; align-items: center; gap: 10px; }
+.B .foot .acts { margin-left: auto; }
+
+/* ---------- C: identity card ---------- */
+.C .top { position: absolute; left: 0; right: 0; top: 108px; text-align: center; }
+.C .clock { font-size: 74px; }
+.C .date { margin-top: 10px; font-size: 11px; letter-spacing: .16em; color: var(--dim); }
+.C .panel { left: 330px; top: 300px; width: 620px; height: 214px; flex-direction: row; }
+.C .idc { width: 196px; flex-shrink: 0; position: relative; z-index: 1; border-right: 1px solid var(--hair2); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.C .ava { width: 92px; height: 92px; background: rgba(163, 212, 204, .04); clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px)); }
+.C .nm { font-size: 16px; font-weight: 700; color: var(--hi); letter-spacing: .06em; }
+.C .idkv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 9px; letter-spacing: .12em; }
+.C .idkv span { color: var(--text); text-align: right; }
+.C .auth { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.C .auth .pb { flex: 1; }
+.C .lbl { font-size: 8.5px; letter-spacing: .18em; color: var(--dim); }
+.C .row { display: flex; align-items: center; gap: 6px; }
+.C .away { margin-top: auto; display: flex; gap: 16px; font-size: 9.5px; letter-spacing: .1em; }
+.C .acts { position: absolute; left: 0; right: 0; bottom: 34px; justify-content: center; }
+</style>
+</head>
+<body>
+<div class="intro">
+  <div class="kick">GHOST-SHELL · PROJECT 2 · LOCK + LOGIN</div>
+  <h1>Three directions for the password box</h1>
+  <p>Each is the same thing for <strong>lock</strong> (Meta+L, wake from sleep) and <strong>login</strong> (after boot); flip between them with the toggle. They all use the shell's own language: Kode Mono, the dot grid, scanlines, chamfered panels with Grid brackets, segmented cells, and colour only when something needs you. <strong>Click a frame, then type</strong>: every character lights one cell (the length is visible, the characters never are). <strong>Enter</strong> with anything other than <em>ghost</em> shows the failure; <em>ghost</em> plays the scan pass that would hand over to the greeting. Caps Lock shows a warn chip; the <strong>US/BR</strong> chip flips the keyboard layout.</p>
+  <div class="controls"><span class="gl">MODE</span><button class="sbtn on" data-mode="lock">LOCK</button><button class="sbtn" data-mode="login">LOGIN</button></div>
+</div>
+
+<!-- shared icon defs -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-sleep" viewBox="0 0 12 12"><path d="M8.5 2.2A4.2 4.2 0 1 0 9.8 8.6 3.4 3.4 0 0 1 8.5 2.2z"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 12 12"><path d="M9.6 4.2A4 4 0 1 0 10 7"/><path d="M10 1.6v2.8H7.2"/></symbol>
+    <symbol id="i-power" viewBox="0 0 12 12"><path d="M6 1.2v4.6"/><path d="M3.4 3.2a4 4 0 1 0 5.2 0"/></symbol>
+    <symbol id="i-user" viewBox="0 0 12 12"><path d="M3.8 4a2.2 2.2 0 1 0 4.4 0 2.2 2.2 0 1 0-4.4 0"/><path d="M1.8 11a4.2 3.2 0 0 1 8.4 0"/><path d="M9.2 1.4l1.6 1.6-1.6 1.6"/></symbol>
+    <symbol id="i-kb" viewBox="0 0 12 12"><path d="M1 3.2h10v6H1z"/><path d="M3 5.2h1M5.5 5.2h1M8 5.2h1M3.5 7.3h5"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 12 12"><path d="M2.6 4.5L6 7.5l3.4-3"/></symbol>
+  </defs>
+</svg>
+
+<!-- A -->
+<section class="dir" data-choice="a" onclick="toggleSelect(this)">
+  <header><span class="lt">A</span><h3>PROMPT</h3><p>Just the box. One small panel in the middle of the dot grid; the time sits in its header. Nothing else competes.</p></header>
+  <div class="viewport"><div class="stage A">
+    <div class="dots"></div>
+    <div class="panel">
+      <div class="ph">Authenticate <span class="tag">認証</span><span class="meta"><span class="lock-only" style="display:inline">LOCKED&nbsp;</span><span data-hm></span></span></div>
+      <div class="pb">
+        <div class="who">gtkacz <small class="lock-only" style="display:inline">GHOST-SHELL</small><small class="login-only" style="display:none">PLASMA · WAYLAND</small></div>
+        <div class="pw"></div>
+        <div class="alert"><span>ACCESS DENIED · ATTEMPT <i data-n style="font-style:normal">1</i></span></div>
+        <div class="row">
+          <span class="chip click" data-kb><svg class="ico"><use href="#i-kb"/></svg><span>US</span></span>
+          <span class="chip warn caps">CAPS LOCK</span>
+          <span class="chip click login-only" style="margin-left:auto">PLASMA (WAYLAND)<svg class="ico" style="width:10px;height:10px"><use href="#i-chev"/></svg></span>
+        </div>
+      </div>
+    </div>
+    <div class="acts">
+      <span class="act lock-only"><svg><use href="#i-user"/></svg>Switch user</span>
+      <span class="act"><svg><use href="#i-sleep"/></svg>Sleep</span>
+      <span class="act login-only"><svg><use href="#i-restart"/></svg>Restart</span>
+      <span class="act login-only"><svg><use href="#i-power"/></svg>Shut down</span>
+    </div>
+  </div></div>
+</section>
+
+<!-- B -->
+<section class="dir" data-choice="b" onclick="toggleSelect(this)">
+  <header><span class="lt">B</span><h3>TERMINAL</h3><p>No panel at all. The dashboard's big clock, then a login prompt typed straight onto the grid, like a TTY. Left-aligned, so it reads as a console, not a dialog.</p></header>
+  <div class="viewport"><div class="stage B">
+    <div class="dots"></div>
+    <div class="block">
+      <div class="clock" data-clock></div>
+      <div class="date" data-date></div>
+      <div class="term">
+        <div class="ln"><b class="lock-only" style="display:inline">ghost-shell locked ·</b><b class="login-only" style="display:none">ghost-shell login:</b><span class="sig">gtkacz</span></div>
+        <div class="ln"><b>password:</b><div class="pw"></div></div>
+        <div class="alert"><span>ACCESS DENIED · ATTEMPT <i data-n style="font-style:normal">1</i></span></div>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="chip click" data-kb><svg class="ico"><use href="#i-kb"/></svg><span>US</span></span>
+      <span class="chip warn caps">CAPS LOCK</span>
+      <span class="chip click login-only">PLASMA (WAYLAND)<svg class="ico" style="width:10px;height:10px"><use href="#i-chev"/></svg></span>
+      <div class="acts">
+        <span class="act lock-only"><svg><use href="#i-user"/></svg>Switch user</span>
+        <span class="act"><svg><use href="#i-sleep"/></svg>Sleep</span>
+        <span class="act login-only"><svg><use href="#i-restart"/></svg>Restart</span>
+        <span class="act login-only"><svg><use href="#i-power"/></svg>Shut down</span>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<!-- C -->
+<section class="dir" data-choice="c" onclick="toggleSelect(this)">
+  <header><span class="lt">C</span><h3>ID CHECK</h3><p>Section 9 clearance card. Clock above, then an identity block beside the password. While locked it tells you, without content, what happened while you were away.</p></header>
+  <div class="viewport"><div class="stage C">
+    <div class="dots"></div>
+    <div class="top"><div class="clock" data-clock></div><div class="date" data-date></div></div>
+    <div class="panel">
+      <div class="idc">
+        <canvas class="ava" width="92" height="92"></canvas>
+        <div class="nm">GTKACZ</div>
+        <div class="idkv"><b>UID</b><span>1000</span><b>HOST</b><span>GHOST-SHELL</span><b class="lock-only" style="display:block">SESSION</b><span class="lock-only" style="display:block">0412</span></div>
+      </div>
+      <div class="auth">
+        <div class="ph">Identify <span class="tag">照合</span><span class="meta lock-only" style="display:inline">LOCKED</span><span class="meta login-only" style="display:none">NEW SESSION</span></div>
+        <div class="pb">
+          <div class="lbl">PASSPHRASE</div>
+          <div class="pw"></div>
+          <div class="alert"><span>ACCESS DENIED · ATTEMPT <i data-n style="font-style:normal">1</i></span></div>
+          <div class="row">
+            <span class="chip click" data-kb><svg class="ico"><use href="#i-kb"/></svg><span>US</span></span>
+            <span class="chip warn caps">CAPS LOCK</span>
+            <span class="chip click login-only" style="margin-left:auto">PLASMA (WAYLAND)<svg class="ico" style="width:10px;height:10px"><use href="#i-chev"/></svg></span>
+          </div>
+          <div class="away lock-only" style="display:flex"><span><b>AWAY</b> <em data-away>00:42:13</em></span><span><b>SIGNALS</b> <em>3 NEW</em></span><span><b>MEDIA</b> <em>PAUSED</em></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="acts">
+      <span class="act lock-only"><svg><use href="#i-user"/></svg>Switch user</span>
+      <span class="act"><svg><use href="#i-sleep"/></svg>Sleep</span>
+      <span class="act login-only"><svg><use href="#i-restart"/></svg>Restart</span>
+      <span class="act login-only"><svg><use href="#i-power"/></svg>Shut down</span>
+    </div>
+  </div></div>
+</section>
+
+<script>
+const PW_CELLS = 28;
+const stages = [...document.querySelectorAll('.stage')];
+let active = stages[0];
+const state = new Map(stages.map(s => [s, { len: 0, fails: 0, busy: false }]));
+
+function fit() {
+  for (const s of stages) {
+    s.style.transform = `scale(${s.parentElement.clientWidth / 1280})`;
+  }
+}
+
+function frame(panel) {
+  const w = panel.offsetWidth, h = panel.offsetHeight, c = 12, b = 14;
+  const ns = 'http://www.w3.org/2000/svg';
+  panel.querySelector('.fr')?.remove();
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('class', 'fr');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.innerHTML =
+    `<polygon class="edge" points="0.5,0.5 ${w - c},0.5 ${w - .5},${c} ${w - .5},${h - .5} ${c},${h - .5} 0.5,${h - c}"/>` +
+    `<polyline class="brk" points="0.75,${b} 0.75,0.75 ${b},0.75"/>` +
+    `<polyline class="brk" points="${w - b},${h - .75} ${w - .75},${h - .75} ${w - .75},${h - b}"/>`;
+  panel.appendChild(svg);
+}
+
+function renderPw(s) {
+  const st = state.get(s);
+  s.querySelectorAll('.pw').forEach(pw => {
+    let html = '';
+    for (let i = 0; i < PW_CELLS; i++) {
+      if (i === Math.min(st.len, PW_CELLS - 1) && !st.busy) {
+        html += '<span class="cur"></span>';
+      } else {
+        html += `<i class="${i < st.len ? 'on' : ''}"></i>`;
+      }
+    }
+    pw.innerHTML = html;
+  });
+}
+
+const pad = n => String(n).padStart(2, '0');
+const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+const lockedAt = Date.now() - 42 * 60e3 - 13e3;
+function tick() {
+  const d = new Date();
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  document.querySelectorAll('[data-clock]').forEach(e => { e.innerHTML = `${hm}<sup>${pad(d.getSeconds())}</sup>`; });
+  document.querySelectorAll('[data-hm]').forEach(e => { e.textContent = hm; });
+  document.querySelectorAll('[data-date]').forEach(e => {
+    e.innerHTML = `<em>${DAYS[d.getDay()]}</em> · ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)} · SÃO PAULO UTC−3`;
+  });
+  const a = Math.floor((Date.now() - lockedAt) / 1000);
+  document.querySelectorAll('[data-away]').forEach(e => { e.textContent = `${pad(Math.floor(a / 3600))}:${pad(Math.floor(a / 60) % 60)}:${pad(a % 60)}`; });
+}
+
+function avatar(cv) {
+  const g = cv.getContext('2d'), n = 92, step = 4;
+  g.fillStyle = '#a3d4cc';
+  for (let y = 2; y < n; y += step) {
+    for (let x = 2; x < n; x += step) {
+      const head = Math.hypot((x - 46) / 17, (y - 36) / 20);
+      const body = y > 58 ? Math.hypot((x - 46) / 34, (y - 96) / 36) : 9;
+      const v = Math.min(head, body);
+      if (v < 1) {
+        g.globalAlpha = .25 + .6 * (1 - v);
+        g.fillRect(x, y, 1.6, 1.6);
+      }
+    }
+  }
+}
+
+function setActive(s) {
+  active = s;
+  document.querySelectorAll('.dir').forEach(d => d.classList.toggle('active', d.contains(s)));
+}
+
+function submit(s) {
+  const st = state.get(s);
+  if (st.busy || st.len === 0) {
+    return;
+  }
+  st.busy = true;
+  renderPw(s);
+  const ok = st.pwText === 'ghost';
+  setTimeout(() => {
+    if (ok) {
+      unlock(s);
+      return;
+    }
+    st.fails += 1;
+    s.querySelectorAll('[data-n]').forEach(e => { e.textContent = st.fails; });
+    s.classList.remove('failed');
+    void s.offsetWidth;
+    s.classList.add('failed');
+    st.len = 0; st.pwText = ''; st.busy = false;
+    renderPw(s);
+  }, 420);
+}
+
+function unlock(s) {
+  const st = state.get(s);
+  const scan = s.querySelector('.scan'), wipe = s.querySelector('.wipe'), hand = s.querySelector('.handoff');
+  scan.style.display = 'block'; wipe.style.display = 'block';
+  let i = 0;
+  const steps = 30;
+  const t = setInterval(() => {
+    i += 1;
+    const y = Math.round(720 * i / steps);
+    scan.style.top = `${y}px`; wipe.style.height = `${y}px`;
+    if (i >= steps) {
+      clearInterval(t);
+      scan.style.display = 'none';
+      hand.style.display = 'flex';
+      setTimeout(() => {
+        hand.style.display = 'none'; wipe.style.display = 'none'; wipe.style.height = '0';
+        s.classList.remove('failed');
+        st.len = 0; st.pwText = ''; st.busy = false; st.fails = 0;
+        renderPw(s);
+      }, 1800);
+    }
+  }, 800 / steps);
+}
+
+document.addEventListener('keydown', e => {
+  const s = active, st = state.get(s);
+  document.querySelectorAll('.stage').forEach(x => x.classList.toggle('capson', e.getModifierState && e.getModifierState('CapsLock')));
+  if (st.busy) {
+    return;
+  }
+  if (e.key === 'Enter') {
+    submit(s);
+  } else if (e.key === 'Backspace') {
+    st.len = Math.max(0, st.len - 1); st.pwText = (st.pwText || '').slice(0, -1);
+  } else if (e.key === 'Escape') {
+    st.len = 0; st.pwText = '';
+  } else if (e.key.length === 1) {
+    st.len += 1; st.pwText = (st.pwText || '') + e.key;
+    s.classList.remove('failed');
+  } else {
+    return;
+  }
+  e.preventDefault();
+  renderPw(s);
+});
+
+for (const s of stages) {
+  s.insertAdjacentHTML('beforeend', '<div class="wipe"><div class="dots"></div></div><div class="scan"></div><div class="handoff">GREETING TAKES OVER HERE</div>');
+  s.addEventListener('click', () => setActive(s));
+  s.querySelectorAll('[data-kb]').forEach(k => k.addEventListener('click', ev => {
+    ev.stopPropagation();
+    document.querySelectorAll('[data-kb] span').forEach(sp => { sp.textContent = sp.textContent === 'US' ? 'BR' : 'US'; });
+  }));
+  renderPw(s);
+}
+
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x === b));
+  stages.forEach(s => s.classList.toggle('mode-login', b.dataset.mode === 'login'));
+  stages.forEach(s => s.querySelectorAll('.panel').forEach(frame));
+}));
+
+document.querySelectorAll('.ava').forEach(avatar);
+fit();
+stages.forEach(s => s.querySelectorAll('.panel').forEach(frame));
+setActive(stages[0]);
+tick();
+setInterval(tick, 1000);
+addEventListener('resize', fit);
+document.fonts && document.fonts.ready.then(() => stages.forEach(s => s.querySelectorAll('.panel').forEach(frame)));
+</script>
+</body>
+</html>
