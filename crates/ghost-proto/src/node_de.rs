@@ -19,16 +19,19 @@ const ROOT_PATH: &str = "layout";
 
 const WIDGET: &str = "widget";
 const SIZE: &str = "size";
+const GUTTER: &str = "gutter";
 const SETTINGS: &str = "settings";
 const DIRECTION: &str = "direction";
 const CHILDREN: &str = "children";
 const TABS: &str = "tabs";
 const DEFAULT: &str = "default";
 
-const NODE_KEYS: [&str; 7] = [WIDGET, SIZE, SETTINGS, DIRECTION, CHILDREN, TABS, DEFAULT];
+const NODE_KEYS: [&str; 8] = [
+    WIDGET, SIZE, GUTTER, SETTINGS, DIRECTION, CHILDREN, TABS, DEFAULT,
+];
 const KIND_KEYS: [&str; 3] = [WIDGET, CHILDREN, TABS];
 const SLOT_KEYS: [&str; 3] = [WIDGET, SIZE, SETTINGS];
-const SPLIT_KEYS: [&str; 3] = [CHILDREN, DIRECTION, SIZE];
+const SPLIT_KEYS: [&str; 4] = [CHILDREN, DIRECTION, SIZE, GUTTER];
 const TABS_KEYS: [&str; 3] = [TABS, SIZE, DEFAULT];
 
 impl<'de> Deserialize<'de> for LayoutNode {
@@ -98,6 +101,7 @@ impl<'de> Visitor<'de> for Node {
             match key.as_str() {
                 WIDGET => raw.widget = Some(map.next_value()?),
                 SIZE => raw.size = map.next_value()?,
+                GUTTER => raw.gutter = map.next_value()?,
                 SETTINGS => raw.settings = Some(map.next_value()?),
                 DIRECTION => raw.direction = Some(map.next_value()?),
                 CHILDREN => raw.children = Some(map.next_value_seed(Children { path })?),
@@ -153,6 +157,7 @@ impl<'de> Visitor<'de> for Children<'_> {
 struct RawNode {
     widget: Option<String>,
     size: Option<f32>,
+    gutter: Option<f32>,
     settings: Option<Map<String, Value>>,
     direction: Option<Direction>,
     children: Option<Vec<LayoutNode>>,
@@ -165,6 +170,7 @@ impl RawNode {
         [
             (WIDGET, self.widget.is_some()),
             (SIZE, self.size.is_some()),
+            (GUTTER, self.gutter.is_some()),
             (SETTINGS, self.settings.is_some()),
             (DIRECTION, self.direction.is_some()),
             (CHILDREN, self.children.is_some()),
@@ -197,6 +203,7 @@ impl RawNode {
                 Ok(LayoutNode::Split {
                     direction,
                     size: self.size,
+                    gutter: self.gutter,
                     children,
                 })
             }

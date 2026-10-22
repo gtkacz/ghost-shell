@@ -5,6 +5,7 @@ fn sample_tree() -> LayoutNode {
     LayoutNode::Split {
         direction: Direction::Row,
         size: None,
+        gutter: None,
         children: vec![
             LayoutNode::Slot {
                 widget: "memory".into(),
@@ -59,6 +60,54 @@ fn the_default_layout_reads_back_from_its_own_json() {
     let json = serde_json::to_value(&layout).unwrap();
 
     assert_eq!(serde_json::from_value(json).ok(), Some(layout));
+}
+
+#[test]
+fn a_split_reads_its_gutter() {
+    let node: LayoutNode =
+        toml::from_str("direction='column'\ngutter=6\nchildren=[{widget='a'},{widget='b'}]")
+            .unwrap();
+
+    assert!(matches!(node, LayoutNode::Split { gutter: Some(g), .. } if g == 6.0));
+}
+
+#[test]
+fn a_split_gutter_survives_its_own_json_and_an_absent_one_is_not_written() {
+    let with = LayoutNode::Split {
+        direction: Direction::Column,
+        size: None,
+        gutter: Some(6.0),
+        children: Vec::new(),
+    };
+    let without = LayoutNode::Split {
+        direction: Direction::Column,
+        size: None,
+        gutter: None,
+        children: Vec::new(),
+    };
+
+    let json = serde_json::to_value(&with).unwrap();
+
+    assert_eq!(json["gutter"], json!(6.0));
+    assert_eq!(serde_json::from_value::<LayoutNode>(json).unwrap(), with);
+    assert!(
+        serde_json::to_value(&without)
+            .unwrap()
+            .get("gutter")
+            .is_none()
+    );
+}
+
+#[test]
+fn a_slot_does_not_take_a_gutter() {
+    let error = serde_json::from_value::<LayoutNode>(json!({"widget": "memory", "gutter": 6}))
+        .unwrap_err()
+        .to_string();
+
+    assert!(
+        error.contains("unknown field \"gutter\" for a widget slot"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -376,6 +376,8 @@ pub enum LayoutNode {
     Split {
         direction: Direction,
         size: Option<f32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        gutter: Option<f32>,
         children: Vec<LayoutNode>,
     },
     Tabs {
@@ -440,6 +442,7 @@ fn split(direction: Direction, size: Option<f32>, children: Vec<LayoutNode>) -> 
     LayoutNode::Split {
         direction,
         size,
+        gutter: None,
         children,
     }
 }

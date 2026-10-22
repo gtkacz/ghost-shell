@@ -94,6 +94,7 @@ fn split(direction: Direction, children: Vec<LayoutNode>) -> LayoutNode {
     LayoutNode::Split {
         direction,
         size: None,
+        gutter: None,
         children,
     }
 }
@@ -174,6 +175,28 @@ fn unknown_widget_is_a_slot_error_not_a_failure() {
     );
     assert_eq!(as_slot(&row[0]).source, None);
     assert_eq!(as_slot(&row[1]).error, None);
+}
+
+#[test]
+fn a_split_gutter_reaches_the_resolved_tree_and_the_shell_json() {
+    let layout = resolve_with(
+        &[Spec {
+            id: "graphics",
+            ..Spec::default()
+        }],
+        LayoutNode::Split {
+            direction: Direction::Column,
+            size: None,
+            gutter: Some(6.0),
+            children: vec![slot("graphics")],
+        },
+    );
+
+    let ResolvedNode::Split { gutter, .. } = view(&layout) else {
+        panic!("expected a split");
+    };
+    assert_eq!(*gutter, Some(6.0));
+    assert_eq!(serde_json::to_value(view(&layout)).unwrap()["gutter"], 6.0);
 }
 
 #[test]

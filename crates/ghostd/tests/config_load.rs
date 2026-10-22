@@ -410,6 +410,42 @@ fn gutter_and_margin_must_not_be_negative_or_non_finite() {
 }
 
 #[test]
+fn a_negative_gutter_names_its_node() {
+    let e = load_str_with_user(
+        "[layout.views.v9]\ndirection='row'\ngutter=-1\nchildren=[]",
+        "u",
+    )
+    .unwrap_err();
+    assert_eq!(
+        e.message,
+        "layout.views.v9.gutter: must be a non-negative number, got -1"
+    );
+}
+
+#[test]
+fn a_nested_split_gutter_names_its_path() {
+    assert_eq!(
+        rejected(
+            "[layout.views.v9]\ndirection='row'\nchildren=[{direction='column', gutter=nan, children=[]}]"
+        ),
+        "layout.views.v9.children[0].gutter: must be a non-negative number, got NaN"
+    );
+}
+
+#[test]
+fn a_zero_gutter_is_valid() {
+    let c = load_str_with_user(
+        "[layout.views.v9]\ndirection='row'\ngutter=0\nchildren=[]",
+        "u",
+    )
+    .unwrap();
+    assert!(matches!(
+        c.layout.views["v9"],
+        LayoutNode::Split { gutter: Some(g), .. } if g == 0.0
+    ));
+}
+
+#[test]
 fn main_views_must_not_repeat_a_view() {
     assert_eq!(
         rejected("[dashboard]\nmain_views = [\"v1\", \"v1\"]\n"),
@@ -464,7 +500,7 @@ fn reserved_provider_name_rejected() {
     }
 }
 
-const NODE_KEYS: &str = "widget, size, settings, direction, children, tabs, default";
+const NODE_KEYS: &str = "widget, size, gutter, settings, direction, children, tabs, default";
 
 fn row_view_with_children(children: &str) -> String {
     format!("[layout.views.v1]\ndirection = \"row\"\nchildren = {children}\n")

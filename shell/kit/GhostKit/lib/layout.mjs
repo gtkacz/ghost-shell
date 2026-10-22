@@ -88,14 +88,16 @@ function place(node, rect, gutter, path, out) {
     return;
   }
 
+  // The override spaces this split's children only, so nested splits inherit the layout's gutter.
+  const childGutter = node.gutter ?? gutter;
   const horizontal = node.direction === DIRECTION_ROW;
-  const { extents, overflow } = mainAxisExtents(node.children, horizontal ? rect.w : rect.h, gutter);
+  const { extents, overflow } = mainAxisExtents(node.children, horizontal ? rect.w : rect.h, childGutter);
   out.overflow = out.overflow || overflow;
 
   let offset = horizontal ? rect.x : rect.y;
   for (let i = 0; i < node.children.length; i += 1) {
     place(node.children[i], childRect(rect, horizontal, offset, extents[i]), gutter, path + '[' + i + ']', out);
-    offset += extents[i] + gutter;
+    offset += extents[i] + childGutter;
   }
 }
 

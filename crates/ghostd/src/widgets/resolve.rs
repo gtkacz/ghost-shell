@@ -46,10 +46,12 @@ impl Resolver<'_> {
             LayoutNode::Split {
                 direction,
                 size,
+                gutter,
                 children,
             } => ResolvedNode::Split {
                 direction: *direction,
                 size: *size,
+                gutter: *gutter,
                 children: children
                     .iter()
                     .enumerate()

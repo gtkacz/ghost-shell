@@ -302,7 +302,12 @@ fn validate_node(path: &str, node: &LayoutNode) -> Result<(), ConfigError> {
     }
     match node {
         LayoutNode::Slot { .. } => Ok(()),
-        LayoutNode::Split { children, .. } => {
+        LayoutNode::Split {
+            gutter, children, ..
+        } => {
+            if let Some(gutter) = *gutter {
+                check_non_negative(&format!("{path}.gutter"), gutter)?;
+            }
             children.iter().enumerate().try_for_each(|(index, child)| {
                 validate_node(&format!("{path}.children[{index}]"), child)
             })

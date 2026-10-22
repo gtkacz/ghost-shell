@@ -69,6 +69,26 @@ const pick = (rects, widget) => {
   return { x, y, w, h };
 };
 
+test('a split gutter spaces only its own children', () => {
+  const tree = { direction: 'column', gutter: 6, children: [{ widget: 'a' }, { direction: 'row', children: [{ widget: 'b' }, { widget: 'c' }] }] };
+  const r = computeRects(tree, { x: 0, y: 0, w: 100, h: 106 }, 12);
+  assert.equal(pick(r, 'a').h, 50);
+  assert.equal(pick(r, 'b').y, 56);
+  assert.equal(pick(r, 'c').x, 56);
+});
+
+test('a null gutter falls back to the layout gutter', () => {
+  const tree = { direction: 'row', gutter: null, children: [{ widget: 'a' }, { widget: 'b' }] };
+  const r = computeRects(tree, { x: 0, y: 0, w: 112, h: 10 }, 12);
+  assert.equal(pick(r, 'b').x, 62);
+});
+
+test('a zero gutter butts siblings together', () => {
+  const tree = { direction: 'row', gutter: 0, children: [{ widget: 'a' }, { widget: 'b' }] };
+  const r = computeRects(tree, { x: 0, y: 0, w: 100, h: 10 }, 12);
+  assert.equal(pick(r, 'b').x, 50);
+});
+
 test('default v1 geometry', () => {
   const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
   assert.deepEqual(pick(r, 'processor'), { x: 12, y: 42, w: 300, h: 250 });
