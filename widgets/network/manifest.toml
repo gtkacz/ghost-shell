@@ -1,0 +1,13 @@
+id = "network"
+name = "Network"
+version = "0.1.0"
+api = 1
+kinds = ["panel"]
+requires = ["net", "net.links"]
+
+# "panel" is the V2 panel with its header and link rows; "scope" is the headerless rates and VPN lines that sit
+# under V1's uplink tabs.
+[settings.style]
+type = "enum"
+values = ["panel", "scope"]
+default = "panel"
