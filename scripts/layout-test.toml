@@ -1,5 +1,6 @@
 # The widget host's smoke layout: three live widgets, one whose QML does not parse, one that is not
-# installed, and a tabs node. Every key not set here keeps its default. `make smoke-layout` copies
+# installed, and a tabs node. No default view places the process tree any more, so the tabs node shows it first,
+# which keeps a smoke loading it. Every key not set here keeps its default. `make smoke-layout` copies
 # it to /tmp/ghost-layout-test.toml and runs the smoke test against it.
 [layout.views.v1]
 direction = "row"
@@ -17,5 +18,5 @@ widget = "broken-example"
 widget = "not-installed"
 
 [[layout.views.v1.children]]
-default = 0
-tabs = [{ widget = "graphics" }, { widget = "processor" }]
+default = 2
+tabs = [{ widget = "graphics" }, { widget = "processor" }, { widget = "process-tree" }]
