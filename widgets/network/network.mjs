@@ -29,9 +29,10 @@ function stateText(state, upText) {
   return STATE_TEXT[state] ?? DOWN_TEXT;
 }
 
-// `1 GbE` from a gigabit up, to a tenth, and `<n> Mb/s` below; '' when the device reports no speed.
+// `1 GbE` from a gigabit up, to a tenth, and `<n> Mb/s` below; '' when the device reports no speed, which a link
+// that is down does as 0 or -1.
 function speedText(mbps) {
-  if (!Number.isFinite(mbps)) {
+  if (!Number.isFinite(mbps) || mbps <= 0) {
     return '';
   }
   if (mbps < MBPS_PER_GBPS) {
@@ -116,6 +117,7 @@ export function vpnLine(links) {
   return joined([vpn.kind, withoutKind(vpn.name, vpn.kind)]).toUpperCase();
 }
 
+// A Tailscale that is not up reaches no peer, whatever its status still lists.
 export function tsLine(links) {
-  return links && links.tailscale ? peersText(links.tailscale) + ' PEERS' : MISSING;
+  return links && links.tailscale && links.tailscale.state === LINK_UP ? peersText(links.tailscale) + ' PEERS' : MISSING;
 }

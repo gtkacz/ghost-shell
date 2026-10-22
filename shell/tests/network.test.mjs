@@ -94,3 +94,18 @@ test('the link is online only while the default interface is up', () => {
   assert.equal(defaultUp({ ...NET, default_iface: null, interfaces: [up] }), false);
   assert.equal(defaultUp(null), false);
 });
+
+test('a link reporting no speed, as a down one reports 0 or -1, shows none', () => {
+  const at = (speed) => metaLine(NET, { ...LINKS, lan: [{ ...LINKS.lan[0], speed_mbps: speed }] });
+  assert.equal(at(0), 'ENP14S0');
+  assert.equal(at(-1), 'ENP14S0');
+  const down = linkRows({ ...LINKS, lan: [{ ...LINKS.lan[0], speed_mbps: 0, state: 'down' }] });
+  assert.equal(down[0].detail, '192.168.15.5/24');
+});
+
+test('the scope counts peers only while Tailscale is up', () => {
+  const at = (state) => tsLine({ ...LINKS, tailscale: { ...LINKS.tailscale, state } });
+  assert.equal(at('up'), '0/1 PEERS');
+  assert.equal(at('down'), '--');
+  assert.equal(at('connecting'), '--');
+});
