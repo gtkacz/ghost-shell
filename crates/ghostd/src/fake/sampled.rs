@@ -1,6 +1,6 @@
 use ghost_proto::{
-    CcdLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, MemSnapshot, ProcUsage,
-    Reading, SensorSnapshot,
+    CcdLoad, CoreLoad, CpuSnapshot, DiskSnapshot, Drive, DriveState, GpuSnapshot, MemSnapshot,
+    ProcUsage, Reading, SensorSnapshot,
 };
 
 use super::Wave;
@@ -73,11 +73,21 @@ impl Source<CpuSnapshot> for FakeCpu {
                 }
             })
             .collect();
+        let cores = (0..CCD_COUNT * CORES_PER_CCD)
+            .map(|core| {
+                let cpus = vec![core, core + SMT_SIBLING_OFFSET];
+                CoreLoad {
+                    load: mean(cpus.iter().map(|&cpu| threads[usize::from(cpu)])),
+                    cpus,
+                }
+            })
+            .collect();
         CpuSnapshot {
             model: CPU_MODEL.to_owned(),
             load: mean(threads.iter().copied()),
             threads,
             ccds,
+            cores,
             freq_mhz: FREQ_MHZ.at(self.samples) as u32,
         }
     }
@@ -458,6 +468,19 @@ mod tests {
         let all: BTreeSet<u16> = cpu.ccds.iter().flat_map(|ccd| ccd.cpus.clone()).collect();
         assert_eq!(all, (0..32).collect());
         assert!(cpu.ccds[0].vcache && !cpu.ccds[1].vcache);
+    }
+
+    #[test]
+    fn each_of_the_16_cores_averages_a_thread_and_its_sibling() {
+        let cpu = FakeCpu::default().sample();
+
+        assert_eq!(cpu.cores.len(), 16);
+        for (index, core) in cpu.cores.iter().enumerate() {
+            let first = u16::try_from(index).unwrap();
+            assert_eq!(core.cpus, [first, first + 16]);
+            let threads = [cpu.threads[index], cpu.threads[index + 16]];
+            assert_eq!(core.load, (threads[0] + threads[1]) / 2.0);
+        }
     }
 
     #[test]

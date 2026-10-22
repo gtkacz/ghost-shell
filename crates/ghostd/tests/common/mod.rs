@@ -19,6 +19,8 @@ pub const PLAIN_L3_KIB: u32 = 32768;
 pub const CURRENT_FREQ_KHZ: u32 = 4_500_000;
 
 const CCD_WIDTH: usize = 8;
+// Logical cpu n and n + 16 are the two threads of one core.
+pub const SMT_SIBLING_OFFSET: usize = CPU_COUNT / 2;
 const VCACHE_CPU_LIST: &str = "0-7,16-23";
 const PLAIN_CPU_LIST: &str = "8-15,24-31";
 // Fields 5 to 8 of /proc/<pid>/stat sit between the ppid and flags.
@@ -227,6 +229,11 @@ pub fn fake_9950x3d() -> FakeRoot {
         fake.write(
             &format!("{cpu_dir}/cpufreq/scaling_cur_freq"),
             &format!("{CURRENT_FREQ_KHZ}\n"),
+        );
+        let first_sibling = cpu % SMT_SIBLING_OFFSET;
+        fake.write(
+            &format!("{cpu_dir}/topology/thread_siblings_list"),
+            &format!("{first_sibling},{}\n", first_sibling + SMT_SIBLING_OFFSET),
         );
     }
     fake.write(

@@ -1,9 +1,10 @@
 mod common;
 
 use common::{
-    CPU_COUNT, CURRENT_FREQ_KHZ, MODEL_NAME, PLAIN_L3_KIB, Ticks, VCACHE_L3_KIB, fake_9950x3d,
-    proc_stat,
+    CPU_COUNT, CURRENT_FREQ_KHZ, MODEL_NAME, PLAIN_L3_KIB, SMT_SIBLING_OFFSET, Ticks,
+    VCACHE_L3_KIB, fake_9950x3d, proc_stat,
 };
+use ghost_proto::CoreLoad;
 use ghostd::collect::{CpuCollector, Source, parse_cpu_list};
 
 const KHZ_PER_MHZ: u32 = 1000;
@@ -79,6 +80,54 @@ fn computes_thread_and_ccd_load() {
     assert_eq!(snapshot.ccds[0].load, 50.0 / 16.0);
     assert_eq!(snapshot.ccds[1].load, 0.0);
     assert_eq!(snapshot.load, 50.0);
+}
+
+#[test]
+fn cores_average_their_smt_siblings() {
+    let fake = fake_9950x3d();
+    let mut cpu = CpuCollector::new(&fake.root()).unwrap();
+    let busy = |user: u64| Ticks {
+        user,
+        idle: 100 - user,
+        ..Ticks::default()
+    };
+    let mut cpus = [Ticks::default(); CPU_COUNT];
+    cpus[0] = busy(10);
+    cpus[SMT_SIBLING_OFFSET] = busy(30);
+    fake.write("proc/stat", &proc_stat(Ticks::default(), &cpus));
+
+    let snapshot = cpu.sample();
+
+    assert_eq!(
+        snapshot.cores[0],
+        CoreLoad {
+            cpus: vec![0, 16],
+            load: 20.0
+        }
+    );
+    assert_eq!(snapshot.cores.len(), 16);
+    assert_eq!(
+        snapshot.cores[15],
+        CoreLoad {
+            cpus: vec![15, 31],
+            load: 0.0
+        }
+    );
+}
+
+#[test]
+fn an_offline_cpu_without_topology_belongs_to_no_core() {
+    let fake = fake_9950x3d();
+    fake.remove("sys/devices/system/cpu/cpu31/topology");
+    fake.write(
+        "sys/devices/system/cpu/cpu15/topology/thread_siblings_list",
+        "15\n",
+    );
+
+    let snapshot = CpuCollector::new(&fake.root()).unwrap().sample();
+
+    assert_eq!(snapshot.cores.len(), 16);
+    assert_eq!(snapshot.cores[15].cpus, [15]);
 }
 
 #[test]

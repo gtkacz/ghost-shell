@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 
 use super::sampling::Tick;
 use super::{Demand, invalid_topic, line};
-use crate::history::HISTORY_KEYS;
+use crate::history::{has_history, history_topic};
 
 /// The output a UI client may leave unread before it is disconnected.
 const MAX_UNSENT_BYTES: usize = 256 * 1024;
@@ -164,22 +164,20 @@ impl State {
         });
     }
 
-    /// Replaces the client's subscriptions, then queues the history of the subscribed built-ins
-    /// and the last value of each subscribed topic, followed by its state if a provider ever
-    /// claimed it.
+    /// Replaces the client's subscriptions, then queues the history of the subscribed topics that
+    /// record one and the last value of each subscribed topic, followed by its state if a provider
+    /// ever claimed it.
     pub(super) fn subscribe(&mut self, id: u64, topics: Vec<String>) {
         let mut wanted = HashSet::new();
         let mut replies = Vec::new();
-        let with_history: Vec<&[&str]> = HISTORY_KEYS
-            .iter()
-            .filter(|(topic, _)| topics.iter().any(|wanted| wanted == topic))
-            .map(|(_, keys)| *keys)
-            .collect();
-        if !with_history.is_empty() {
-            let series = with_history
-                .into_iter()
-                .flatten()
-                .filter_map(|&key| Some((key.to_owned(), self.series.get(key)?.clone())))
+        if topics.iter().any(|topic| has_history(topic)) {
+            let series = self
+                .series
+                .iter()
+                .filter(|(key, _)| {
+                    history_topic(key).is_some_and(|topic| topics.iter().any(|t| t == topic))
+                })
+                .map(|(key, samples)| (key.clone(), samples.clone()))
                 .collect();
             replies.push(line(&ServerMsg::History {
                 step_ms: self.step_ms,

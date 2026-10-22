@@ -6,7 +6,7 @@ use ghost_proto::{
 };
 
 use crate::collect::{ProcSample, Source, attach_temps};
-use crate::history::{History, record_cpu, record_gpu};
+use crate::history::{History, record_cpu, record_disks, record_gpu, record_mem, record_sensors};
 
 /// `Send` so a `Sampler` can be ticked from a blocking thread.
 type BoxedSource<T> = Box<dyn Source<T> + Send>;
@@ -63,12 +63,15 @@ impl<T> Tracked<T> {
     }
 }
 
-/// Samples the built-in collectors whose topics are wanted and feeds the load series into a
-/// [`History`].
+/// Samples the built-in collectors whose topics are wanted and feeds the series of the topics it
+/// publishes into a [`History`].
 pub struct Sampler {
     cpu: Tracked<CpuSnapshot>,
     mem: Tracked<MemSnapshot>,
     sensors: Tracked<SensorSnapshot>,
+    /// The tick `sensors` was last published at. Sensors are also sampled for disks alone, so
+    /// their history gaps are counted from here rather than from their last sample.
+    sensors_published_at: u64,
     gpu: Tracked<GpuSnapshot>,
     disks: Tracked<DiskSnapshot>,
     procs: Tracked<ProcSample>,
@@ -88,6 +91,7 @@ impl Sampler {
             cpu: Tracked::new(cpu, Measure::SincePrevious),
             mem: Tracked::new(mem, Measure::SincePrevious),
             sensors: Tracked::new(sensors, Measure::Instant),
+            sensors_published_at: 0,
             gpu: Tracked::new(gpu, Measure::Instant),
             disks: Tracked::new(disks, Measure::SincePrevious),
             procs: Tracked::new(procs, Measure::SincePrevious),
@@ -117,6 +121,7 @@ impl Sampler {
         if is_wanted(topics::MEM)
             && let Some(mem) = self.mem.sample(seq)
         {
+            record_mem(hist, &mem.value, mem.missed);
             messages.push(data_msg(topics::MEM, seq, &mem.value));
         }
         // Drive temperatures come from the sensor readings, hence sensors are sampled for disks.
@@ -128,6 +133,9 @@ impl Sampler {
         if is_wanted(topics::SENSORS)
             && let Some(sensors) = &sensors
         {
+            let missed = seq - self.sensors_published_at - 1;
+            self.sensors_published_at = seq;
+            record_sensors(hist, &sensors.value, missed);
             messages.push(data_msg(topics::SENSORS, seq, &sensors.value));
         }
         if is_wanted(topics::GPU)
@@ -142,6 +150,7 @@ impl Sampler {
             if let Some(sensors) = &sensors {
                 attach_temps(&mut disks.value, &sensors.value);
             }
+            record_disks(hist, &disks.value, disks.missed);
             messages.push(data_msg(topics::DISKS, seq, &disks.value));
         }
         // The tree comes from the same scans as the top list, hence one source for both topics.
@@ -167,7 +176,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use ghost_proto::{CcdLoad, Drive, ProcTree, Reading};
+    use ghost_proto::{CcdLoad, CoreLoad, Drive, DriveState, ProcTree, Reading};
 
     use super::*;
 
@@ -238,6 +247,7 @@ mod tests {
     #[derive(Default)]
     struct Machine {
         cpu: CpuSnapshot,
+        mem: MemSnapshot,
         sensors: SensorSnapshot,
         gpu: GpuSnapshot,
         disks: DiskSnapshot,
@@ -248,7 +258,7 @@ mod tests {
         fn sampler(self) -> Sampler {
             Sampler::new(
                 Box::new(Fixed(self.cpu)),
-                Box::new(Fixed(MemSnapshot::default())),
+                Box::new(Fixed(self.mem)),
                 Box::new(Fixed(self.sensors)),
                 Box::new(Fixed(self.gpu)),
                 Box::new(Fixed(self.disks)),
@@ -261,7 +271,7 @@ mod tests {
             let [cpu, mem, sensors, gpu, disks, procs] = &counts.0;
             let sampler = Sampler::new(
                 counted(self.cpu, cpu),
-                counted(MemSnapshot::default(), mem),
+                counted(self.mem, mem),
                 counted(self.sensors, sensors),
                 counted(self.gpu, gpu),
                 counted(self.disks, disks),
@@ -291,6 +301,87 @@ mod tests {
                 drives: vec![drive("Model", "SERIAL"), drive("Other", "UNMATCHED")],
             },
             ..Default::default()
+        }
+    }
+
+    /// A board sensor listed ahead of the CPU package, which reads 58 °C.
+    fn machine_with_a_package_temp() -> Machine {
+        let reading = |id: &str, value: f32| Reading {
+            id: id.to_owned(),
+            label: id.to_owned(),
+            value: Some(value),
+        };
+        Machine {
+            sensors: SensorSnapshot {
+                temps: vec![
+                    reading("nct6799/SYSTIN", 31.0),
+                    reading("k10temp/Tctl", 58.0),
+                ],
+                fans: vec![],
+            },
+            ..Default::default()
+        }
+    }
+
+    /// What ticking a sampler left behind.
+    struct Ticked {
+        history: History,
+        counts: SampleCounts,
+    }
+
+    impl Ticked {
+        fn sensors_sampled(&self) -> bool {
+            let [_, _, sensors, ..] = self.counts.get();
+            sensors > 0
+        }
+
+        fn history(&self, key: &str) -> Vec<Option<f32>> {
+            self.history.series().remove(key).unwrap_or_default()
+        }
+    }
+
+    /// Ticks once per demand in `demands`, on a machine whose CPU package reads 58 °C.
+    fn ticks_wanting(demands: &[&[&str]]) -> Ticked {
+        let (mut sampler, counts) = machine_with_a_package_temp().counted_sampler();
+        let mut history = History::new(10);
+        for topics in demands {
+            sampler.tick(&mut history, &wanted(topics));
+        }
+        Ticked { history, counts }
+    }
+
+    fn tick_wanting(topics: &[&str]) -> Ticked {
+        ticks_wanting(&[topics])
+    }
+
+    /// Ticks once with every topic wanted, on a machine with `drives`.
+    fn tick_with(drives: &[Drive]) -> Ticked {
+        let (mut sampler, counts) = Machine {
+            disks: DiskSnapshot {
+                drives: drives.to_vec(),
+            },
+            ..Default::default()
+        }
+        .counted_sampler();
+        let mut history = History::new(10);
+        sampler.tick(&mut history, &all());
+        Ticked { history, counts }
+    }
+
+    fn drive(kernel_name: &str, state: DriveState, temp_c: Option<f32>) -> Drive {
+        Drive {
+            kernel_name: kernel_name.to_owned(),
+            state,
+            temp_c,
+            ..Default::default()
+        }
+    }
+
+    fn with_rates(drive: Drive, read_bps: u64, write_bps: u64) -> Drive {
+        Drive {
+            read_bps,
+            write_bps,
+            ..drive
         }
     }
 
@@ -555,6 +646,7 @@ mod tests {
             gpu: GpuSnapshot {
                 present: true,
                 load: 42.0,
+                temp_c: 61.0,
                 ..Default::default()
             },
             ..Default::default()
@@ -567,7 +659,105 @@ mod tests {
         present.tick(&mut present_history, &all());
 
         assert_eq!(absent_history.series()["gpu_load"], [None]);
+        assert_eq!(absent_history.series()["temp_gpu"], [None]);
         assert_eq!(present_history.series()["gpu_load"], [Some(42.0)]);
+        assert_eq!(present_history.series()["temp_gpu"], [Some(61.0)]);
+    }
+
+    #[test]
+    fn every_core_gets_its_own_series() {
+        let core = |cpus: [u16; 2], load: f32| CoreLoad {
+            cpus: cpus.to_vec(),
+            load,
+        };
+        let mut sampler = Machine {
+            cpu: CpuSnapshot {
+                cores: vec![core([0, 2], 5.0), core([1, 3], 7.0)],
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .sampler();
+        let mut history = History::new(10);
+
+        sampler.tick(&mut history, &wanted(&[topics::CPU]));
+
+        let series = history.series();
+        assert_eq!(series["core0"], [Some(5.0)]);
+        assert_eq!(series["core1"], [Some(7.0)]);
+        assert!(!series.contains_key("core2"));
+    }
+
+    #[test]
+    fn mem_used_is_in_gib() {
+        let mut sampler = Machine {
+            mem: MemSnapshot {
+                used_kib: 3 * 1_048_576 + 524_288,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .sampler();
+        let mut history = History::new(10);
+
+        sampler.tick(&mut history, &wanted(&[topics::MEM]));
+
+        assert_eq!(history.series()["mem_used"], [Some(3.5)]);
+    }
+
+    #[test]
+    fn temp_cpu_is_recorded_only_when_sensors_is_published() {
+        let disks_only = tick_wanting(&[topics::DISKS]);
+        // Drive temperatures need the sensors, so they are sampled all the same.
+        assert!(disks_only.sensors_sampled());
+        assert_eq!(disks_only.history("temp_cpu"), Vec::<Option<f32>>::new());
+
+        assert_eq!(
+            tick_wanting(&[topics::SENSORS]).history("temp_cpu"),
+            [Some(58.0)]
+        );
+    }
+
+    #[test]
+    fn temp_cpu_gets_a_null_for_each_tick_sensors_went_unpublished() {
+        let ticked = ticks_wanting(&[&[topics::SENSORS], &[topics::DISKS], &[topics::SENSORS]]);
+
+        assert_eq!(ticked.history("temp_cpu"), [Some(58.0), None, Some(58.0)]);
+    }
+
+    #[test]
+    fn temp_cpu_is_null_without_a_package_sensor() {
+        let ticked = tick_with(&[]);
+
+        assert_eq!(ticked.history("temp_cpu"), [None]);
+    }
+
+    #[test]
+    fn temp_nvme_is_the_hottest_live_nvme() {
+        let nvme0 = drive("nvme0n1", DriveState::Live, Some(38.0));
+        let dead_nvme1 = drive("nvme1n1", DriveState::Dead, None);
+        let unmounted_nvme2 = drive("nvme2n1", DriveState::Unmounted, Some(70.0));
+        let sda = drive("sda", DriveState::Live, Some(30.0));
+
+        assert_eq!(
+            tick_with(&[nvme0, dead_nvme1.clone(), unmounted_nvme2, sda.clone()])
+                .history("temp_nvme"),
+            [Some(38.0)]
+        );
+        assert_eq!(tick_with(&[dead_nvme1, sda]).history("temp_nvme"), [None]);
+    }
+
+    #[test]
+    fn disk_rates_sum_the_live_drives() {
+        let ticked = tick_with(&[
+            with_rates(drive("nvme0n1", DriveState::Live, None), 1_000_000, 10),
+            with_rates(drive("nvme1n1", DriveState::Live, None), 2_000_000, 20),
+            with_rates(drive("nvme2n1", DriveState::Dead, None), 9_000_000, 90),
+            with_rates(drive("sda", DriveState::Unmounted, None), 4_000_000, 40),
+        ]);
+
+        assert_eq!(ticked.history("disk_read"), [Some(3_000_000.0)]);
+        assert_eq!(ticked.history("disk_write"), [Some(30.0)]);
     }
 
     #[test]

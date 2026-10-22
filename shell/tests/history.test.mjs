@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fromHistory, gapLength, withData } from '../kit/GhostKit/lib/history.mjs';
+import { fromHistory, gapLength, topicOfKey, withData } from '../kit/GhostKit/lib/history.mjs';
 
 const LENGTH = 300;
 
-const cpu = (load, ccdLoads = []) => ({ load, ccds: ccdLoads.map((ccdLoad, id) => ({ id, load: ccdLoad })) });
-const gpu = (present, load) => ({ present, load });
+const cpu = (load, ccdLoads = []) => ({ load, ccds: ccdLoads.map((ccdLoad, id) => ({ id, load: ccdLoad })), cores: [] });
+const gpu = (present, load, temp_c = 0) => ({ present, load, temp_c });
 const data = (topic, seq, value) => ({ t: 'data', topic, seq, data: value });
 
 const recorded = (track, messages, length = LENGTH) => messages.reduce((current, message) => withData(current, message, length), track);
@@ -47,7 +47,76 @@ test('an absent GPU records null, as the daemon does', () => {
 
 test('a topic without history leaves the track as it was', () => {
   const track = fromHistory({ load: [1] });
-  assert.equal(withData(track, data('mem', 3, { used_kib: 1 }), LENGTH), track);
+  assert.equal(withData(track, data('host', 3, { hostname: 'h' }), LENGTH), track);
+});
+
+test('every key maps to one topic', () => {
+  assert.equal(topicOfKey('core3'), 'cpu');
+  assert.equal(topicOfKey('ccd1'), 'cpu');
+  assert.equal(topicOfKey('temp_gpu'), 'gpu');
+  assert.equal(topicOfKey('mem_used'), 'mem');
+  assert.equal(topicOfKey('temp_cpu'), 'sensors');
+  assert.equal(topicOfKey('temp_nvme'), 'disks');
+  assert.equal(topicOfKey('net_up'), 'net');
+  assert.equal(topicOfKey('nope'), null);
+  assert.equal(topicOfKey('corex'), null);
+  assert.equal(topicOfKey('core'), null);
+});
+
+test('cpu data appends one sample per core', () => {
+  const t = withData(fromHistory({}), { topic: 'cpu', seq: 1, data: { load: 10, ccds: [], cores: [{ cpus: [0, 16], load: 20 }] } }, 300);
+  assert.deepEqual(t.series.core0, [20]);
+});
+
+test('disks data sums live drives and keeps the hottest nvme', () => {
+  const drive = (name, state, read_bps, temp_c) => ({ kernel_name: name, state, read_bps, write_bps: 0, temp_c });
+  const t = withData(
+    fromHistory({}),
+    {
+      topic: 'disks',
+      seq: 1,
+      data: { drives: [drive('nvme0n1', 'live', 1e6, 38), drive('nvme1n1', 'live', 2e6, 41), drive('nvme2n1', 'dead', 9e6, null), drive('sda', 'live', 0, 50)] },
+    },
+    300,
+  );
+  assert.deepEqual([t.series.disk_read, t.series.disk_write, t.series.temp_nvme], [[3e6], [0], [41]]);
+});
+
+test('disks without a live nvme reading record a null temperature', () => {
+  const drive = (name, state, temp_c) => ({ kernel_name: name, state, read_bps: 0, write_bps: 0, temp_c });
+  const t = withData(fromHistory({}), data('disks', 1, { drives: [drive('nvme1n1', 'dead', null), drive('nvme0n1', 'unmounted', 70), drive('sda', 'live', 30)] }), LENGTH);
+  assert.deepEqual(t.series.temp_nvme, [null]);
+});
+
+test('a gap before mem data is filled with nulls', () => {
+  const at = (seq, used_kib) => ({ topic: 'mem', seq, data: { used_kib } });
+  const t = withData(withData(fromHistory({}), at(1, 1048576), 300), at(4, 2097152), 300);
+  assert.deepEqual(t.series.mem_used, [1, null, null, 2]);
+});
+
+test('mem_used is rounded to the f32 the daemon keeps', () => {
+  const track = recorded(fromHistory({}), [data('mem', 1, { used_kib: 96364133 })]);
+  // (96364133 / 1048576) as f32 in the daemon; the unrounded quotient is 91.89999866485596.
+  assert.deepEqual(track.series.mem_used, [91.9000015258789]);
+});
+
+test('sensors data records the first CPU package reading', () => {
+  const reading = (id, value) => ({ id, label: id, value });
+  const package_ = recorded(fromHistory({}), [data('sensors', 1, { temps: [reading('nct6799/SYSTIN', 31), reading('k10temp/Tctl', 58)], fans: [] })]);
+  const none = recorded(fromHistory({}), [data('sensors', 1, { temps: [reading('nct6799/SYSTIN', 31)], fans: [] })]);
+  assert.deepEqual([package_.series.temp_cpu, none.series.temp_cpu], [[58], [null]]);
+});
+
+test('gpu data records its temperature, null while absent', () => {
+  const track = recorded(fromHistory({}), [data('gpu', 1, gpu(false, 0, 40)), data('gpu', 2, gpu(true, 55, 61))]);
+  assert.deepEqual(track.series.temp_gpu, [null, 61]);
+});
+
+test('a history with mem samples waits for the replayed mem value', () => {
+  const history = fromHistory({ mem_used: [1, 2] });
+  const replayed = withData(history, data('mem', 9, { used_kib: 2097152 }), LENGTH);
+  const resumed = withData(replayed, data('mem', 10, { used_kib: 3145728 }), LENGTH);
+  assert.deepEqual([replayed.series.mem_used, resumed.series.mem_used], [[1, 2], [1, 2, 3]]);
 });
 
 test('recording returns new series and leaves published ones unchanged', () => {

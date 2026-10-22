@@ -22,7 +22,22 @@ const MAX_LINE_BYTES: usize = 64 * 1024;
 const BULK_PAYLOAD_BYTES: usize = 60 * 1024;
 // Well past the 256 KiB queue limit plus the kernel's socket buffer, so the client must be dropped.
 const BULK_PUBLISHES: usize = 20;
-const CPU_HISTORY_KEYS: [&str; 3] = ["load", "ccd0", "ccd1"];
+const CPU_LOAD_KEYS: [&str; 3] = ["load", "ccd0", "ccd1"];
+// The fake processor's physical cores.
+const CORE_COUNT: usize = 16;
+const MEM_TICKS: usize = 3;
+const KIB_PER_GIB: f64 = 1_048_576.0;
+
+/// The cpu's series: overall, per CCD and per core.
+fn cpu_history_keys() -> Vec<String> {
+    let mut keys: Vec<String> = CPU_LOAD_KEYS
+        .iter()
+        .map(|&key| key.to_owned())
+        .chain((0..CORE_COUNT).map(|core| format!("core{core}")))
+        .collect();
+    keys.sort_unstable();
+    keys
+}
 
 #[tokio::test]
 async fn ui_handshake_then_subscribed_topics_only() {
@@ -53,9 +68,7 @@ async fn ui_handshake_then_subscribed_topics_only() {
     assert_eq!(history["step_ms"], TICK_MS);
     let series = history["series"].as_object().unwrap();
     assert!(
-        series
-            .keys()
-            .all(|key| CPU_HISTORY_KEYS.contains(&key.as_str())),
+        series.keys().all(|key| cpu_history_keys().contains(key)),
         "history carries series of unsubscribed topics: {series:?}"
     );
 
@@ -81,16 +94,58 @@ async fn ui_handshake_then_subscribed_topics_only() {
         assert_eq!(message["topic"], "cpu", "got {message}");
     };
     let series = history["series"].as_object().unwrap();
-    let mut keys: Vec<&str> = series.keys().map(String::as_str).collect();
+    let mut keys: Vec<String> = series.keys().cloned().collect();
     keys.sort_unstable();
-    let mut expected = CPU_HISTORY_KEYS;
-    expected.sort_unstable();
-    assert_eq!(keys, expected);
+    assert_eq!(keys, cpu_history_keys());
     assert!(
         series
             .values()
             .all(|samples| !samples.as_array().unwrap().is_empty())
     );
+}
+
+#[tokio::test]
+async fn a_subscriber_to_mem_gets_mem_used_history() {
+    let daemon = Daemon::start().await;
+    let mut ui = daemon.ui().await;
+    ui.send(json!({"t": "subscribe", "topics": ["mem"]})).await;
+    assert_eq!(ui.recv().await["t"], "history");
+    let mut used_gib = Vec::new();
+    for _ in 0..MEM_TICKS {
+        used_gib.push(used_gib_of(&ui.recv_data("mem").await));
+    }
+
+    // The reply holds the history as it stands after every mem message queued before it.
+    ui.send(json!({"t": "subscribe", "topics": ["mem"]})).await;
+    let reply = loop {
+        let message = ui.recv().await;
+        if message["t"] == "history" {
+            break message;
+        }
+        used_gib.push(used_gib_of(&message));
+    };
+
+    let series = reply["series"].as_object().unwrap();
+    assert_eq!(series.keys().collect::<Vec<_>>(), ["mem_used"]);
+    let samples: Vec<Option<f32>> = series["mem_used"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|sample| sample.as_f64().map(|gib| gib as f32))
+        .collect();
+    // Ticks went by before mem was wanted, and those read as nulls.
+    let (before, recorded) = samples.split_at(samples.len() - used_gib.len());
+    assert!(before.iter().all(Option::is_none), "{samples:?}");
+    assert_eq!(
+        recorded,
+        used_gib.iter().copied().map(Some).collect::<Vec<_>>()
+    );
+}
+
+fn used_gib_of(message: &Value) -> f32 {
+    assert_eq!(message["topic"], "mem", "got {message}");
+    let used_kib = message["data"]["used_kib"].as_u64().unwrap();
+    (used_kib as f64 / KIB_PER_GIB) as f32
 }
 
 #[tokio::test]

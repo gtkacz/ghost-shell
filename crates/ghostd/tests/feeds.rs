@@ -126,6 +126,7 @@ async fn unsubscribed_builtins_are_not_published() {
     let mut ui = daemon.ui().await;
 
     ui.send(subscribe(&[topics::MEM])).await;
+    assert_eq!(ui.recv().await["t"], "history");
     let seen = topics_within(&mut ui, ticks(WATCHED_TICKS)).await;
 
     assert!(

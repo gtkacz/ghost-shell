@@ -5,6 +5,8 @@ pub struct CpuSnapshot {
     pub model: String,
     pub threads: Vec<f32>,
     pub ccds: Vec<CcdLoad>,
+    /// One per physical core, ordered by its lowest cpu.
+    pub cores: Vec<CoreLoad>,
     pub load: f32,
     pub freq_mhz: u32,
 }
@@ -15,6 +17,13 @@ pub struct CcdLoad {
     pub cpus: Vec<u16>,
     pub l3_kib: u32,
     pub vcache: bool,
+    pub load: f32,
+}
+
+/// A physical core: its SMT threads and their mean load.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CoreLoad {
+    pub cpus: Vec<u16>,
     pub load: f32,
 }
 

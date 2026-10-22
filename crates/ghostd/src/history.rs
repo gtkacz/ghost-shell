@@ -2,23 +2,71 @@ use std::collections::{BTreeMap, VecDeque};
 use std::iter;
 use std::num::NonZeroU32;
 
-use ghost_proto::{CpuSnapshot, GpuSnapshot, topics};
+use ghost_proto::{
+    CpuSnapshot, DiskSnapshot, DriveState, GpuSnapshot, MemSnapshot, SensorSnapshot, topics,
+};
 
 const MILLIS_PER_MINUTE: u64 = 60_000;
+const KIB_PER_GIB: f64 = 1_048_576.0;
 
 const CPU_LOAD_KEY: &str = "load";
-const GPU_LOAD_KEY: &str = "gpu_load";
 // The shell's history keys stop at ccd1, so CCDs past the second are not recorded.
 const CCD_LOAD_KEYS: [&str; 2] = ["ccd0", "ccd1"];
+/// Followed by the core's index in `CpuSnapshot::cores`.
+const CORE_LOAD_KEY_PREFIX: &str = "core";
+const GPU_LOAD_KEY: &str = "gpu_load";
+const GPU_TEMP_KEY: &str = "temp_gpu";
+const MEM_USED_KEY: &str = "mem_used";
+const CPU_TEMP_KEY: &str = "temp_cpu";
+const DISK_READ_KEY: &str = "disk_read";
+const DISK_WRITE_KEY: &str = "disk_write";
+const NVME_TEMP_KEY: &str = "temp_nvme";
+const NET_DOWN_KEY: &str = "net_down";
+const NET_UP_KEY: &str = "net_up";
+// ghost-proto names no `net` topic until a collector publishes it.
+const NET_TOPIC: &str = "net";
 
-/// The history series each built-in topic records, keyed by topic.
-pub const HISTORY_KEYS: [(&str, &[&str]); 2] = [
-    (
-        topics::CPU,
-        &[CPU_LOAD_KEY, CCD_LOAD_KEYS[0], CCD_LOAD_KEYS[1]],
-    ),
-    (topics::GPU, &[GPU_LOAD_KEY]),
+/// The hwmon readings of the CPU package's temperature, on AMD and on Intel.
+const CPU_PACKAGE_SENSORS: [&str; 2] = ["k10temp/Tctl", "coretemp/Package id 0"];
+const NVME_KERNEL_NAME_PREFIX: &str = "nvme";
+
+/// Every history key but the per-core ones, with the topic that records it.
+const KEY_TOPICS: [(&str, &str); 12] = [
+    (CPU_LOAD_KEY, topics::CPU),
+    (CCD_LOAD_KEYS[0], topics::CPU),
+    (CCD_LOAD_KEYS[1], topics::CPU),
+    (GPU_LOAD_KEY, topics::GPU),
+    (GPU_TEMP_KEY, topics::GPU),
+    (MEM_USED_KEY, topics::MEM),
+    (CPU_TEMP_KEY, topics::SENSORS),
+    (DISK_READ_KEY, topics::DISKS),
+    (DISK_WRITE_KEY, topics::DISKS),
+    (NVME_TEMP_KEY, topics::DISKS),
+    (NET_DOWN_KEY, NET_TOPIC),
+    (NET_UP_KEY, NET_TOPIC),
 ];
+
+/// The topic whose messages a history series is recorded from, or `None` for a key no topic
+/// records.
+pub fn history_topic(key: &str) -> Option<&'static str> {
+    if is_core_key(key) {
+        return Some(topics::CPU);
+    }
+    KEY_TOPICS
+        .iter()
+        .find(|(named, _)| *named == key)
+        .map(|(_, topic)| *topic)
+}
+
+/// Whether `topic` records any history series.
+pub fn has_history(topic: &str) -> bool {
+    KEY_TOPICS.iter().any(|(_, recorder)| *recorder == topic)
+}
+
+fn is_core_key(key: &str) -> bool {
+    key.strip_prefix(CORE_LOAD_KEY_PREFIX)
+        .is_some_and(|index| !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
+}
 
 /// Samples to keep so that `history_minutes` of history fit at one sample every `tick_ms`, and
 /// never fewer than one.
@@ -72,6 +120,12 @@ impl History {
             .collect()
     }
 
+    /// Pushes `missed` nulls for the ticks before `v` that had no reading, then `v`.
+    fn record(&mut self, key: &str, missed: u64, v: Option<f32>) {
+        self.push_gap(key, missed);
+        self.push(key, v);
+    }
+
     /// Changes the capacity; shrinking drops the oldest samples.
     pub fn resize(&mut self, len: usize) {
         self.len = len;
@@ -88,15 +142,59 @@ pub fn record_cpu(hist: &mut History, cpu: &CpuSnapshot, missed: u64) {
         .into_iter()
         .zip(cpu.ccds.iter().map(|ccd| ccd.load));
     for (key, load) in iter::once((CPU_LOAD_KEY, cpu.load)).chain(ccd_loads) {
-        hist.push_gap(key, missed);
-        hist.push(key, Some(load));
+        hist.record(key, missed, Some(load));
+    }
+    for (index, core) in cpu.cores.iter().enumerate() {
+        hist.record(
+            &format!("{CORE_LOAD_KEY_PREFIX}{index}"),
+            missed,
+            Some(core.load),
+        );
     }
 }
 
-/// Records a gpu sample that followed `missed` ticks without one.
+/// Records a gpu sample that followed `missed` ticks without one; an absent GPU reads as null.
 pub fn record_gpu(hist: &mut History, gpu: &GpuSnapshot, missed: u64) {
-    hist.push_gap(GPU_LOAD_KEY, missed);
-    hist.push(GPU_LOAD_KEY, gpu.present.then_some(gpu.load));
+    hist.record(GPU_LOAD_KEY, missed, gpu.present.then_some(gpu.load));
+    hist.record(GPU_TEMP_KEY, missed, gpu.present.then_some(gpu.temp_c));
+}
+
+/// Records a mem sample that followed `missed` ticks without one.
+pub fn record_mem(hist: &mut History, mem: &MemSnapshot, missed: u64) {
+    let used_gib = mem.used_kib as f64 / KIB_PER_GIB;
+    hist.record(MEM_USED_KEY, missed, Some(used_gib as f32));
+}
+
+/// Records the first CPU package reading of a published sensors sample that followed `missed`
+/// ticks without one.
+pub fn record_sensors(hist: &mut History, sensors: &SensorSnapshot, missed: u64) {
+    let package = sensors
+        .temps
+        .iter()
+        .find(|reading| CPU_PACKAGE_SENSORS.contains(&reading.id.as_str()))
+        .and_then(|reading| reading.value);
+    hist.record(CPU_TEMP_KEY, missed, package);
+}
+
+/// Records a disks sample that followed `missed` ticks without one: the rates summed over the
+/// live drives, and the hottest live NVMe drive.
+pub fn record_disks(hist: &mut History, disks: &DiskSnapshot, missed: u64) {
+    let live = || {
+        disks
+            .drives
+            .iter()
+            .filter(|drive| drive.state == DriveState::Live)
+    };
+    // Summed as f64, as the shell sums them, so a rate cannot overflow and both sums agree.
+    let read_bps: f64 = live().map(|drive| drive.read_bps as f64).sum();
+    let write_bps: f64 = live().map(|drive| drive.write_bps as f64).sum();
+    let hottest_nvme = live()
+        .filter(|drive| drive.kernel_name.starts_with(NVME_KERNEL_NAME_PREFIX))
+        .filter_map(|drive| drive.temp_c)
+        .reduce(f32::max);
+    hist.record(DISK_READ_KEY, missed, Some(read_bps as f32));
+    hist.record(DISK_WRITE_KEY, missed, Some(write_bps as f32));
+    hist.record(NVME_TEMP_KEY, missed, hottest_nvme);
 }
 
 fn push_bounded(buffer: &mut VecDeque<Option<f32>>, len: usize, v: Option<f32>) {
@@ -174,6 +272,29 @@ mod tests {
         history.push_gap("load", u64::MAX);
 
         assert_eq!(history.series()["load"], [None, None, None]);
+    }
+
+    #[test]
+    fn every_key_has_one_topic() {
+        for (key, topic) in [
+            ("load", "cpu"),
+            ("ccd1", "cpu"),
+            ("core15", "cpu"),
+            ("gpu_load", "gpu"),
+            ("temp_gpu", "gpu"),
+            ("mem_used", "mem"),
+            ("temp_cpu", "sensors"),
+            ("disk_read", "disks"),
+            ("disk_write", "disks"),
+            ("temp_nvme", "disks"),
+            ("net_down", "net"),
+            ("net_up", "net"),
+        ] {
+            assert_eq!(history_topic(key), Some(topic), "{key}");
+        }
+        for unknown in ["corex", "core", "core-1", "ccd2", "nope"] {
+            assert_eq!(history_topic(unknown), None, "{unknown}");
+        }
     }
 
     fn tick(ms: u32) -> NonZeroU32 {

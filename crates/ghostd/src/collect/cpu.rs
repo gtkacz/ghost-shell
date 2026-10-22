@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 
-use ghost_proto::{CcdLoad, CpuSnapshot};
+use ghost_proto::{CcdLoad, CoreLoad, CpuSnapshot};
 
 use super::Source;
 use crate::sysroot::SysRoot;
@@ -10,6 +10,7 @@ const CPU_SYSFS_DIR: &str = "sys/devices/system/cpu";
 const SHARED_CPU_LIST: &str = "cache/index3/shared_cpu_list";
 const L3_SIZE: &str = "cache/index3/size";
 const SCALING_CUR_FREQ: &str = "cpufreq/scaling_cur_freq";
+const THREAD_SIBLINGS_LIST: &str = "topology/thread_siblings_list";
 const PROC_STAT: &str = "proc/stat";
 const PROC_CPUINFO: &str = "proc/cpuinfo";
 
@@ -57,6 +58,7 @@ pub struct CpuCollector {
     cpus: Vec<u16>,
     thread_count: usize,
     topology: Vec<CcdLoad>,
+    cores: Vec<CoreLoad>,
     previous: ProcStat,
 }
 
@@ -71,6 +73,7 @@ impl CpuCollector {
         Ok(Self {
             model: read_model(root),
             topology: read_topology(root, &cpus)?,
+            cores: read_cores(root, &cpus)?,
             previous: read_stat(root)?,
             root: root.clone(),
             cpus,
@@ -110,12 +113,17 @@ impl Source<CpuSnapshot> for CpuCollector {
         let ccds = self
             .topology
             .iter()
-            .map(|ccd| {
-                let summed: f32 = ccd.cpus.iter().map(|cpu| threads[usize::from(*cpu)]).sum();
-                CcdLoad {
-                    load: summed / ccd.cpus.len() as f32,
-                    ..ccd.clone()
-                }
+            .map(|ccd| CcdLoad {
+                load: mean_load(&ccd.cpus, &threads),
+                ..ccd.clone()
+            })
+            .collect();
+        let cores = self
+            .cores
+            .iter()
+            .map(|core| CoreLoad {
+                load: mean_load(&core.cpus, &threads),
+                cpus: core.cpus.clone(),
             })
             .collect();
         let load = current.aggregate.load_since(&self.previous.aggregate);
@@ -125,10 +133,17 @@ impl Source<CpuSnapshot> for CpuCollector {
             model: self.model.clone(),
             threads,
             ccds,
+            cores,
             load,
             freq_mhz: self.mean_freq_mhz(),
         }
     }
+}
+
+/// The mean of the `threads` loads of `cpus`, which is never empty.
+fn mean_load(cpus: &[u16], threads: &[f32]) -> f32 {
+    let summed: f32 = cpus.iter().map(|cpu| threads[usize::from(*cpu)]).sum();
+    summed / cpus.len() as f32
 }
 
 /// Expands a kernel CPU list such as `0-7,16-23`; tokens that are not numbers are dropped.
@@ -259,6 +274,29 @@ fn read_topology(root: &SysRoot, cpus: &[u16]) -> io::Result<Vec<CcdLoad>> {
             })
         })
         .collect()
+}
+
+/// Groups CPUs by the core whose SMT threads they are.
+fn read_cores(root: &SysRoot, cpus: &[u16]) -> io::Result<Vec<CoreLoad>> {
+    // Sibling lists never overlap, so ordering them orders the cores by their lowest CPU.
+    let mut cores: BTreeSet<Vec<u16>> = BTreeSet::new();
+    for cpu in cpus {
+        let rel = format!("{CPU_SYSFS_DIR}/cpu{cpu}/{THREAD_SIBLINGS_LIST}");
+        // Offline CPUs have no topology directory, so they belong to no core.
+        let Some(siblings) = read_if_present(root, &rel)? else {
+            continue;
+        };
+        let mut siblings = parse_cpu_list(&siblings);
+        // Thread loads are indexed by enumerated CPU, so unknown CPUs in the list must not leak in.
+        siblings.retain(|sibling| cpus.binary_search(sibling).is_ok());
+        if !siblings.is_empty() {
+            cores.insert(siblings);
+        }
+    }
+    Ok(cores
+        .into_iter()
+        .map(|cpus| CoreLoad { cpus, load: 0.0 })
+        .collect())
 }
 
 fn read_if_present(root: &SysRoot, rel: &str) -> io::Result<Option<String>> {
