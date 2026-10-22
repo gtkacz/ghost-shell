@@ -7,11 +7,11 @@ use std::time::Duration;
 
 use common::bus::{BUS_WAIT, PrivateBus};
 use common::nm::{ACTIVATING, ACTIVE_ACTIVATED, FakeNm, NmShape, SAVED_VPN_NAME, VPN_NAME};
-use common::tailscale::{FakeTailscale, missing_tailscale};
+use common::tailscale::{FakeTailscale, TAILSCALE_STATUS, missing_tailscale};
 use futures_core::future::BoxFuture;
 use ghost_proto::{LanLink, LinkState, LinksSnapshot, ResolvedConfig, VpnLink, topics};
 use ghostd::feeds::links::{self, ping::Pinger};
-use ghostd::feeds::tailscale::{TailscaleClient, TailscalePeer};
+use ghostd::feeds::tailscale::{MAX_REPLY_BYTES, TailscaleClient, TailscalePeer};
 use ghostd::server::{FeedContext, Publisher};
 use serde_json::Value;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -355,6 +355,33 @@ async fn a_peer_without_a_direct_path_has_no_current_address() {
             },
         ]
     );
+}
+
+/// The fixture, padded with trailing spaces so that the whole reply, header included, is `bytes`
+/// long.
+fn status_reply_of(bytes: u64) -> String {
+    let body_bytes = usize::try_from(bytes).unwrap() - FakeTailscale::HEADER.len();
+    let padding = " ".repeat(body_bytes - TAILSCALE_STATUS.len());
+    format!("{TAILSCALE_STATUS}{padding}")
+}
+
+#[tokio::test]
+async fn a_reply_at_the_cap_still_parses() {
+    let tailscale = FakeTailscale::start_with(status_reply_of(MAX_REPLY_BYTES));
+
+    let status = tailscale.client().status().await;
+
+    assert_eq!(
+        status.map(|status| status.backend_state).as_deref(),
+        Some("Running")
+    );
+}
+
+#[tokio::test]
+async fn a_reply_over_the_cap_reads_none() {
+    let tailscale = FakeTailscale::start_with(status_reply_of(MAX_REPLY_BYTES + 1));
+
+    assert!(tailscale.client().status().await.is_none());
 }
 
 #[tokio::test]

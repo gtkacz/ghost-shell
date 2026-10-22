@@ -19,6 +19,8 @@ pub struct FakeTailscale {
 
 impl FakeTailscale {
     pub const SOCKET: &str = "tailscaled.sock";
+    /// Everything the fake sends before the status itself.
+    pub const HEADER: &str = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n";
 
     pub fn start() -> Self {
         Self::start_with(TAILSCALE_STATUS.to_owned())
@@ -42,10 +44,10 @@ impl FakeTailscale {
                     }
                 }
                 seen.lock().unwrap().push(request);
-                let response =
-                    format!("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{status}");
-                writer.write_all(response.as_bytes()).await.unwrap();
-                writer.shutdown().await.unwrap();
+                let response = format!("{}{status}", Self::HEADER);
+                // A client that stops reading at its cap closes the socket under a long reply.
+                let _ = writer.write_all(response.as_bytes()).await;
+                let _ = writer.shutdown().await;
             }
         });
         Self {

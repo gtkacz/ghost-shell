@@ -14,6 +14,9 @@ use tracing::debug;
 
 pub const TAILSCALED_SOCKET: &str = "/run/tailscale/tailscaled.sock";
 const TIMEOUT: Duration = Duration::from_secs(2);
+/// A whole reply, header included. A status this large is not one tailscaled sends, so a reply
+/// past it reads as no status rather than being buffered (user-confirmed 2026-10-22).
+pub const MAX_REPLY_BYTES: u64 = 4 * 1024 * 1024;
 // HTTP/1.0, so tailscaled closes the connection after the body and sends it unchunked.
 const STATUS_REQUEST: &[u8] =
     b"GET /localapi/v0/status HTTP/1.0\r\nHost: local-tailscaled.sock\r\n\r\n";
@@ -64,8 +67,10 @@ enum StatusError {
     TimedOut,
     #[error("unexpected response: {0}")]
     Response(String),
-    #[error("unexpected status: {0}")]
+    #[error("unreadable status: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("reply larger than {MAX_REPLY_BYTES} bytes")]
+    TooLarge,
 }
 
 pub struct TailscaleClient {
@@ -77,8 +82,8 @@ impl TailscaleClient {
         Self { socket }
     }
 
-    /// The daemon's status, or `None` when its socket is missing or refuses, or it does not
-    /// answer within 2 s.
+    /// The daemon's status, or `None` when its socket is missing or refuses, it does not answer
+    /// within 2 s, or its reply is longer than [`MAX_REPLY_BYTES`].
     pub async fn status(&self) -> Option<TailscaleStatus> {
         let status = match timeout(TIMEOUT, self.request()).await {
             Ok(status) => status,
@@ -96,7 +101,14 @@ impl TailscaleClient {
         let mut stream = UnixStream::connect(&self.socket).await?;
         stream.write_all(STATUS_REQUEST).await?;
         let mut response = Vec::new();
-        stream.read_to_end(&mut response).await?;
+        // One byte past the cap tells a reply that fills it from one that overruns it.
+        (&mut stream)
+            .take(MAX_REPLY_BYTES + 1)
+            .read_to_end(&mut response)
+            .await?;
+        if response.len() as u64 > MAX_REPLY_BYTES {
+            return Err(StatusError::TooLarge);
+        }
         parse_response(&response)
     }
 }
