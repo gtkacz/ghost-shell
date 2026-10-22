@@ -5,12 +5,22 @@ mapped while kscreenlocker is up, be the first thing on screen when it unlocks?
 
 ## Answer
 
-**Yes, on one condition: the overlay's layer-shell namespace must give it a window type that no open effect animates.
-`dock` works.** With `dock`, the first scene after the unlock is the overlay's ground in all four runs, with no frame
-of the window under it. With a namespace KWin does not know (window type Normal), KWin's scale effect fades the overlay
-in from opacity 0, and that fade starts at the unlock: the red window under it shows at full strength in the first
-frame and fades out over about 170 ms. That is the flash §6.5 forbids, so the namespace is part of the design, not a
-detail.
+**Yes, on one condition: the overlay's window type must be one that no enabled open effect animates, measured with the
+live effect set. On this machine that is `utility` (namespace `"utility"`, window type Utility).** KWin types a layer
+surface by its namespace, and open effects choose the windows they fade in by type. An effect that fades the overlay
+in starts its animation when the overlay maps under the lock, but the animation only advances when the overlay is
+painted, so the whole fade plays after the unlock, over the windows. That is the flash §6.5 forbids.
+
+With the user's effect set copied into the sandbox, `utility` showed the overlay's ground in the first capture after
+the unlock in all three runs, with no frame of the window under it. One run with the stock effects agreed. The
+other types failed:
+
+- **Normal** (any namespace KWin does not know): the window showed at full strength at the unlock under the stock
+  `scale`, and at 92 % under the user's `kinetic_scale`.
+- **`dock`**, which passes with the stock effects, failed with the live set. The user's `kinetic_fadingpopups` fades
+  Docks in from opacity 0.2, so the window showed at 80 % and faded out over 154–181 ms.
+
+`desktop` passed too, but it brings KWin and ghost-shell behaviour that `utility` does not (see "Window types" below).
 
 ## Setup
 
@@ -46,7 +56,13 @@ detail.
   4. Arm the overlay under the lock, and wait 3 s.
   5. Start `watch`, and send `Unlock` from the fake logind. Wait for `ActiveChanged(false)`.
   6. Ask for exclusive focus, then type a key.
-- Run with `spikes/greeting-handoff/run.sh`; `SPIKE_NAMESPACE=ghost-greeting-spike` reproduces the fade.
+- Run with `spikes/greeting-handoff/run.sh`. Options:
+  - `SPIKE_NAMESPACE` sets the overlay's namespace (default `utility`); `ghost-greeting-spike` reproduces the Normal
+    fade.
+  - `SPIKE_LIVE_EFFECTS=1` copies the `[Plugins]` and `[Effect-*]` sections of `~/.config/kwinrc`, and
+    `~/.local/share/kwin/{effects,scripts}`, into the sandbox only. It reads the user's files and writes nothing back.
+  - `results.txt` records KWin's `loadedEffects`, whether each user script is loaded, and the most red in any capture
+    once the lock screen is gone.
 
 ## KWin's rule while locked (source, tag v6.7.5)
 
@@ -78,7 +94,7 @@ detail.
   overlay draws in its first frame under the lock is what appears at the unlock.** Nothing changed later under the
   lock (a recolour, dots that load late) reaches the screen before then.
 
-### The unlock
+### The unlock, stock effects (fresh sandbox config)
 
 Times are from `dbus-monitor` (`ActiveChanged(false)`), the overlay's log and `watch`, all in epoch ms.
 
@@ -89,11 +105,40 @@ Times are from `dbus-monitor` (`ActiveChanged(false)`), the overlay's log and `w
 | 3 | `dock` (Dock) | 87 ms | 3 ms, then ground | none | 17 ms |
 | 4 | `dock` (Dock) | 67 ms | 1 ms, then ground | none | 14 ms |
 | 5 | `dock` (Dock) | 82 ms | 1 ms, then ground | none | 5 ms |
-| 6 | `dock` (Dock), final committed script | 69 ms | 2 ms, then ground | none | 15 ms |
+| 6 | `dock` (Dock) | 69 ms | 2 ms, then ground | none | 15 ms |
+| 7 | `utility` (Utility) | 86 ms | 1 ms, then ground | none | 9 ms |
 
-- **With `dock`, the first scene after the unlock is the overlay**, drawn from the buffer it committed under the lock.
-  `watch` never saw red, black or a blend: the lock screen gives way to ground between two captures under 3 ms apart.
-- **The delay from `ActiveChanged(false)` to the overlay's next rendered frame is 5–17 ms**, about one refresh. It
+### The unlock, the user's live effect set
+
+These runs used `SPIKE_LIVE_EFFECTS=1`. KWin's `loadedEffects` then included `kinetic_scale`, `fadingpopups`,
+`kinetic_fadingpopups`, `kinetic_maximize`, `kinetic_squash`, `kwin4_effect_geometry_change`, `sheet`,
+`dialogparent`, `wobblywindows`, `translucency`, `blur`, `slidingpopups` and `slidingnotifications`, but not `scale`,
+which the user turned off. Both user scripts, `ghost-shell-desktop` and `gridlock-keeper`, were loaded.
+
+"First scene" is the first capture that differs from the lock screen. The ground's red is 10, so "peak red" above 10
+is the window showing through.
+
+| Run | Namespace (window type) | First scene after the lock screen | Peak red | Ground reached | Overlay's next frame |
+|---|---|---|---|---|---|
+| L1 | `dock` (Dock) | +2 ms, `206,3,3`: the window at 80 % | 206 | +181 ms | 16 ms |
+| L2 | `dock` (Dock) | +1 ms, `206,3,3` | 206 | +154 ms | 7 ms |
+| L3 | `ghost-greeting-spike` (Normal) | +2 ms, `235,1,1`: the window at 92 % | 235 | +243 ms | 13 ms |
+| L4 | `utility` (Utility) | +0 ms, ground | 10 | +0 ms | 7 ms |
+| L5 | `utility` (Utility) | +0 ms, ground | 10 | +0 ms | 6 ms |
+| L6 | `utility` (Utility) | +0 ms, ground | 10 | +0 ms | 4 ms |
+| L7 | `desktop` (Desktop) | +3 ms, ground | 10 | +3 ms | 16 ms |
+| L8 | `desktop` (Desktop) | +0 ms, ground | 10 | +0 ms | 6 ms |
+
+Two more runs (`utility` and `desktop`) had a layer-shell desktop stand-in under the red window for a Show Desktop
+probe. That probe was inconclusive (see "Window types"), and both runs were also flash-free, at peak red 10.
+
+`206` is `kinetic_fadingpopups`' starting opacity, 0.2, over the red window: `255 × 0.8 + 10 × 0.2`. `235` is
+`kinetic_scale`'s, 1/12.
+
+- **When no effect animates the overlay, the first scene after the unlock is the overlay**, drawn from the buffer it
+  committed under the lock. `watch` never saw red, black or a blend: the lock screen gives way to ground between two
+  captures under 3 ms apart.
+- **The delay from `ActiveChanged(false)` to the overlay's next rendered frame is 4–17 ms**, about one refresh. It
   doesn't matter for the flash, because the overlay's last frame is already on screen at the unlock. It does bound how
   soon the greeting can start moving.
 - **With a Normal-type namespace, the windows show.** The scale effect (`/usr/share/kwin-wayland/effects/scale/contents/code/main.js:42–80`,
@@ -104,10 +149,24 @@ Times are from `dbus-monitor` (`ActiveChanged(false)`), the overlay's log and `w
   the animation then. But the timeline advances only in `AnimationEffect::prePaintWindow`
   (`src/effect/animationeffect.cpp:469–491`), which a hidden window never reaches. The fade therefore begins at the
   first paint after the unlock, from opacity 0: `watch-…-red.png` in runs 1 and 2 is `#ff0000`.
-- **Why `dock` escapes:** `scale` animates only `normalWindow || dialog`. `fadingpopups`
-  (`/usr/share/kwin-wayland/effects/fadingpopups/contents/code/main.js:23–58`) animates only popups, outlines, unmanaged
-  windows and splash, toolbar, OSD and applet-popup types. A Dock is none of these. (`desktop` would escape too, but
-  KWin treats Desktop-type windows specially, and the dashboard already uses that namespace.)
+- **Which types each open effect animates** (by source, then confirmed by the runs above):
+
+  | Effect | Enabled | Normal | Dock | Utility | Desktop |
+  |---|---|---|---|---|---|
+  | `scale` (`/usr/share/kwin-wayland/effects/scale/contents/code/main.js:42–80`) | stock: yes; live: no | yes | no | no | no |
+  | `kinetic_scale` (`~/.local/share/kwin/effects/kinetic_scale/contents/code/main.js:44–81`) | live | yes | no | no | no |
+  | `fadingpopups` (`/usr/share/kwin-wayland/effects/fadingpopups/contents/code/main.js:23–58`) | stock and live | no | no | no | no |
+  | `kinetic_fadingpopups` (`~/.local/share/kwin/effects/kinetic_fadingpopups/contents/code/main.js:23–67`, dock at `:59`) | live | no | **yes** | no | no |
+
+  - `scale` and `kinetic_scale` animate managed `normalWindow || dialog` windows.
+  - Both `fadingpopups` effects animate popups, outlines, unmanaged non-utility windows, and the splash, toolbar, OSD
+    and applet-popup types. The kinetic fork adds `dock`, `notification` and `criticalNotification` (`:59–63`).
+  - A layer surface is managed, so `fadingpopups`' unmanaged branch, which is where it excludes `utility`, never
+    applies to it.
+  - The other enabled effects react to other events: maximize, minimize, geometry change, modal dialogs, window
+    movement and opacity during move/resize (`[Effect-translucency] MoveResize=88`). Their `windowAdded` handlers
+    were not read.
+  - The measured runs above are the evidence that none of them fades a Utility overlay in.
 - **The lock screen does not fade out.** It is gone in one step: `scale` skips `window.lockScreen` (`main.js:68–69`),
   and `fadingpopups` blacklists `kscreenlocker_greet` (`main.js:17–18`). Stock `LockScreenUi.qml:55–57` calls
   `Qt.quit()` at once on success, and the greeter then `_exit(0)`s (kscreenlocker `greeter/greeterapp.cpp:330–337`).
@@ -118,14 +177,49 @@ Times are from `dbus-monitor` (`ActiveChanged(false)`), the overlay's log and `w
 
 ### Keyboard
 
-- **`WlrKeyboardFocus.Exclusive`, asked for after the unlock, takes the keyboard.** In every run, the overlay became
-  active 3–16 ms after asking, the red window went inactive within 1 ms of that, and the next key reached the
+- **`WlrKeyboardFocus.Exclusive`, asked for after the unlock, takes the keyboard,** whatever the type (Normal, Dock,
+  Utility, Desktop) and effect set. In every run, the overlay became active 3–16 ms after asking, the red window went inactive within 1 ms of that, and the next key reached the
   overlay (`spike overlay key 65`), not the red window.
 - **Before that, KWin gives the keyboard back to the last active window.** The red window became active 2–15 ms after
   `ActiveChanged(false)` and kept the keyboard until the overlay asked. In the spike that was 80–109 ms, because the
   request waits on a 50 ms file poll. A key typed in that window goes to the user's window, not the greeting. Whether
   asking for Exclusive while still locked is safe was not tested: KWin routes every key to the greeter while locked,
   but plan call 7 keeps the armed overlay at `None`.
+
+### Window types for a layer-shell Overlay (KWin v6.7.5 source)
+
+The type changes no stacking: `belongsToLayer` follows the layer-shell layer (`src/layershellv1window.cpp:217–227`).
+It changes no placement, because `isPlaceable()` is false for layer surfaces (`:108–111`), so `Placement`'s Utility
+branch (`src/placement.cpp:41`) never runs. It changes no focus rule either: `acceptsFocus` and `wantsInput` follow
+keyboard interactivity (`:133–136`, `233–236`), and Exclusive was measured working for all four types. What does
+differ:
+
+- **Utility and Show Desktop.**
+  - `Workspace::breaksShowingDesktop` (`src/workspace.cpp:1743–1746`) is true for Utility (and Normal), false for Dock
+    and Desktop.
+  - So adding a Utility overlay while Show Desktop is on ends Show Desktop (`addWaylandWindow`, `:911–915`).
+  - And turning Show Desktop on while it is up hides it (`setShowingDesktop`, `:1759–1767`).
+  - At the lock this is moot. kscreenlocker's greeter is itself a layer surface with LayerShellQt's default scope
+    `"window"` (`greeter/greeterapp.cpp:421–427`), so it is Normal-typed and already ends Show Desktop when it maps.
+    This is by source; the sandbox could not hold Show Desktop to measure it.
+  - It is not moot during the greeting: Meta+D while the greeting plays would hide the overlay mid-sequence.
+  - The Show Desktop probe was inconclusive and was removed from the spike. Even with a layer-shell desktop stand-in
+    taking `OnDemand` focus, KWin dropped Show Desktop within 0.4 ms of `showDesktop(true)`.
+- **Desktop.**
+  - KWin special-cases Desktop windows in activation (`src/activation.cpp:455`, `524`), when adding windows
+    (`src/workspace.cpp:929–934`) and in `findDesktop` for Show Desktop focus.
+  - `setSkipSwitcher(!isDesktop())` (`src/layershellv1window.cpp:49`) leaves a Desktop-typed layer surface in the
+    window switcher.
+  - Both user scripts recognise the dashboard as `desktopWindow && resourceClass === "quickshell"`
+    (`ghost-shell-desktop/contents/code/main.js:121–123`, `gridlock-keeper/contents/code/main.js:4–6`). A Desktop-typed
+    greeting would be taken for the dashboard and restacked, and would make ghost-shell-desktop report "desktop
+    active" while it holds the focus.
+- **Utility in the user's scripts.** `ghost-shell-desktop` counts only Normal and Dialog windows as covering the
+  dashboard (`main.js:79–87`), so a Utility overlay is ignored. While it holds the focus, the script reports the
+  desktop inactive (`main.js:92`). `gridlock-keeper` ignores it.
+- **Effects that single out Utility:** none of the enabled ones. `diminactive` (`src/plugins/diminactive/diminactive.cpp:196–204`)
+  dims inactive Normal, Dialog, Utility, Dock and Desktop windows alike, but it is off by default and not enabled
+  here.
 
 ### Unlock route
 
@@ -141,10 +235,14 @@ was no `loginctl` call, no password and no signal on the real system bus. The gr
 
 ## What the greeting needs (Tasks 4 and 5)
 
-1. **Namespace `dock`** (or another type that the open effects in use skip) on every greeting overlay. The user's live
-   KWin runs `kinetic_scale` and both `fadingpopups` and `kinetic_fadingpopups`, with `scale` off. By their source
-   (`~/.local/share/kwin/effects/kinetic_scale/contents/code/main.js:44–81`, `kinetic_fadingpopups/contents/code/main.js:23–67`),
-   they choose windows by the same rules, so a Dock escapes them too. This was read, not measured live.
+1. **Namespace `utility` on every greeting overlay:** a type that no enabled open effect animates, measured with the
+   live effect set. If the user changes their KWin effects, rerun `SPIKE_LIVE_EFFECTS=1 spikes/greeting-handoff/run.sh`.
+   `dock` and Normal types flash on this machine.
+   - Meta+D while the greeting plays hides a Utility overlay (Show Desktop above). Tasks 4 and 5 should treat that as a
+     skip, or accept it.
+   - If no type survived some future effect set, the fallback is a project KWin effect that grabs
+     `Effect.WindowAddedGrabRole` on the greeting's window, so that no other effect animates it. Nothing like that was
+     built or installed.
 2. **The armed rest must be complete in the first frame after mapping.** Ground + dots, the dots included, must be in
    the overlay's first frame under the lock, since no later frame renders until the unlock. Anything drawn
    asynchronously (a `ShaderEffect` whose `.qsb` loads late) has to be ready before the overlay maps. The other way is
@@ -157,8 +255,8 @@ was no `loginctl` call, no password and no signal on the real system bus. The gr
 
 ## Limits
 
-- Headless KWin with its default effects (a fresh config), one output and no GPU-specific timing. The live session
-  differs in its effects (point 1 above) and in having a real display.
+- Headless KWin, one output and no GPU-specific timing. The effect set was the stock one or a copy of the user's, not
+  the live compositor itself. The live session also differs in having a real display.
 - ScreenShot2 renders the scene at the moment of the call, not the frame KWin presented. At 1 700–2 000 captures/s,
   every pass of KWin's event loop around the unlock was sampled. A presented frame is always one of those states.
 - Only the centre 64 x 64 was sampled densely. The overlay's opacity is uniform across the surface, and the full
