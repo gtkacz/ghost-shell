@@ -3,8 +3,11 @@ set -euo pipefail
 
 # Plays the login greeting and checks what the shell logs: it starts, its first frame comes within the spec's
 # 500 ms (§15), it reveals the dashboard, whose texts scramble only after the reveal, and it ends in time. A second
-# run with the login marker in place must not greet at all. The shell renders in a headless KWin of its own whose
-# runtime directory it uses, so its marker never lands in the user's, and it and a fake ghostd reach no session bus.
+# run with the login marker in place must not greet at all. A third, also with the marker, feeds session values
+# through the shell's debug IPC and checks that a lock arms the overlay, an unlock with a new greeting_seq plays it, an
+# unlock without one disarms it, a lock mid-greeting re-arms it, and a skip ends it. The shell renders in a headless
+# KWin of its own whose runtime directory it uses, so its marker never lands in the user's, and it and a fake ghostd
+# reach no session bus.
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 daemon=$repo/target/debug/ghostd
@@ -12,6 +15,7 @@ daemon=$repo/target/debug/ghostd
 socket=${GHOST_SMOKE_SOCKET:-/tmp/ghost-smoke.sock}
 login_log=${socket%.sock}-greeting-login.log
 auto_log=${socket%.sock}-greeting-auto.log
+session_log=${socket%.sock}-greeting-session.log
 daemon_log=${socket%.sock}-greeting-daemon.log
 kwin_name=greeting-$(basename "${socket%.sock}" | tr -c 'A-Za-z0-9-\n' '-')
 kwin_root=/tmp/gs-sbx-$kwin_name
@@ -24,11 +28,28 @@ first_frame_line='qml: greeting first frame at '
 revealed_line='qml: greeting revealed'
 done_line='qml: greeting done'
 scramble_line='qml: scramble '
+# Logged by every shell that has started and loaded its config, so a run that expects no greeting line cannot pass
+# because qs never started.
+started_line='qml: desktop on '
+connected_line='qml: ghostd connected'
+skipped_line='qml: greeting skipped'
+greeting_lines='qml: greeting (armed|disarmed|playing [a-z]+|revealed|skipped|done)$'
+# The greeting lines the third run's session values and skip must produce, in this order.
+session_expected='armed|playing unlock|revealed|done|armed|disarmed|armed|playing unlock|armed|playing unlock|revealed|skipped'
 
 first_frame_budget_ms=500
 done_budget_ms=12000
 # With the marker present nothing may start the greeting for this long.
 quiet_s=5
+start_budget_s=10
+step_budget_s=5
+# How long the third run watches an armed overlay for scramble lines, lets a greeting play before a lock cuts it
+# short, and lets one play before skipping it.
+armed_watch_s=1
+cut_after_s=1
+skip_after_s=2
+# Longer than the rest of a greeting skipped at skip_after_s, so a greeting the skip failed to end logs its done.
+after_skip_s=6
 # qs's log reaches the file late.
 settle_s=1
 poll_s=0.1
@@ -105,6 +126,32 @@ start_shell() {
 # The number of the first line of log $1 holding $2, or nothing.
 line_of() {
     grep -anF -- "$2" "$1" | head -n 1 | cut -d: -f1
+}
+
+line_count() {
+    grep -acF -- "$2" "$1" || true
+}
+
+# Returns once log $1 holds at least $3 lines holding $2, or fails once $4 seconds have passed.
+wait_for_count() {
+    local deadline=$((SECONDS + $4))
+    while (( $(line_count "$1" "$2") < $3 )); do
+        if (( SECONDS >= deadline )); then
+            fail "fewer than $3 \"${2#qml: }\" lines in $1 after $4 s"
+        fi
+        sleep "$poll_s"
+    done
+}
+
+# qs finds the instance through the runtime directory, so the call uses the shell's.
+greeting_call() {
+    XDG_RUNTIME_DIR="$kwin_root/run" qs ipc --pid "$shell_pid" call greeting "$@" > /dev/null \
+        || fail "qs ipc call greeting $* failed; see $session_log"
+}
+
+# A session value in ghostd's wire form: locked $1, greeting_seq $2, greeting $3 (a JSON string or null).
+send_session() {
+    greeting_call session "{\"id\":\"0412\",\"locked\":$1,\"sleeping\":false,\"greeting\":$3,\"greeting_seq\":$2}"
 }
 
 check_errors() {
@@ -197,8 +244,65 @@ start_shell auto "$auto_log"
 sleep "$quiet_s"
 stop shell_pid
 check_errors "$auto_log"
+if [[ -z $(line_of "$auto_log" "$started_line") ]]; then
+    fail "no \"${started_line#qml: }<screen>\" in $auto_log: the shell did not start"
+fi
 if grep -qF -- "qml: greeting playing" "$auto_log"; then
     fail "the greeting played with the marker in place; see $auto_log"
 fi
 
-echo "greeting: ok (first frame ${first_frame_after_ms} ms after launch, done ${done_after_ms} ms after launch, $late_scrambles scrambles after the reveal, none with the marker)"
+# Locks, unlocks and a skip, sent as the session values ghostd would publish for them.
+start_shell auto "$session_log"
+wait_for_count "$session_log" "$started_line" 1 "$start_budget_s"
+wait_for_count "$session_log" "$connected_line" 1 "$start_budget_s"
+# The daemon's own first session value must land first, or it would disarm the lock sent below.
+sleep "$settle_s"
+send_session false 0 null
+send_session true 0 null
+wait_for_count "$session_log" "qml: greeting armed" 1 "$step_budget_s"
+sleep "$armed_watch_s"
+send_session false 1 '"unlock"'
+wait_for_count "$session_log" "$done_line" 1 "$((done_budget_ms / 1000))"
+send_session true 1 '"unlock"'
+wait_for_count "$session_log" "qml: greeting armed" 2 "$step_budget_s"
+send_session false 1 '"unlock"'
+wait_for_count "$session_log" "qml: greeting disarmed" 1 "$step_budget_s"
+send_session true 1 '"unlock"'
+wait_for_count "$session_log" "qml: greeting armed" 3 "$step_budget_s"
+send_session false 2 '"unlock"'
+wait_for_count "$session_log" "qml: greeting playing unlock" 2 "$step_budget_s"
+sleep "$cut_after_s"
+send_session true 2 '"unlock"'
+wait_for_count "$session_log" "qml: greeting armed" 4 "$step_budget_s"
+send_session false 3 '"unlock"'
+wait_for_count "$session_log" "qml: greeting playing unlock" 3 "$step_budget_s"
+sleep "$skip_after_s"
+greeting_call skip
+wait_for_count "$session_log" "$skipped_line" 1 "$step_budget_s"
+sleep "$after_skip_s"
+stop shell_pid
+check_errors "$session_log"
+
+session_seen=$(grep -aoE -- "$greeting_lines" "$session_log" | sed 's/^qml: greeting //' | paste -sd '|')
+if [[ $session_seen != "$session_expected" ]]; then
+    fail "greeting lines in $session_log are \"$session_seen\", expected \"$session_expected\""
+fi
+armed_scrambles=$(awk -v scramble="$scramble_line" '
+    /qml: greeting armed$/ { armed = 1; next }
+    /qml: greeting (disarmed|playing)/ { armed = 0 }
+    armed && index($0, scramble) { count++ }
+    END { print count + 0 }' "$session_log")
+if (( armed_scrambles > 0 )); then
+    fail "$armed_scrambles scramble lines while the overlay was armed in $session_log"
+fi
+# The first unlock plays to its end, so the dashboard it reveals scrambles before the next lock.
+unlock_scrambles=$(awk -v scramble="$scramble_line" '
+    /qml: greeting revealed$/ && !seen { seen = 1; counting = 1; next }
+    /qml: greeting armed$/ { counting = 0 }
+    counting && index($0, scramble) { count++ }
+    END { print count + 0 }' "$session_log")
+if (( unlock_scrambles == 0 )); then
+    fail "no scramble line after the unlock greeting's reveal in $session_log"
+fi
+
+echo "greeting: ok (first frame ${first_frame_after_ms} ms after launch, done ${done_after_ms} ms after launch, $late_scrambles scrambles after the reveal, none with the marker, $unlock_scrambles scrambles after the unlock's reveal, none while armed)"

@@ -40,6 +40,8 @@ Scope {
     property var frame: null
     property double startedMs: 0
     property bool revealed: false
+    // Counts the connections to ghostd, whose first session value each is only a baseline for greeting_seq.
+    property int connection: 0
 
     readonly property bool playing: state !== null && state.phase === "playing"
     readonly property bool hidesDashboard: state === null || state.phase === "armed" || (playing && !revealed)
@@ -67,6 +69,28 @@ Scope {
         frame = GreetingLib.frameAt(plan, elapsedMs());
         console.info("greeting playing " + next.kind);
         state = next;
+    }
+
+    // KWin draws one frame of an overlay mapped under the lock and no more until the unlock, so the resting frame is
+    // set before the phase, which is what creates the overlay.
+    function follow(next) {
+        const was = state.phase;
+        if (next.phase === "playing" && was !== "playing") {
+            play(next);
+            return;
+        }
+        if (next.phase === "armed" && was !== "armed") {
+            plan = null;
+            frame = GreetingLib.restingFrame();
+            console.info("greeting armed");
+        } else if (next.phase === "idle" && was === "armed") {
+            console.info("greeting disarmed");
+        }
+        state = next;
+    }
+
+    function takeSession(session) {
+        follow(GreetingLib.withSession(state, session, connection));
     }
 
     function elapsedMs() {
@@ -140,6 +164,53 @@ Scope {
         blockLoading: true
         blockWrites: true
         printErrors: false
+    }
+
+    Connections {
+        target: Data
+
+        function onConnectedChanged() {
+            if (Data.connected) {
+                root.connection += 1;
+            } else {
+                root.follow(GreetingLib.disconnected(root.state));
+            }
+        }
+    }
+
+    Connections {
+        target: Data.topic("session")
+
+        function onValueChanged() {
+            root.takeSession(Data.topic("session").value);
+        }
+    }
+
+    // Lets scripts/smoke-greeting.sh lock, unlock and skip without a screen locker or a keyboard. Served only under
+    // GHOST_DEBUG=1. It lives in this scope, which is never destroyed, because Quickshell 0.2.1 keeps a destroyed
+    // handler registered, and calling it then crashes qs.
+    IpcHandler {
+        enabled: Quickshell.env("GHOST_DEBUG") === "1"
+        target: "greeting"
+
+        // A session snapshot as ghostd publishes it, taken as if it came from the current connection.
+        function session(json: string): void {
+            let value = null;
+            try {
+                value = JSON.parse(json);
+            } catch (parseError) {
+                value = null;
+            }
+            if (value === null || typeof value !== "object") {
+                console.warn("greeting session wants a JSON object, got '" + json + "'");
+                return;
+            }
+            root.takeSession(value);
+        }
+
+        function skip(): void {
+            root.skip();
+        }
     }
 
     // A transient sequence, so it may have a timer of its own while it runs, as PrintSwap's print does.
