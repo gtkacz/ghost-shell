@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as format from '../kit/GhostKit/lib/format.mjs';
 import * as labels from '../kit/GhostKit/lib/labels.mjs';
-import { headerMeta, titleLine, ccdTiles, l3Text, iodBlocks, packetPhase, dieLayout, chamferPath, hatchPath } from '../../widgets/silicon/silicon.mjs';
+import { headerMeta, titleLine, ccdTiles, l3Text, iodBlocks, packetPhase, wantsClock, dieLayout, chamferPath, hatchPath } from '../../widgets/silicon/silicon.mjs';
 
 const FMT = { ...format, ...labels };
 const WARN_AT = 0.75;
@@ -226,4 +226,13 @@ test('a block value never reaches into its meter, at the v1 or the v2 size', () 
   }
   assert.ok(dieLayout(276, 183, [8, 8]).blocks.every((block) => !block.showsValue && block.showsMeter));
   assert.ok(dieLayout(1250, 560, [8, 8]).blocks.every((block) => block.showsValue && block.showsMeter));
+});
+
+test('the packets run only while the schematic is seen, laid out and live', () => {
+  const shown = { visible: true, covered: false, laidOut: true, live: true };
+  assert.equal(wantsClock(shown), true);
+  assert.equal(wantsClock({ ...shown, live: false }), false);
+  assert.equal(wantsClock({ ...shown, visible: false }), false);
+  assert.equal(wantsClock({ ...shown, covered: true }), false);
+  assert.equal(wantsClock({ ...shown, laidOut: false }), false);
 });

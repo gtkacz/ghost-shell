@@ -150,6 +150,11 @@ export function packetPhase(elapsedMs, loadPct, k) {
   return (elapsedMs * (PACKET_BASE_PER_MS + loadPct * PACKET_PER_LOAD_PER_MS) + k * PACKET_LINK_OFFSET) % 1;
 }
 
+// The packets move only while they can be seen and their speeds are current: stale data dims and stops animating.
+export function wantsClock({ visible, covered, laidOut, live }) {
+  return visible && !covered && laidOut && live;
+}
+
 // Design pixels, from the reference mockup's drawDie.
 export const SMALL_BELOW_PX = 380;
 const WIDE = Object.freeze({ fs: 9, pad: 14, gap: 12, titleDrop: 20, titleBaseline: 14 });

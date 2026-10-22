@@ -48,8 +48,11 @@ Panel {
     readonly property var freqMhz: cpu && cpu.freq_mhz > 0 ? cpu.freq_mhz : null
     readonly property var tctl: readingValue(tctlLabel)
 
-    readonly property bool wantsClock: visible && !Data.covered && die !== null
+    readonly property bool wantsClock: Sil.wantsClock({ visible: visible, covered: Data.covered, laidOut: die !== null, live: live })
     property bool holdsClock: false
+    // The clock the packets follow; it stays where it was while the data is stale, so they stop where they are even
+    // when another holder keeps FrameClock running.
+    property real packetMs: 0
     property var die: null
 
     function readingValue(label) {
@@ -86,7 +89,7 @@ Panel {
         die = Sil.dieLayout(w, h, coreCounts.split(",").map(Number));
     }
 
-    // Held only while the schematic is on screen and uncovered, so the clock stops when no packet can be seen.
+    // Held only while the schematic is on screen, uncovered and live, so the clock stops when no packet can move.
     function holdClock() {
         if (wantsClock === holdsClock) {
             return;
@@ -115,6 +118,14 @@ Panel {
             FrameClock.release();
             holdsClock = false;
         }
+    }
+
+    Binding {
+        target: root
+        property: "packetMs"
+        value: FrameClock.elapsedMs
+        when: root.live
+        restoreMode: Binding.RestoreNone
     }
 
     component DieText: ScrambleText {
@@ -170,7 +181,7 @@ Panel {
 
             ShapePath {
                 fillColor: "transparent"
-                strokeColor: root.signal(root.linkOpacity)
+                strokeColor: root.live ? root.signal(root.linkOpacity) : Theme.dim
                 strokeWidth: area.stroke
                 strokeStyle: ShapePath.DashLine
                 dashPattern: root.linkDash
@@ -332,14 +343,14 @@ Panel {
                     }
 
                     Rectangle {
-                        readonly property real phase: Sil.packetPhase(FrameClock.elapsedMs, ccdItem.ccd ? ccdItem.ccd.load : 0, ccdItem.index)
+                        readonly property real phase: Sil.packetPhase(root.packetMs, ccdItem.ccd ? ccdItem.ccd.load : 0, ccdItem.index)
                         readonly property var link: ccdItem.geometry.link
 
                         x: Theme.d(link.x - root.packetPx / 2)
                         y: Theme.d(link.y1 - (link.y1 - link.y0) * phase - root.packetPx / 2)
                         width: Theme.d(root.packetPx)
                         height: width
-                        color: Theme.hi
+                        color: root.live ? Theme.hi : Theme.dim
                     }
                 }
             }
