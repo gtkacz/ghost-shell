@@ -54,6 +54,18 @@ This runs `make release` and then `scripts/install.sh`. The script is idempotent
 
 It stops with an error if `cargo`, `fc-list`, `fc-cache`, `kpackagetool6`, `kreadconfig6`, `shell/` or the compiled shaders are missing. It does not enable or start anything, and it leaves the running session alone.
 
+### CPU package power (optional)
+
+The processor panel shows `PKG` (the CPU package's power draw) only when `ghostd` can read the RAPL energy counter, `/sys/class/powercap/intel-rapl:0/energy_uj`. The kernel makes it root-only, so the row stays hidden until you install the udev rule, which `scripts/install.sh` never does:
+
+```sh
+sudo install -m 0644 packaging/udev/70-ghost-shell-rapl.rules /etc/udev/rules.d/
+sudo udevadm control --reload
+sudo udevadm trigger --subsystem-match=powercap --action=change
+```
+
+The rule makes that one file world-readable (0444). **Trade-off:** the counter is a power side channel, and PLATYPUS (CVE-2020-8694) used it to recover cryptographic keys from Intel CPUs, which is why the kernel restricts it. Any local user or process can read it once the rule is in place. `ghostd` retries the read on every sample, so it needs no restart. To revert, delete the rule file and either reboot or run `sudo chmod 0400 /sys/class/powercap/intel-rapl:0/energy_uj`, because removing the rule does not restore the mode of a running system.
+
 ## Run
 
 ```sh

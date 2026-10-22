@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
+use std::time::{Duration, Instant};
 
 use ghost_proto::{CcdLoad, CoreLoad, CpuSnapshot};
 
-use super::Source;
+use super::rapl::PackagePower;
+use super::{Source, read_text};
 use crate::sysroot::SysRoot;
 
 const CPU_SYSFS_DIR: &str = "sys/devices/system/cpu";
@@ -13,6 +15,12 @@ const SCALING_CUR_FREQ: &str = "cpufreq/scaling_cur_freq";
 const THREAD_SIBLINGS_LIST: &str = "topology/thread_siblings_list";
 const PROC_STAT: &str = "proc/stat";
 const PROC_CPUINFO: &str = "proc/cpuinfo";
+const DRM_DIR: &str = "sys/class/drm";
+const DRM_DEVICE_DIR: &str = "device";
+const DRM_VENDOR: &str = "vendor";
+const DRM_GPU_BUSY: &str = "gpu_busy_percent";
+const DRM_CARD_PREFIX: &str = "card";
+const AMD_PCI_VENDOR: &str = "0x1002";
 
 const CPU_LABEL: &str = "cpu";
 const MODEL_NAME_KEY: &str = "model name";
@@ -60,6 +68,8 @@ pub struct CpuCollector {
     topology: Vec<CcdLoad>,
     cores: Vec<CoreLoad>,
     previous: ProcStat,
+    package: Option<PackagePower>,
+    last_sampled: Option<Instant>,
 }
 
 impl CpuCollector {
@@ -75,6 +85,8 @@ impl CpuCollector {
             topology: read_topology(root, &cpus)?,
             cores: read_cores(root, &cpus)?,
             previous: read_stat(root)?,
+            package: PackagePower::find(root),
+            last_sampled: None,
             root: root.clone(),
             cpus,
             thread_count,
@@ -97,10 +109,34 @@ impl CpuCollector {
         };
         u32::try_from(mean_khz / KHZ_PER_MHZ).unwrap_or(u32::MAX)
     }
-}
 
-impl Source<CpuSnapshot> for CpuCollector {
-    fn sample(&mut self) -> CpuSnapshot {
+    /// Scanned every sample, because a driver can bind after the daemon starts.
+    fn igpu_busy_pct(&self) -> Option<f32> {
+        let mut cards: Vec<(u32, String)> = self
+            .root
+            .list(DRM_DIR)
+            .ok()?
+            .into_iter()
+            // Connector entries such as `card1-DP-1` are not cards, and their numbers do not parse.
+            .filter_map(|name| Some((name.strip_prefix(DRM_CARD_PREFIX)?.parse().ok()?, name)))
+            .collect();
+        // Entry names sort lexically (card10 before card2), so restore numeric order.
+        cards.sort_unstable();
+        cards.into_iter().find_map(|(_, card)| {
+            let device = format!("{DRM_DIR}/{card}/{DRM_DEVICE_DIR}");
+            let vendor = read_text(&self.root, &format!("{device}/{DRM_VENDOR}"))?;
+            if vendor != AMD_PCI_VENDOR {
+                return None;
+            }
+            read_text(&self.root, &format!("{device}/{DRM_GPU_BUSY}"))?
+                .parse()
+                .ok()
+        })
+    }
+
+    /// Samples with the time since the previous sample supplied by the caller, so that a test can
+    /// fix the interval that package power is measured over.
+    pub fn sample_after(&mut self, elapsed: Duration) -> CpuSnapshot {
         // An unreadable /proc/stat reads as an idle tick, since sampling has no way to fail.
         let current = read_stat(&self.root).unwrap_or_else(|_| self.previous.clone());
 
@@ -136,7 +172,23 @@ impl Source<CpuSnapshot> for CpuCollector {
             cores,
             load,
             freq_mhz: self.mean_freq_mhz(),
+            package_w: self
+                .package
+                .as_mut()
+                .and_then(|package| package.sample(elapsed)),
+            igpu_busy_pct: self.igpu_busy_pct(),
         }
+    }
+}
+
+impl Source<CpuSnapshot> for CpuCollector {
+    fn sample(&mut self) -> CpuSnapshot {
+        let now = Instant::now();
+        let elapsed = self
+            .last_sampled
+            .replace(now)
+            .map_or(Duration::ZERO, |before| now.duration_since(before));
+        self.sample_after(elapsed)
     }
 }
 

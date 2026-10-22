@@ -42,6 +42,8 @@ const THREAD_LOAD: Wave = Wave::new(3.0, 97.0, 40.0);
 // both CCDs instead of every cell moving together.
 const THREAD_PHASE_STEP: f64 = 1.0 / THREAD_COUNT as f64;
 const FREQ_MHZ: Wave = Wave::new(3600.0, 5700.0, 25.0);
+const PACKAGE_W: Wave = Wave::new(28.0, 142.0, 35.0);
+const IGPU_BUSY_PCT: Wave = Wave::new(0.0, 18.0, 55.0);
 
 #[derive(Default)]
 struct FakeCpu {
@@ -90,6 +92,8 @@ impl Source<CpuSnapshot> for FakeCpu {
             ccds,
             cores,
             freq_mhz: FREQ_MHZ.at(self.samples) as u32,
+            package_w: Some(PACKAGE_W.at(self.samples)),
+            igpu_busy_pct: Some(IGPU_BUSY_PCT.at(self.samples)),
         }
     }
 }

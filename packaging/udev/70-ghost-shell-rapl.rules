@@ -1,0 +1,6 @@
+# Makes the CPU package's RAPL energy counter world-readable so ghostd can report package power
+# without privileges. The kernel ships it root-only (0400) because the counter is a power side
+# channel: PLATYPUS (CVE-2020-8694) recovered cryptographic keys from it on Intel CPUs. World-readable
+# was chosen on 2026-10-21, trading that exposure for an unprivileged daemon on a single-user desktop.
+# The zone is `package-0` and named `intel-rapl:0` even on AMD CPUs.
+ACTION=="add|change", SUBSYSTEM=="powercap", ATTR{name}=="package-0", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"

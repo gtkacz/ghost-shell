@@ -16,7 +16,7 @@ Panel {
     readonly property real kvGapPx: 10
     // Letter spacing in em.
     readonly property real groupTitleTracking: 0.14
-    readonly property int kvCount: 4
+    readonly property int baseKvCount: 4
 
     // The daemon's labels for these readings; sensors.labels maps another machine's chips onto them.
     readonly property string tctlLabel: "CPU TCTL"
@@ -33,6 +33,9 @@ Panel {
     // neither is a reading, so both stay missing instead of showing as zero.
     readonly property var loadPct: cpu && cpu.threads.length > 0 ? cpu.load : null
     readonly property var freqMhz: cpu && cpu.freq_mhz > 0 ? cpu.freq_mhz : null
+    // Null while the RAPL counter is unreadable, in which case the PKG cell is left out entirely.
+    readonly property var packageW: cpu && Number.isFinite(cpu.package_w) ? cpu.package_w : null
+    readonly property int kvCount: baseKvCount + (packageW === null ? 0 : 1)
 
     function readingValue(label) {
         const found = Fmt.readingByLabel(sensors, label);
@@ -171,6 +174,14 @@ Panel {
             key: "FREQ"
             value: Fmt.ghz(root.freqMhz)
             valueColor: root.tone(root.freqMhz, Theme.hi)
+        }
+
+        Kv {
+            visible: root.packageW !== null
+            width: readings.cellWidth
+            key: "PKG"
+            value: Fmt.watts(root.packageW)
+            valueColor: root.tone(root.packageW, Theme.hi)
         }
 
         Kv {

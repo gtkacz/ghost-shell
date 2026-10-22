@@ -6,6 +6,7 @@ mod labels;
 mod mem;
 mod net;
 mod procs;
+mod rapl;
 
 pub use cpu::{CpuCollector, parse_cpu_list};
 pub use disk::{DiskCollector, FsStat, StatvfsFs, attach_temps};

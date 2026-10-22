@@ -9,6 +9,11 @@ pub struct CpuSnapshot {
     pub cores: Vec<CoreLoad>,
     pub load: f32,
     pub freq_mhz: u32,
+    /// Watts drawn by the CPU package, or `None` while the RAPL counter is unreadable or has no
+    /// interval to measure yet.
+    pub package_w: Option<f32>,
+    /// Busy percentage of an AMD integrated GPU, or `None` when no driver reports one.
+    pub igpu_busy_pct: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
