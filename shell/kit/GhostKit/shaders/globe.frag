@@ -49,6 +49,8 @@ const float SQRT5 = 2.2360679774997897;
 const float LOG_PHI_SQUARED = 0.96242365011920689;
 const float BITS_PER_COMPONENT = 24.0;
 const float COMPONENTS_PER_WORD = 4.0;
+const float QUARTER = 1.0 / COMPONENTS_PER_WORD;
+const int HIGHEST_BIT = 23;
 // Within this many dots of the limb, a dot two lattice cells away radially can still cover the pixel.
 const float LIMB_BAND_DOTS = 4.0;
 const int LIMB_LOOKUPS = 5;
@@ -122,14 +124,24 @@ float component(vec4 word, int i) {
     return word.w;
 }
 
-// A component is an integer below 2^24, which a 32-bit float holds exactly, and it is divided only by powers of two,
-// which is exact. 24 is not one, so the index divides plus a half: the quotient stays at least 1/48 from a whole
-// number, and no rounding error can move its floor.
+// A component is an integer below 2^24, which a 32-bit float holds exactly. GLSL lets division, mod and exp2 be a few
+// ULP off, and a quotient that should be a whole number then floors one too low, so a bit is shifted down by
+// multiplying by powers of a half, which is correctly rounded and here exact. The one division, by 24, divides the index
+// plus a half: its quotient stays at least 1/48 from a whole number, and no rounding error can move its floor.
 bool landAt(float i) {
     float c = floor((i + 0.5) / BITS_PER_COMPONENT);
-    float word = floor(c / COMPONENTS_PER_WORD);
+    float word = floor(c * QUARTER);
     float packed = component(landWordAt(int(word)), int(c - word * COMPONENTS_PER_WORD));
-    return mod(floor(packed / exp2(i - c * BITS_PER_COMPONENT)), 2.0) == 1.0;
+    float bit = i - c * BITS_PER_COMPONENT;
+    float shift = 1.0;
+    for (int j = 0; j < HIGHEST_BIT; j++) {
+        if (float(j) >= bit) {
+            break;
+        }
+        shift *= 0.5;
+    }
+    float shifted = floor(packed * shift);
+    return shifted - 2.0 * floor(shifted * 0.5) > 0.5;
 }
 
 vec3 toView(vec3 v) {

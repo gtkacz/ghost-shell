@@ -186,7 +186,7 @@ Item {
     // The lane pages draw only on their own tick, so a measurement counts the lanes' frames alone.
     Component.onCompleted: {
         holdFast(fastHeld);
-        if (!showsLanes) {
+        if (showsKit) {
             FrameClock.acquireSeconds();
         }
         if (lanesPage !== "" && !showsLanes) {
@@ -196,7 +196,7 @@ Item {
     }
     Component.onDestruction: {
         holdFast(false);
-        if (!showsLanes) {
+        if (showsKit) {
             FrameClock.releaseSeconds();
         }
     }
