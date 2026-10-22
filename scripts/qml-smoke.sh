@@ -74,37 +74,15 @@ socket=${GHOST_SMOKE_SOCKET:-/tmp/ghost-smoke.sock}
 shell_log=${socket%.sock}.log
 daemon_log=${socket%.sock}-daemon.log
 
-# "ghostd refused the shell" catches the daemon refusing the shell, which Data logs at error level and
-# which would otherwise only show up as a reconnect loop. "ghostd config problem" catches a layout
-# naming a widget that is missing or unusable, which the daemon reports instead of refusing.
-error_pattern='ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to|ghostd refused the shell|ghostd config problem'
+# shellcheck source=shell-log-errors.sh
+source "$repo/scripts/shell-log-errors.sh"
 connected_line='ghostd connected'
 # What Views logs for a change it prints; a change it shows at once takes 0 ms.
 view_change_line='qml: view [^ ]+ -> [^ ]+ \([1-9][0-9]* ms\)'
 
-# The two test fixtures exist to show that a broken widget and a missing one are reported, so their
-# lines never count as errors, and a layout that names a fixture must produce its line.
-declare -A fixture_lines=(
-    [broken-example]='widget "broken-example" failed to load'
-    [not-installed]='no widget named "not-installed" is installed'
-)
-# Extra shell-log lines to accept, as an extended regex, e.g. for widgets a layout names before they
-# exist.
-extra_allowed=${GHOST_SMOKE_ALLOW:-}
-# A pattern grep cannot compile (exit 2) makes the final filter drop every line, and so does one that
-# matches an empty line (exit 0), such as `.*` or `foo|`: either way the smoke test would pass with
-# all its errors hidden.
-if [[ -n $extra_allowed ]]; then
-    allow_status=0
-    grep -qE -- "$extra_allowed" <<< "" || allow_status=$?
-    if (( allow_status == 2 )); then
-        echo "smoke: FAIL (GHOST_SMOKE_ALLOW is not a valid extended regex: $extra_allowed)" >&2
-        exit 1
-    fi
-    if (( allow_status == 0 )); then
-        echo "smoke: FAIL (GHOST_SMOKE_ALLOW matches an empty line, so it would hide every error: $extra_allowed)" >&2
-        exit 1
-    fi
+if ! allow_problem=$(check_extra_allowed); then
+    echo "smoke: FAIL ($allow_problem)" >&2
+    exit 1
 fi
 required_connects=2
 
@@ -132,6 +110,8 @@ temp_config=
 # The shell's own state, such as the media widget's remembered track, lives in a directory made for
 # this run, so a smoke run never reads or writes the desktop shell's.
 state_dir=
+# Set once this run has made sure no other run's socket is at $socket, so cleanup never removes one.
+owns_socket=
 daemon_pid=
 shell_pid=
 
@@ -149,7 +129,9 @@ stop() {
 cleanup() {
     stop shell_pid
     stop daemon_pid
-    rm -f "$socket"
+    if [[ -n $owns_socket ]]; then
+        rm -f -- "$socket"
+    fi
     if [[ -n $temp_config ]]; then
         rm -f "$temp_config"
     fi
@@ -216,7 +198,16 @@ elif [[ ! -r $config ]]; then
 fi
 
 state_dir=$(mktemp -d -t ghost-smoke-state.XXXXXX)
+# The shell's audio rows and the daemon's spectrum would otherwise read the user's own PipeWire graph,
+# and a held MIC LIVE alert from their record streams would change what the run sees.
+mkdir -- "$state_dir/pipewire"
+export PIPEWIRE_REMOTE=/nonexistent PIPEWIRE_RUNTIME_DIR=$state_dir/pipewire
 
+if [[ -e $socket ]]; then
+    echo "smoke: FAIL ($socket exists: another run is using it, or a stopped one left it behind)" >&2
+    exit 1
+fi
+owns_socket=1
 : > "$daemon_log"
 start_daemon
 GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
@@ -238,21 +229,10 @@ stop daemon_pid
 connects=$(connect_count)
 view_changes=$(grep -cE "$view_change_line" "$shell_log" || true)
 
-allowed_pattern=$(IFS='|'; echo "${fixture_lines[*]}")
-if [[ -n $extra_allowed ]]; then
-    allowed_pattern+="|$extra_allowed"
-fi
-# grep exits 1 when nothing is left, which is the passing case here.
-error_lines=$(grep -E "$error_pattern" "$shell_log" | grep -vE "$allowed_pattern" || true)
+error_lines=$(shell_log_errors "$shell_log")
 errors=$(grep -c . <<< "$error_lines" || true)
-allowed=$(grep -E "$error_pattern" "$shell_log" | grep -cE "$allowed_pattern" || true)
-
-missing=()
-for fixture in "${!fixture_lines[@]}"; do
-    if grep -qE "widget *= *\"$fixture\"" "$config" && ! grep -qF "${fixture_lines[$fixture]}" "$shell_log"; then
-        missing+=("${fixture_lines[$fixture]}")
-    fi
-done
+allowed=$(shell_log_allowed "$shell_log")
+mapfile -t missing < <(missing_fixture_lines "$config" "$shell_log")
 
 if (( errors > 0 )); then
     echo "smoke: FAIL ($errors error lines in $shell_log)" >&2

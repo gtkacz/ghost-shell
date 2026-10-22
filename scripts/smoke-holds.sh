@@ -4,7 +4,8 @@ set -euo pipefail
 # Checks that every FrameClock hold and every Data.want claim returns to where it started after the
 # dashboard is covered and uncovered, after every view swap, after every tab of every tabs node and after
 # a live style change: a leaked claim keeps costing CPU for as long as the shell runs, and only a
-# measurement would show it. The shell renders in a headless KWin of its own, and it and a fake ghostd
+# measurement would show it. After each phase the shell's log must also hold no error, since a widget
+# that fails to load claims nothing and so leaves every count at the baseline. The shell renders in a headless KWin of its own, and it and a fake ghostd
 # share a bus made for this run, so nothing reaches the user's screen or their running ghostd.
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -103,6 +104,8 @@ echo "$$" > "$GHOST_HOLDS_PID_FILE"
 daemon=$repo/target/debug/ghostd
 shell_log=${socket%.sock}-holds.log
 daemon_log=${socket%.sock}-holds-daemon.log
+# shellcheck source=shell-log-errors.sh
+source "$repo/scripts/shell-log-errors.sh"
 
 daemon_name=org.ghostshell.Ghostd
 connected_line='ghostd connected'
@@ -135,6 +138,8 @@ poll_s=0.1
 max_swaps=16
 
 run_dir=
+# Set once this run has made sure no other run's socket is at $socket, so cleanup never removes one.
+owns_socket=
 daemon_pid=
 shell_pid=
 baseline_holds=
@@ -160,7 +165,9 @@ stop() {
 cleanup() {
     stop shell_pid
     stop daemon_pid
-    rm -f "$socket"
+    if [[ -n $owns_socket ]]; then
+        rm -f -- "$socket"
+    fi
     if [[ -n $run_dir ]]; then
         rm -r -- "$run_dir"
     fi
@@ -224,6 +231,16 @@ require_alive() {
     fi
 }
 
+# Fails, naming phase $1, if the shell's log holds an error line: a widget that failed to load, a slot
+# the daemon could not fill or a QML error.
+check_log() {
+    local error_lines
+    error_lines=$(shell_log_errors "$shell_log")
+    if [[ -n $error_lines ]]; then
+        fail "$1: $(grep -c . <<< "$error_lines") error lines in $shell_log:"$'\n'"$error_lines"
+    fi
+}
+
 begin_phase() {
     phase_lines=$(line_count "$shell_log" "$claim_line")
 }
@@ -238,6 +255,7 @@ check() {
     holds=$(latest "$holds_prefix")
     wants=$(latest "$wants_prefix")
     rows+=("$(printf '%-9s %-34s %-6s %-30s %s' "$phase" "$ran" "$lines" "$holds" "$wants")")
+    check_log "$phase"
     if [[ -n $must_log ]] && (( lines == 0 )); then
         fail "$phase: no holds or wants line was logged, so the phase changed no claim"
     fi
@@ -415,6 +433,14 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+if ! allow_problem=$(check_extra_allowed); then
+    fail "$allow_problem"
+fi
+if [[ -e $socket ]]; then
+    fail "$socket exists: another run is using it, or a stopped one left it behind"
+fi
+owns_socket=1
+
 cargo build -q -p ghostd --manifest-path "$repo/Cargo.toml"
 
 run_dir=$(mktemp -d -t ghost-holds.XXXXXX)
@@ -434,6 +460,10 @@ cp -- "$config_original" "$config"
 # shell's.
 state_dir=$run_dir/state
 mkdir -- "$state_dir"
+# The shell's audio rows and the daemon's spectrum would otherwise read the user's own PipeWire graph,
+# and a held MIC LIVE alert from their record streams would move the baseline.
+mkdir -- "$run_dir/pipewire"
+export PIPEWIRE_REMOTE=/nonexistent PIPEWIRE_RUNTIME_DIR=$run_dir/pipewire
 
 : > "$daemon_log"
 "$daemon" run --fake --socket "$socket" --config "$config" --widgets-dir "$repo/widgets" >> "$daemon_log" 2>&1 &
@@ -475,6 +505,7 @@ if [[ -z $baseline_wants ]]; then
     fail "no wants line was ever logged; see $shell_log"
 fi
 rows+=("$(printf '%-9s %-34s %-6s %-30s %s' baseline "start, uncovered" "" "$baseline_holds" "$baseline_wants")")
+check_log baseline
 
 begin_phase
 covered_before=$(line_count "$shell_log" "$covered_line")
@@ -514,6 +545,7 @@ if (( moved == 0 )); then
     require_alive style
     echo "style: $skipped"
     rows+=("$(printf '%-9s %s' style "$skipped")")
+    check_log style
 else
     replace_config "$config.next"
     cp -- "$config_original" "$config.next"
@@ -523,6 +555,8 @@ fi
 
 stop shell_pid
 stop daemon_pid
+# The shell's last lines, such as its teardown's, reach the log only once it has stopped.
+check_log end
 
 echo "holds: ok"
 print_table
