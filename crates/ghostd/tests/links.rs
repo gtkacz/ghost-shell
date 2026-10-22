@@ -175,6 +175,23 @@ async fn lan_and_vpn_links_come_from_network_manager() {
 }
 
 #[tokio::test]
+async fn network_manager_methods_cannot_start_it() {
+    let bus = PrivateBus::start();
+    let nm = FakeNm::start(&bus, NmShape::default()).await;
+    let (_dir, tailscale) = missing_tailscale();
+    let pinger = Arc::new(CountingPinger::default());
+    let mut running = RunningLinks::start(&bus, tailscale, pinger, PING_HOST).await;
+
+    let snap = running.snapshot_where(|snap| !snap.vpns.is_empty()).await;
+
+    assert_eq!(
+        snap.vpns[0].name, VPN_NAME,
+        "the saved connections were read"
+    );
+    assert_eq!(nm.calls.auto_starting_methods(), 0);
+}
+
+#[tokio::test]
 async fn a_saved_vpn_that_is_not_active_reads_down() {
     let bus = PrivateBus::start();
     let snap = links_with(&bus, NmShape::default()).await;

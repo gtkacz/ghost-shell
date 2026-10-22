@@ -45,6 +45,8 @@ const KEY_PREFIX: &str = "prefix";
 
 type Settings = HashMap<String, HashMap<String, OwnedVariant>>;
 
+// The property reads below cannot carry NO_AUTO_START through the proxy macro. That is safe only
+// because NetworkManager ships no D-Bus activation file, so the bus has nothing to start for them.
 #[proxy(
     interface = "org.freedesktop.NetworkManager",
     default_service = "org.freedesktop.NetworkManager",
@@ -118,6 +120,7 @@ trait Active {
     default_path = "/org/freedesktop/NetworkManager/Settings"
 )]
 trait SettingsList {
+    #[zbus(no_autostart)]
     fn list_connections(&self) -> zbus::Result<Vec<OwnedObjectPath>>;
 }
 
@@ -126,6 +129,7 @@ trait SettingsList {
     default_service = "org.freedesktop.NetworkManager"
 )]
 trait SavedConnection {
+    #[zbus(no_autostart)]
     fn get_settings(&self) -> zbus::Result<Settings>;
 }
 

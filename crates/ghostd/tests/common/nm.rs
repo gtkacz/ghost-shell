@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use zbus::message::{Flags, Header};
 use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, interface};
 
@@ -39,17 +40,32 @@ fn variant(value: &'static str) -> OwnedVariant {
     OwnedVariant::try_from(Variant::from(value)).unwrap()
 }
 
-/// Counts every property read and method call the fake NetworkManager answers.
+/// Counts every property read and method call the fake NetworkManager answers, and the method calls
+/// among them that came without `NO_AUTO_START`.
 #[derive(Clone, Default)]
-pub struct Calls(Arc<AtomicUsize>);
+pub struct Calls {
+    all: Arc<AtomicUsize>,
+    auto_starting_methods: Arc<AtomicUsize>,
+}
 
 impl Calls {
     fn note(&self) {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.all.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn note_method(&self, header: &Header<'_>) {
+        self.note();
+        if !header.primary().flags().contains(Flags::NO_AUTO_START) {
+            self.auto_starting_methods.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
     pub fn count(&self) -> usize {
-        self.0.load(Ordering::SeqCst)
+        self.all.load(Ordering::SeqCst)
+    }
+
+    pub fn auto_starting_methods(&self) -> usize {
+        self.auto_starting_methods.load(Ordering::SeqCst)
     }
 }
 
@@ -213,8 +229,8 @@ struct FakeSettings {
 
 #[interface(name = "org.freedesktop.NetworkManager.Settings")]
 impl FakeSettings {
-    fn list_connections(&self) -> Vec<OwnedObjectPath> {
-        self.calls.note();
+    fn list_connections(&self, #[zbus(header)] header: Header<'_>) -> Vec<OwnedObjectPath> {
+        self.calls.note_method(&header);
         self.connections.clone()
     }
 }
@@ -226,8 +242,11 @@ struct FakeConnectionSettings {
 
 #[interface(name = "org.freedesktop.NetworkManager.Settings.Connection")]
 impl FakeConnectionSettings {
-    fn get_settings(&self) -> HashMap<String, HashMap<String, OwnedVariant>> {
-        self.calls.note();
+    fn get_settings(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+    ) -> HashMap<String, HashMap<String, OwnedVariant>> {
+        self.calls.note_method(&header);
         self.settings.clone()
     }
 }
