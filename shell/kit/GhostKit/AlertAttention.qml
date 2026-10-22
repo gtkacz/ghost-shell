@@ -28,6 +28,11 @@ Singleton {
         Attention.spendAttention(seen, key, FrameClock.elapsedMs);
     }
 
+    // The greeting's reveal is a new showing of every alert.
+    function rearm() {
+        Attention.rearmAttention(seen);
+    }
+
     // A hidden alert has no box to notice a shorter window, so this marks it spent, which a longer window set later
     // must not undo.
     Connections {

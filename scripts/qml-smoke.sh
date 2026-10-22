@@ -210,7 +210,8 @@ fi
 owns_socket=1
 : > "$daemon_log"
 start_daemon
-GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
+# The greeting would hide the dashboard for its first seconds; GHOST_GREETING=login or auto plays it.
+GHOST_GREETING=${GHOST_GREETING:-off} GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
 shell_pid=$!
 
 sleep "$startup_s"

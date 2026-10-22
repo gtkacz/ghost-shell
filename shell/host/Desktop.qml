@@ -30,6 +30,9 @@ Scope {
     // Only the main screen's window shows the dashboard; the others show the dot grid alone, which
     // draws nothing after its first frame.
     readonly property bool covered: (Data.topic("desktop").value?.covered_outputs ?? []).includes(mainScreenName)
+    // True while the greeting hides the dashboard, which is then hidden exactly as if windows covered it.
+    property bool greetingHides: false
+    readonly property bool hidden: covered || greetingHides
 
     // The first evaluation of the name's binding counts as a change, so this also logs at start.
     onMainScreenNameChanged: console.info("desktop on " + mainScreenName)
@@ -48,13 +51,13 @@ Scope {
     Binding {
         target: FrameClock.hostControl
         property: "suspended"
-        value: root.covered
+        value: root.hidden
     }
 
     Binding {
         target: Data.hostControl
         property: "covered"
-        value: root.covered
+        value: root.hidden
     }
 
     Component {
@@ -145,7 +148,7 @@ Scope {
                     id: viewLoader
 
                     anchors.fill: parent
-                    active: window.isMain && !root.covered
+                    active: window.isMain && !root.hidden
                     sourceComponent: root.viewOverride === root.galleryView ? galleryComponent : layoutComponent
                 }
 

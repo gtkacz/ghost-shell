@@ -182,7 +182,8 @@ config=$run_dir/config.toml
 "$daemon" run --socket "$socket" --config "$config" --widgets-dir "$repo/widgets" > "$daemon_log" 2>&1 &
 daemon_pid=$!
 # Without the variables that add a debug overlay, a gallery or a snapshot, whatever the caller has set.
-env -u GHOST_DEBUG -u GHOST_VIEW -u GHOST_SNAPSHOT QSG_RENDER_TIMING=1 GHOST_SOCKET="$socket" \
+# The greeting would hide the dashboard for its first seconds; GHOST_GREETING=login or auto plays it.
+env -u GHOST_DEBUG -u GHOST_VIEW -u GHOST_SNAPSHOT GHOST_GREETING="${GHOST_GREETING:-off}" QSG_RENDER_TIMING=1 GHOST_SOCKET="$socket" \
     QML_IMPORT_PATH="$repo/shell/kit" qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
 shell_pid=$!
 

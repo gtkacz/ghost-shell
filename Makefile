@@ -3,7 +3,7 @@ SHADERS := $(wildcard $(SHADER_DIR)/*.frag)
 COMPILED_SHADERS := $(SHADERS:.frag=.frag.qsb)
 LAYOUT_TEST_CONFIG := /tmp/ghost-layout-test.toml
 
-.PHONY: shaders release install test smoke smoke-layout smoke-holds
+.PHONY: shaders release install test smoke smoke-layout smoke-holds smoke-greeting
 
 shaders: $(COMPILED_SHADERS)
 
@@ -31,3 +31,6 @@ smoke-layout: shaders $(LAYOUT_TEST_CONFIG)
 
 smoke-holds: shaders
 	scripts/smoke-holds.sh
+
+smoke-greeting: shaders
+	scripts/smoke-greeting.sh

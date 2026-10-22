@@ -44,7 +44,7 @@ const GLOW_PEAK_OPACITY = 0.9;
 const GLOW_FULL_INSET = 0.5;
 const TUBE_END_MS = TUBE_OPEN_AT_MS + GLOW_MS;
 
-const DOT_STEPS = 24;
+export const DOT_STEPS = 24;
 const DOT_STEP_MS = 36;
 const DOT_PRINT_MS = (DOT_STEPS + 1) * DOT_STEP_MS;
 
@@ -63,7 +63,7 @@ const LINE_PAUSE_MS = 420;
 const BURN_MS = 550;
 const HOLD_MS = 1500;
 
-const SCAN_STEPS = 30;
+export const SCAN_STEPS = 30;
 const SCAN_STEP_MS = 26;
 const SCAN_PASS_MS = (SCAN_STEPS + 1) * SCAN_STEP_MS;
 
