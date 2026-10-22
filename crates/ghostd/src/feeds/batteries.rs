@@ -19,12 +19,9 @@
 use std::collections::BTreeMap;
 use std::future::pending;
 use std::ops::RangeInclusive;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use futures_core::Stream;
 use ghost_proto::{Batteries, Battery, BatteryKind, ResolvedConfig, topics};
 use serde::Serialize;
 use tokio::sync::watch;
@@ -36,7 +33,7 @@ use zbus::wire::DynamicDeserialize;
 use zbus::{Connection, DynamicType, MatchRule, MessageStream, OwnedObjectPath, OwnedVariant};
 use zbus::{fdo, message};
 
-use super::{WallClock, next, unix_now_s, until_unwanted, until_wanted};
+use super::{WallClock, drain, next, unix_now_s, until_unwanted, until_wanted};
 use crate::server::{Feed, FeedContext, Publisher};
 
 const UPOWER: &str = "org.freedesktop.UPower";
@@ -377,11 +374,6 @@ impl UpowerChanges {
             }
         }
     }
-}
-
-fn drain<S: Stream + Unpin>(stream: &mut S) {
-    let mut context = Context::from_waker(Waker::noop());
-    while let Poll::Ready(Some(_)) = Pin::new(&mut *stream).poll_next(&mut context) {}
 }
 
 /// Calls `method` without letting the bus start `service` for it: an absent service must read as
