@@ -5,3 +5,4 @@
 - Toggleable icons on notifications
 - Alarms/stopwatches
 - Calendar
+- Climate icons e.g. "overcast"
