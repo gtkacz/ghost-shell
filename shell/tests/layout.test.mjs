@@ -24,14 +24,14 @@ const DEFAULT_V1_FOR_TEST = {
       children: [
         {
           direction: 'column',
-          size: 346,
+          size: 332,
           children: [
             { size: null, default: 0, tabs: [tab('uplink', 'UPLINK'), tab('silicon', 'SILICON'), tab('process-tree', 'TREE')] },
             slot('network', 109, { style: 'scope' }),
           ],
         },
         slot('storage'),
-        slot('sensors', 160),
+        slot('sensors', 158),
       ],
     },
   ],
@@ -110,7 +110,7 @@ test('a zero gutter butts siblings together', () => {
 test('default v1 geometry', () => {
   const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
   assert.deepEqual(pick(r, 'processor'), { x: 12, y: 42, w: 300, h: 250 });
-  assert.equal(pick(r, 'storage').h, 666 - 346 - 160 - 24);
+  assert.equal(pick(r, 'storage').h, 666 - 332 - 158 - 24);
 });
 
 test('default v1 flex columns fill the space between the fixed ones', () => {
@@ -126,7 +126,7 @@ test('default v1 flex columns fill the space between the fixed ones', () => {
 test('v1 scope column', () => {
   const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
   assert.equal(pick(r, 'network').h, NETWORK_SCOPE_HEIGHT);
-  assert.equal(r.find((x) => x.tabs).h, 346 - 12 - NETWORK_SCOPE_HEIGHT);
+  assert.equal(r.find((x) => x.tabs).h, 332 - 12 - NETWORK_SCOPE_HEIGHT);
 });
 
 test('default v2 geometry', () => {
