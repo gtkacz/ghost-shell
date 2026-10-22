@@ -44,6 +44,7 @@ signal = "#a3d4cc"  # Accent colour for live data.
 warn = "#e9a84c"    # A value past its warn threshold.
 crit = "#ff3b45"    # A value past its crit threshold.
 dot = "#a3d4cc"     # The background dot grid.
+burn = "#ffffff"    # Greeting: each letter's first colour, and the screen's power-on line.
 
 [appearance.dots]
 # Distance between background dots in pixels (at least 1), and their opacity from 0 to 100.

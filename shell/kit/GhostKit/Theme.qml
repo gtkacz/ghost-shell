@@ -31,7 +31,8 @@ Singleton {
                 signal: "#a3d4cc",
                 warn: "#e9a84c",
                 crit: "#ff3b45",
-                dot: "#a3d4cc"
+                dot: "#a3d4cc",
+                burn: "#ffffff"
             },
             dots: {
                 spacing: 24,
@@ -73,6 +74,8 @@ Singleton {
     readonly property color warn: appearance.colors.warn
     readonly property color crit: appearance.colors.crit
     readonly property color dot: appearance.colors.dot
+    // A daemon older than this key gives none.
+    readonly property color burn: appearance.colors.burn ?? defaultAppearance.colors.burn
 
     // Percentages, as in the config and as withAlpha() takes them.
     readonly property real panelFill: appearance.panel_fill

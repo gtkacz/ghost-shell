@@ -91,6 +91,7 @@ pub struct Colors {
     pub warn: String,
     pub crit: String,
     pub dot: String,
+    pub burn: String,
 }
 
 impl Default for Colors {
@@ -107,6 +108,7 @@ impl Default for Colors {
             warn: "#e9a84c".into(),
             crit: "#ff3b45".into(),
             dot: "#a3d4cc".into(),
+            burn: "#ffffff".into(),
         }
     }
 }

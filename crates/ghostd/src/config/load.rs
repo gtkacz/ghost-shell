@@ -183,6 +183,7 @@ fn validate_appearance(appearance: &Appearance) -> Result<(), ConfigError> {
         ("warn", &colors.warn),
         ("crit", &colors.crit),
         ("dot", &colors.dot),
+        ("burn", &colors.burn),
     ];
     for (name, value) in named_colors {
         if !is_hex_colour(value) {

@@ -5,6 +5,7 @@ use ghostd::config::{DEFAULT_TOML, load_str_with_user};
 fn default_file_equals_builtin_defaults() {
     let mut expected = ResolvedConfig::default();
     expected.greeting.name = "gtkacz".into();
+    assert_eq!(expected.appearance.colors.burn, "#ffffff");
     assert_eq!(
         load_str_with_user(DEFAULT_TOML, "gtkacz").unwrap(),
         expected
@@ -200,6 +201,16 @@ fn bad_colour_names_the_key() {
             .unwrap_err()
             .message,
         "appearance.colors.warn: expected #rrggbb, got \"orange\""
+    );
+}
+
+#[test]
+fn invalid_burn_colour_is_rejected() {
+    assert_eq!(
+        load_str_with_user("[appearance.colors]\nburn = \"white\"\n", "u")
+            .unwrap_err()
+            .message,
+        "appearance.colors.burn: expected #rrggbb, got \"white\""
     );
 }
 
