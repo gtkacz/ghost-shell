@@ -3,10 +3,15 @@
 
 # "ghostd refused the shell" catches the daemon refusing the shell, which Data logs at error level and
 # which would otherwise only show up as a reconnect loop. "ghostd config problem" catches a layout
-# naming a widget that is missing or unusable, which the daemon reports instead of refusing. qs's
-# "Failed to connect pipewire context. Errno: 112", which every run with PipeWire shut out logs, is no
-# error: "Errno:" is not "Error:".
-shell_error_pattern='ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to|ghostd refused the shell|ghostd config problem'
+# naming a widget that is missing or unusable, which the daemon reports instead of refusing.
+# "Failed to find shader", "ShaderEffect" and "QShader" catch a shader that is missing or will not
+# deserialise, which Qt only warns about and the effect then draws nothing. "ERROR " at the start of a
+# line or after a space catches every qs error-level line.
+shell_error_pattern='ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to|ghostd refused the shell|ghostd config problem|Failed to find shader|ShaderEffect|QShader|(^| )ERROR '
+
+# Lines the pattern catches that are benign. With PipeWire shut out every run logs an ERROR for the
+# context it cannot connect, and a run without a desktop portal logs a host-portal line from Qt.
+benign_lines='ERROR quickshell\.service\.pipewire\.loop: Failed to connect pipewire context|qt\.qpa\.services.*host portal'
 
 # The two test fixtures exist to show that a broken widget and a missing one are reported, so their
 # lines never count as errors, and a layout that names a fixture must produce its line.
@@ -43,6 +48,7 @@ check_extra_allowed() {
 allowed_pattern() {
     local pattern extra
     pattern=$(IFS='|'; echo "${fixture_lines[*]}")
+    pattern+="|$benign_lines"
     if [[ -n $extra_allowed ]]; then
         pattern+="|$extra_allowed"
     fi
