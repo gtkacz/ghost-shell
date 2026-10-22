@@ -19,6 +19,7 @@ pub struct ResolvedConfig {
     pub i18n: I18n,
     pub shortcuts: Shortcuts,
     pub notifications: Notifications,
+    pub network: Network,
     pub layout: LayoutConfig,
     pub widgets: Widgets,
     pub providers: Vec<ProviderSpec>,
@@ -319,6 +320,21 @@ impl Default for Notifications {
         Self {
             history_limit: 200,
             popup_timeout_s: 6,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Network {
+    /// The IPv4 address the network panel pings, or `""` for none.
+    pub ping: String,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Self {
+            ping: "1.1.1.1".into(),
         }
     }
 }

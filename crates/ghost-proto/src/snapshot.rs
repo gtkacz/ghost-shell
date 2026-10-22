@@ -261,3 +261,52 @@ pub struct SkySnapshot {
 pub struct SpectrumSnapshot {
     pub bands: Vec<u8>,
 }
+
+/// The machine's network links: the wired and wireless devices and the saved VPNs NetworkManager
+/// knows, Tailscale, and the round trip to `network.ping`. Each part is empty or `None` while its
+/// source is absent.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct LinksSnapshot {
+    pub lan: Vec<LanLink>,
+    pub vpns: Vec<VpnLink>,
+    pub tailscale: Option<TailscaleLink>,
+    pub ping_ms: Option<f32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LanLink {
+    pub iface: String,
+    /// The first IPv4 address with its prefix, such as `192.168.15.5/24`.
+    pub address: Option<String>,
+    /// Known for wired devices only.
+    pub speed_mbps: Option<u32>,
+    pub state: LinkState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VpnLink {
+    /// The name of the saved connection.
+    pub name: String,
+    /// `openvpn`, `wireguard` and the like.
+    pub kind: String,
+    /// The tunnel interface, while the VPN has one.
+    pub iface: Option<String>,
+    pub state: LinkState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TailscaleLink {
+    /// This machine's first tailnet address.
+    pub address: Option<String>,
+    pub peers_online: u32,
+    pub peers_total: u32,
+    pub state: LinkState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkState {
+    Up,
+    Connecting,
+    Down,
+}

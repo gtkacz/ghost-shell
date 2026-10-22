@@ -2,8 +2,9 @@ use std::future::pending;
 use std::time::Duration;
 
 use ghost_proto::{
-    AlertLevel, HostSnapshot, RainPeak, SkySnapshot, SpectrumSnapshot, WeatherAlert, WeatherAlerts,
-    WeatherHour, WeatherSnapshot, topics,
+    AlertLevel, HostSnapshot, LanLink, LinkState, LinksSnapshot, RainPeak, SkySnapshot,
+    SpectrumSnapshot, TailscaleLink, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour,
+    WeatherSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -15,7 +16,7 @@ use crate::server::Feed;
 
 /// The fake feeds, one per feed topic, plus `weather.alerts` in place of the alerts provider.
 pub fn feeds() -> Vec<Feed> {
-    vec![host(), weather(), sky(), spectrum(), alerts()]
+    vec![host(), weather(), sky(), spectrum(), alerts(), links()]
 }
 
 const HOSTNAME: &str = "tkacz-workstation";
@@ -205,5 +206,50 @@ fn fake_spectrum(frame: u64) -> SpectrumSnapshot {
                     .at(frame) as u8
             })
             .collect(),
+    }
+}
+
+const LAN_IFACE: &str = "enp14s0";
+const LAN_ADDRESS: &str = "192.168.15.5/24";
+const LAN_SPEED_MBPS: u32 = 1000;
+const VPN_NAME: &str = "OpenVPN Flxpoint";
+const VPN_KIND: &str = "openvpn";
+const VPN_IFACE: &str = "tun0";
+const TAILNET_ADDRESS: &str = "100.122.159.93";
+const TAILNET_PEERS_ONLINE: u32 = 0;
+const TAILNET_PEERS: u32 = 1;
+const PING_MS: f32 = 12.0;
+
+/// The mockup's network links, published once.
+fn links() -> Feed {
+    Feed::new(topics::NET_LINKS, |context| async move {
+        context
+            .publisher
+            .publish(topics::NET_LINKS, &mockup_links());
+        pending::<()>().await;
+    })
+}
+
+fn mockup_links() -> LinksSnapshot {
+    LinksSnapshot {
+        lan: vec![LanLink {
+            iface: LAN_IFACE.to_owned(),
+            address: Some(LAN_ADDRESS.to_owned()),
+            speed_mbps: Some(LAN_SPEED_MBPS),
+            state: LinkState::Up,
+        }],
+        vpns: vec![VpnLink {
+            name: VPN_NAME.to_owned(),
+            kind: VPN_KIND.to_owned(),
+            iface: Some(VPN_IFACE.to_owned()),
+            state: LinkState::Up,
+        }],
+        tailscale: Some(TailscaleLink {
+            address: Some(TAILNET_ADDRESS.to_owned()),
+            peers_online: TAILNET_PEERS_ONLINE,
+            peers_total: TAILNET_PEERS,
+            state: LinkState::Up,
+        }),
+        ping_ms: Some(PING_MS),
     }
 }

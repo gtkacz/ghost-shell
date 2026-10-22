@@ -145,6 +145,11 @@ swap = "Meta+Shift+M"
 history_limit = 200
 popup_timeout_s = 6
 
+[network]
+# The IPv4 address the network panel pings every 5 s while it is shown, for the round trip it
+# reports. Empty turns the ping off.
+ping = "1.1.1.1"
+
 # The dashboard is a tree of nodes, one tree per named view.
 #   Split: lays out children in a "row" or a "column".
 #   Slot:  shows one widget; `settings` is passed to it.

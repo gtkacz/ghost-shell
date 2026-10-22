@@ -1,0 +1,66 @@
+{
+  "Version": "1.104.2-tc3430f0d2-g598b63867",
+  "TUN": true,
+  "BackendState": "Running",
+  "HaveNodeKey": true,
+  "AuthURL": "",
+  "TailscaleIPs": [
+    "100.64.0.1",
+    "fd7a:115c:a1e0::1"
+  ],
+  "Self": {
+    "HostName": "desktop",
+    "DNSName": "desktop.tailnet-example.ts.net.",
+    "OS": "linux",
+    "TailscaleIPs": [
+      "100.64.0.1",
+      "fd7a:115c:a1e0::1"
+    ],
+    "CurAddr": "",
+    "Relay": "sao",
+    "PeerRelay": "",
+    "Online": true,
+    "Active": false,
+    "ExitNode": false
+  },
+  "MagicDNSSuffix": "tailnet-example.ts.net",
+  "CurrentTailnet": {
+    "Name": "user@example.com",
+    "MagicDNSSuffix": "tailnet-example.ts.net",
+    "MagicDNSEnabled": true
+  },
+  "Peer": {
+    "nodekey:0000000000000000000000000000000000000000000000000000000000000001": {
+      "HostName": "phone",
+      "DNSName": "phone.tailnet-example.ts.net.",
+      "OS": "android",
+      "TailscaleIPs": [
+        "100.64.0.2",
+        "fd7a:115c:a1e0::2"
+      ],
+      "CurAddr": "203.0.113.7:41641",
+      "Relay": "",
+      "PeerRelay": "",
+      "Online": true,
+      "Active": true,
+      "ExitNode": false,
+      "LastSeen": "2026-10-21T23:59:00Z"
+    },
+    "nodekey:0000000000000000000000000000000000000000000000000000000000000002": {
+      "HostName": "laptop",
+      "DNSName": "laptop.tailnet-example.ts.net.",
+      "OS": "linux",
+      "TailscaleIPs": [
+        "100.64.0.3",
+        "fd7a:115c:a1e0::3"
+      ],
+      "CurAddr": "",
+      "Relay": "sao",
+      "PeerRelay": "",
+      "Online": false,
+      "Active": false,
+      "ExitNode": false,
+      "LastSeen": "2026-10-21T23:30:00.1Z"
+    }
+  }
+}

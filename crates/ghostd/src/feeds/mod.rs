@@ -4,9 +4,11 @@ pub mod desktop;
 pub mod host;
 pub mod http;
 mod kwin_script;
+pub mod links;
 pub mod shortcuts;
 pub mod sky;
 pub mod spectrum;
+pub mod tailscale;
 pub mod weather;
 
 use std::future::{pending, poll_fn};

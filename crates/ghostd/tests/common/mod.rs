@@ -3,7 +3,9 @@
 
 pub mod bus;
 pub mod disk;
+pub mod nm;
 pub mod server;
+pub mod tailscale;
 
 use std::fs;
 use std::os::unix::fs::symlink;

@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 use std::ffi::OsString;
+use std::net::Ipv4Addr;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use ghost_proto::{
-    Alerts, Appearance, Dashboard, I18n, LayoutConfig, LayoutNode, Location, ProviderSpec,
+    Alerts, Appearance, Dashboard, I18n, LayoutConfig, LayoutNode, Location, Network, ProviderSpec,
     ResolvedConfig, Shortcuts, Thresholds,
 };
 
@@ -129,6 +130,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_i18n(&config.i18n)?;
     validate_alerts_language(&config.location.alerts, &config.i18n)?;
     validate_shortcuts(&config.shortcuts)?;
+    validate_network(&config.network)?;
     validate_providers(&config.providers)
 }
 
@@ -473,6 +475,16 @@ fn validate_shortcuts(shortcuts: &Shortcuts) -> Result<(), ConfigError> {
         ));
     }
     Ok(())
+}
+
+fn validate_network(network: &Network) -> Result<(), ConfigError> {
+    if network.ping.is_empty() || network.ping.parse::<Ipv4Addr>().is_ok() {
+        return Ok(());
+    }
+    Err(invalid(
+        "network.ping",
+        format!("{:?} is not an IPv4 address", network.ping),
+    ))
 }
 
 fn validate_providers(providers: &[ProviderSpec]) -> Result<(), ConfigError> {

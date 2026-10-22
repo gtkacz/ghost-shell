@@ -276,3 +276,37 @@ fn mem_no_longer_carries_top() {
             .contains("top")
     );
 }
+
+#[test]
+fn links_exact_wire_form() {
+    let links = LinksSnapshot {
+        lan: vec![LanLink {
+            iface: "enp14s0".into(),
+            address: Some("192.168.15.5/24".into()),
+            speed_mbps: Some(1000),
+            state: LinkState::Up,
+        }],
+        vpns: vec![VpnLink {
+            name: "Work".into(),
+            kind: "wireguard".into(),
+            iface: None,
+            state: LinkState::Connecting,
+        }],
+        tailscale: Some(TailscaleLink {
+            address: Some("100.64.0.1".into()),
+            peers_online: 1,
+            peers_total: 2,
+            state: LinkState::Down,
+        }),
+        ping_ms: Some(12.5),
+    };
+    assert_eq!(
+        serde_json::to_string(&links).unwrap(),
+        concat!(
+            r#"{"lan":[{"iface":"enp14s0","address":"192.168.15.5/24","speed_mbps":1000,"#,
+            r#""state":"up"}],"vpns":[{"name":"Work","kind":"wireguard","iface":null,"#,
+            r#""state":"connecting"}],"tailscale":{"address":"100.64.0.1","peers_online":1,"#,
+            r#""peers_total":2,"state":"down"},"ping_ms":12.5}"#
+        )
+    );
+}

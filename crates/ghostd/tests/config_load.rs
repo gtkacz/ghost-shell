@@ -686,3 +686,28 @@ fn inmet_alerts_translate_only_from_pt_br() {
     );
     assert!(load_str_with_user("[i18n]\nfrom = 'en-US'\nto = 'pt-BR'\n", "u").is_ok());
 }
+
+#[test]
+fn network_ping_defaults_to_1_1_1_1() {
+    assert_eq!(load_str_with_user("", "u").unwrap().network.ping, "1.1.1.1");
+}
+
+#[test]
+fn network_ping_must_be_an_ipv4_address_or_empty() {
+    assert!(
+        load_str_with_user("[network]\nping='x'", "u")
+            .unwrap_err()
+            .to_string()
+            .contains("network.ping: \"x\" is not an IPv4 address")
+    );
+    for host in ["2606:4700::1111", "one.one.one.one", "1.1.1.1 "] {
+        assert_eq!(
+            rejected(&format!("[network]\nping = {host:?}\n")),
+            format!("network.ping: {host:?} is not an IPv4 address")
+        );
+    }
+    for host in ["", "9.9.9.9"] {
+        let c = load_str_with_user(&format!("[network]\nping = {host:?}\n"), "u").unwrap();
+        assert_eq!(c.network.ping, host);
+    }
+}

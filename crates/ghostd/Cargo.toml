@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 futures-core.workspace = true
 ghost-proto = { path = "../ghost-proto" }
-nix = { workspace = true, features = ["feature", "fs", "hostname", "signal"] }
+nix = { workspace = true, features = ["feature", "fs", "hostname", "net", "signal", "socket"] }
 notify.workspace = true
 nvml-wrapper.workspace = true
 pipewire.workspace = true
