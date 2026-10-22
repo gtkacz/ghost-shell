@@ -666,9 +666,12 @@ The installed binaries: `~/.local/bin/ghostd` with its INMET provider and Open-M
 | MONITOR with the user's settings | 1.33 %, 1.35 % | 15.93 | 228 MiB | — |
 | Covered: `measure-covered.sh 60` | 0.05 % | 0 frames | — | 0 frames, ≤ 0.5 % ✓ |
 | Covered: the live services | 0.07 % | — | 300 MiB | ≤ 0.5 % ✓ |
-| Playing (15 fps, and the user's 30) | not measured yet: no player played during the window | | | ≤ 2 % |
+| Playing: V1 with Spotify playing, `spectrum_fps = 15` (installed `a507843`) | 1.83 %, 1.83 %, 1.90 % | 15.9 | 237–261 MiB | ≤ 2 % ✓ |
+| Playing at the user's `spectrum_fps = 30` | 2.36 %, 2.43 % (2.61 % under load) | 27–28 | 238–240 MiB | recorded |
 
 - The daemon reads 0.48–0.53 % of a core in every visible state and 0.00 % covered. The INMET provider reads 0.00 % at 7.5 MB.
+- Playing passes with a thin margin. The spectrum adds about 0.8 % to the shell (0.43 % held, 1.23–1.27 % at 15 fps) and about 0.1 % to the daemon. At 30 fps the headless output drew 27–28 frames/s rather than 30.
+- Playing used the shell on the real session bus, so it could see MPRIS, and its own daemon. Its only capture was the output monitor. The RSS in the Playing rows counts each page once, as the budget now does. The other rows' RSS is VmRSS.
 - Held views render 3 frames/s rather than 2. The data tick, the stripe step and the clock's second don't always share a frame.
 - The user's MONITOR animates because an INMET alert issued for later in the day shows in the weather widget, and the user's 10-minute attention window and scrolling stripes keep it moving.
 - **RSS: within budget, counted once per page.** VmRSS counts the pages NVIDIA maps through `/dev/nvidiactl` twice: VmRSS minus the `smaps` total minus the `nvidiactl` share was a constant 164 KiB over 382 samples. Since then, the budget and `measure-cpu.sh` use `Rss` from `smaps_rollup`. Live at 19:50, the shell reads 250 540 KiB (VmRSS 306 144) and the daemon 37 888, so 288 428 KiB together: 94 % of 307 200.
