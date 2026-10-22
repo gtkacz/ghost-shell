@@ -179,7 +179,8 @@ function visible(q) {
   return q[2] > 0 || Math.hypot(q[0], q[1]) > 1;
 }
 
-// Where the uplink widget's labels go: one anchor per endpoint, at most MAX_ENDPOINTS, then home, hidden when there is none.
+// Where the uplink widget's labels go: one anchor per endpoint, at most MAX_ENDPOINTS, then home, hidden when there
+// is none.
 // The same rotation, tilt and radius as globe.frag, so a label stays on its square.
 export function labelAnchors({ width, height, unit, elapsedMs, hasHome, home, endpoints }) {
   const { radius } = globeLayout({ width, height, unit });

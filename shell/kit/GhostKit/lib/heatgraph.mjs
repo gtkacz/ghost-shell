@@ -5,8 +5,8 @@ import { heatAlphaByte, level } from './segments.mjs';
 // cell, three to a component. An ok cell's byte is its heatAlphaByte(), which lies in 18-222, so it never collides
 // with the three codes. The columns sit in a ring, each column's rows together, and `head` is the slot of the oldest
 // column drawn: a new sample takes that slot in the next ring and moves the head on, so only the one word a column
-// spans is sent again, rather than every word of the band. A band holds HEAT_BAND_ROWS rows because a program with more words cost
-// NVIDIA's driver about 20 MiB more here (128 words against 256 or 512).
+// spans is sent again, rather than every word of the band. A band holds HEAT_BAND_ROWS rows because a program with
+// more words cost NVIDIA's driver about 20 MiB more here (128 words against 256 or 512).
 const CELL_RANGE = 256;
 const CELLS_PER_COMPONENT = 3;
 const CELLS_PER_WORD = CELLS_PER_COMPONENT * COMPONENTS_PER_WORD;

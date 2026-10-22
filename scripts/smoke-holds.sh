@@ -5,8 +5,9 @@ set -euo pipefail
 # dashboard is covered and uncovered, after every view swap, after every tab of every tabs node and after
 # a live style change: a leaked claim keeps costing CPU for as long as the shell runs, and only a
 # measurement would show it. After each phase the shell's log must also hold no error, since a widget
-# that fails to load claims nothing and so leaves every count at the baseline. The shell renders in a headless KWin of its own, and it and a fake ghostd
-# share a bus made for this run, so nothing reaches the user's screen or their running ghostd.
+# that fails to load claims nothing and so leaves every count at the baseline. The shell renders in a headless KWin of
+# its own, and it and a fake ghostd share a bus made for this run, so nothing reaches the user's screen or their
+# running ghostd.
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Two runs at once, such as one per worktree, each need a socket of their own; the logs sit beside it.
