@@ -44,3 +44,21 @@ export function labelX(anchorX, gap, textWidth, areaWidth) {
   const right = anchorX + gap;
   return right + textWidth > areaWidth ? anchorX - gap - textWidth : right;
 }
+
+// Whether rects a and b, each { x, y, w, h }, overlap once each is grown by pad on every side (a negative pad shrinks).
+function overlaps(a, b, pad) {
+  return a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
+}
+
+// Which labels show, given their rects ranked first to last (home, then the endpoints by socket count) and null for a
+// label behind the globe: one is hidden while it overlaps a shown label ranked above it. The margin is hysteresis
+// against the globe's sub-pixel motion: a shown label hides only once the overlap is deeper than the margin, and a
+// hidden one returns only once it clears every shown label by the margin, so wasShown is the previous result.
+export function shownLabels(rects, wasShown, margin) {
+  const shown = [];
+  rects.forEach((rect, i) => {
+    const pad = wasShown[i] ? -margin : margin;
+    shown.push(rect !== null && !rects.slice(0, i).some((other, j) => shown[j] && overlaps(rect, other, pad)));
+  });
+  return shown;
+}
