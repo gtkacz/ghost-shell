@@ -23,6 +23,9 @@ const COLOUR_HEX_DIGITS: usize = 6;
 const LANGUAGE_LETTERS: RangeInclusive<usize> = 2..=3;
 const REGION_LETTERS: usize = 2;
 const REGION_SEPARATOR: char = '-';
+const INMET_PROVIDER: &str = "inmet";
+// INMET publishes its alerts only in Brazilian Portuguese.
+const INMET_LANGUAGE: &str = "pt-BR";
 const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
 const HOME_ENV: &str = "HOME";
 const CONFIG_HOME_SUBDIR: &str = ".config";
@@ -124,6 +127,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_location(&config.location)?;
     validate_alerts(&config.location.alerts)?;
     validate_i18n(&config.i18n)?;
+    validate_alerts_language(&config.location.alerts, &config.i18n)?;
     validate_shortcuts(&config.shortcuts)?;
     validate_providers(&config.providers)
 }
@@ -426,6 +430,20 @@ fn validate_i18n(i18n: &I18n) -> Result<(), ConfigError> {
         return Err(invalid("i18n", "from and to must differ"));
     }
     Ok(())
+}
+
+/// A source language INMET never writes would leave every alert untranslated.
+fn validate_alerts_language(alerts: &Alerts, i18n: &I18n) -> Result<(), ConfigError> {
+    if alerts.provider != INMET_PROVIDER || i18n.from.is_empty() || i18n.from == INMET_LANGUAGE {
+        return Ok(());
+    }
+    Err(invalid(
+        "i18n.from",
+        format!(
+            "{:?} must be {INMET_LANGUAGE:?} while location.alerts.provider is {INMET_PROVIDER:?}",
+            i18n.from
+        ),
+    ))
 }
 
 /// Matches `^[a-z]{2,3}(-[A-Z]{2})?$`.

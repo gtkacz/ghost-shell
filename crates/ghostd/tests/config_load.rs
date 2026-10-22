@@ -669,3 +669,20 @@ fn a_tag_that_is_not_a_language_tag_names_the_key() {
         "i18n.from: \"PT-br\" is not a language tag such as en-US"
     );
 }
+
+#[test]
+fn inmet_alerts_translate_only_from_pt_br() {
+    let inmet = "[location.alerts]\nprovider = 'inmet'\narea = '3550308'\n";
+    assert_eq!(
+        rejected(&format!("{inmet}[i18n]\nfrom = 'en-US'\nto = 'pt-BR'\n")),
+        "i18n.from: \"en-US\" must be \"pt-BR\" while location.alerts.provider is \"inmet\""
+    );
+    assert!(
+        load_str_with_user(
+            &format!("{inmet}[i18n]\nfrom = 'pt-BR'\nto = 'en-US'\n"),
+            "u"
+        )
+        .is_ok()
+    );
+    assert!(load_str_with_user("[i18n]\nfrom = 'en-US'\nto = 'pt-BR'\n", "u").is_ok());
+}
