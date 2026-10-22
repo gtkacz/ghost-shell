@@ -26,7 +26,7 @@ const DEFAULT_V1_FOR_TEST = {
           direction: 'column',
           size: 332,
           children: [
-            { size: null, default: 0, tabs: [tab('uplink', 'UPLINK'), tab('silicon', 'SILICON'), tab('process-tree', 'TREE')] },
+            { size: null, default: 0, tabs: [tab('uplink', 'UPLINK'), tab('silicon', 'SILICON')] },
             slot('network', 109, { style: 'scope' }),
           ],
         },
@@ -53,7 +53,6 @@ const DEFAULT_V2_FOR_TEST = {
           tabs: [
             tab('uplink', 'UPLINK'),
             tab('silicon', 'SILICON'),
-            tab('process-tree', 'PROCESS TREE'),
           ],
         },
         slot('media', 120, { style: 'strip' }),
@@ -73,7 +72,7 @@ const DEFAULT_MONITOR_FOR_TEST = {
       size: null,
       children: [
         { direction: 'column', size: null, gutter: 6, children: ['cpu', 'gpu', 'mem', 'net', 'disk', 'therm'].map((metric) => slot('telemetry-lane', null, { metric })) },
-        { direction: 'column', size: 340, children: [slot('process-tree'), slot('sensors', 184)] },
+        { direction: 'column', size: 340, children: [slot('storage'), slot('sensors', 184)] },
       ],
     },
   ],

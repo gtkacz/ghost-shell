@@ -233,7 +233,6 @@ default = 0
 tabs = [
   { widget = "uplink", title = "UPLINK" },
   { widget = "silicon", title = "SILICON" },
-  { widget = "process-tree", title = "TREE" },
 ]
 
 [[layout.views.v1.children.children.children]]
@@ -280,7 +279,6 @@ default = 0
 tabs = [
   { widget = "uplink", title = "UPLINK" },
   { widget = "silicon", title = "SILICON" },
-  { widget = "process-tree", title = "PROCESS TREE" },
 ]
 
 [[layout.views.v2.children.children]]
@@ -305,7 +303,7 @@ size = 164
 widget = "storage"
 
 # The view the monitor shortcut opens: a slim band of clock, weather and media over telemetry, the
-# process tree and the sensors.
+# storage and sensors.
 [layout.views.monitor]
 direction = "column"
 
@@ -362,7 +360,7 @@ direction = "column"
 size = 340
 
 [[layout.views.monitor.children.children.children]]
-widget = "process-tree"
+widget = "storage"
 
 [[layout.views.monitor.children.children.children]]
 widget = "sensors"

@@ -514,11 +514,7 @@ fn default_v1() -> LayoutNode {
                         Some(332.0),
                         vec![
                             LayoutNode::Tabs {
-                                tabs: vec![
-                                    tab("uplink", "UPLINK"),
-                                    tab("silicon", "SILICON"),
-                                    tab("process-tree", "TREE"),
-                                ],
+                                tabs: vec![tab("uplink", "UPLINK"), tab("silicon", "SILICON")],
                                 size: None,
                                 default: 0,
                             },
@@ -554,11 +550,7 @@ fn default_v2() -> LayoutNode {
                 vec![
                     styled("clock", Some(150.0), "band"),
                     LayoutNode::Tabs {
-                        tabs: vec![
-                            tab("uplink", "UPLINK"),
-                            tab("silicon", "SILICON"),
-                            tab("process-tree", "PROCESS TREE"),
-                        ],
+                        tabs: vec![tab("uplink", "UPLINK"), tab("silicon", "SILICON")],
                         size: None,
                         default: 0,
                     },
@@ -616,7 +608,7 @@ fn default_monitor() -> LayoutNode {
                     split(
                         Column,
                         Some(340.0),
-                        vec![slot("process-tree", None), slot("sensors", Some(184.0))],
+                        vec![slot("storage", None), slot("sensors", Some(184.0))],
                     ),
                 ],
             ),

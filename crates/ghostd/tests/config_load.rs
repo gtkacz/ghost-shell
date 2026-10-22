@@ -299,6 +299,30 @@ fn default_views_have_no_machine_placeholders() {
     assert_eq!(labels, ["Notifications", "Notifications"]);
 }
 
+fn collect_widgets(node: &LayoutNode, widgets: &mut Vec<String>) {
+    match node {
+        LayoutNode::Slot { widget, .. } => widgets.push(widget.clone()),
+        LayoutNode::Split { children, .. } => {
+            for child in children {
+                collect_widgets(child, widgets);
+            }
+        }
+        LayoutNode::Tabs { tabs, .. } => {
+            widgets.extend(tabs.iter().map(|tab| tab.widget.clone()));
+        }
+    }
+}
+
+#[test]
+fn default_views_do_not_use_the_process_tree() {
+    let c = load_str_with_user("", "u").unwrap();
+    for (name, view) in &c.layout.views {
+        let mut widgets = Vec::new();
+        collect_widgets(view, &mut widgets);
+        assert!(!widgets.iter().any(|w| w == "process-tree"), "{name}");
+    }
+}
+
 #[test]
 fn user_layout_replaces_default_view() {
     let c = load_str_with_user("[layout.views.v1]\nwidget = \"memory\"\n", "u").unwrap();
