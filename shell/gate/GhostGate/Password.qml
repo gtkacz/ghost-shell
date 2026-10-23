@@ -20,10 +20,16 @@ Item {
     readonly property var gauge: GateLib.cells(length)
     readonly property int lit: gauge.lit
     readonly property int cursor: gauge.cursor
+    // A full row keeps every cell lit, so the blinking cursor must not stand in for the last one.
+    readonly property bool cursorShown: !busy && length < GateLib.CELLS
 
     property int blinkStep: 0
 
     signal submitted(string password)
+
+    function clear() {
+        input.text = "";
+    }
 
     function focusField() {
         input.forceActiveFocus();
@@ -47,13 +53,11 @@ Item {
             if (root.busy || text === "") {
                 return;
             }
-            const password = text;
-            text = "";
-            root.submitted(password);
+            root.submitted(text);
         }
         Keys.onEscapePressed: {
             if (!root.busy) {
-                text = "";
+                root.clear();
             }
         }
     }
@@ -68,7 +72,7 @@ Item {
                 id: cell
 
                 required property int index
-                readonly property bool isCursor: index === root.cursor && !root.busy
+                readonly property bool isCursor: index === root.cursor && root.cursorShown
 
                 width: Theme.d(root.cellWidthPx)
                 height: Theme.d(root.rowHeightPx)

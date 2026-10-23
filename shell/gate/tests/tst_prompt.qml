@@ -109,10 +109,53 @@ TestCase {
         type("abc");
         keyClick(Qt.Key_Return);
         compare(screen.adapter.submitCount, 1);
+        compare(password.lit, 3);
+        verify(!password.cursorShown);
         type("xyz");
+        keyClick(Qt.Key_Escape);
         keyClick(Qt.Key_Return);
-        compare(password.lit, 0);
+        compare(password.lit, 3);
         compare(screen.adapter.submitCount, 1);
+    }
+
+    function test_full_row_keeps_cursor_off_the_last_cell() {
+        const password = find(makeScreen(), "password");
+        type("abc");
+        verify(password.cursorShown);
+        type("a".repeat(40));
+        compare(password.lit, 28);
+        verify(!password.cursorShown);
+    }
+
+    function test_alert_leaves_everything_above_it_in_place() {
+        const screen = makeScreen();
+        const password = find(screen, "password");
+        const user = find(screen, "userName");
+        const before = [password.mapToItem(null, 0, 0).y, user.mapToItem(null, 0, 0).y];
+        type("nope");
+        keyClick(Qt.Key_Return);
+        verify(find(screen, "alert").visible);
+        waitForRendering(screen);
+        compare(password.mapToItem(null, 0, 0).y, before[0]);
+        compare(user.mapToItem(null, 0, 0).y, before[1]);
+    }
+
+    function test_tag_after_the_name_is_host_when_locked_and_session_at_login() {
+        Theme.load(GateLib.parseSnapshot({ gate: { host: "ghost-shell" } }));
+        const screen = makeScreen();
+        verify(texts(screen).includes("ghost-shell"));
+        screen.adapter.mode = "login";
+        verify(!texts(screen).includes("ghost-shell"));
+        verify(texts(screen).includes("Plasma · Wayland"));
+    }
+
+    function test_secondary_screen_never_reports_done() {
+        const screen = makeScreen();
+        const other = createTemporaryObject(screenComponent, test, { primary: false, adapter: screen.adapter });
+        doneSpy.target = other;
+        screen.adapter.succeeded();
+        wait(1200);
+        compare(doneSpy.count, 0);
     }
 
     function test_empty_enter_does_nothing() {

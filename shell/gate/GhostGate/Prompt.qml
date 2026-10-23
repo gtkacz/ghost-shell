@@ -44,7 +44,12 @@ Item {
         target: root.adapter
 
         function onFailed() {
+            password.clear();
             root.raiseAlert();
+        }
+
+        function onSucceeded() {
+            password.clear();
         }
 
         function onMessageChanged() {
@@ -64,7 +69,11 @@ Item {
     Panel {
         id: panel
 
-        anchors.centerIn: parent
+        // Centred as if the alert were absent, so it grows the panel downward and nothing above it moves (spec 6.2).
+        readonly property real idleHeight: height - (alert.visible ? alert.implicitHeight + body.spacing : 0)
+
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: (parent.height - idleHeight) / 2
         width: Theme.d(root.panelWidthPx)
         height: Theme.d(headerHeightPx + bodyTopPx) + padding + body.implicitHeight
         padding: Theme.d(root.panelPaddingPx)

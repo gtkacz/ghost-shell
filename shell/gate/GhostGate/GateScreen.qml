@@ -78,11 +78,13 @@ Item {
     Connections {
         target: root.adapter
 
+        // Only the primary screen reports done, so a host that exits on the first one cannot cut the pass short.
         function onSucceeded() {
-            if (root.primary) {
-                console.info("gate: succeeded");
+            if (!root.primary) {
+                return;
             }
-            if (root.primary && root.adapter.mode === "lock") {
+            console.info("gate: succeeded");
+            if (root.adapter.mode === "lock") {
                 scan.start();
             } else {
                 root.done();
