@@ -14,14 +14,17 @@ launched app get focus, does KWin fade `xdg_popup`s).
 | **Does the `kwinrc` `[ModifierOnlyShortcuts]` binding reach a ghostd method?** | **No. KWin 6.7.5 no longer reads that group.** 5 Meta taps, 0 `ToggleLauncher` calls |
 | Does Meta+S still reach KRunner's binding? | **Yes**, through KIO's D-Bus activation of `org.kde.krunner`. No `globalShortcutPressed` signal is emitted for it |
 | Does Meta held with another key toggle? | No toggle (moot, since Meta alone doesn't toggle either) |
+| **Does bare Meta as a KGlobalAccel shortcut of ghost-shell's own component reach ghostd?** | **Yes, once plasmashell's launcher entry no longer holds bare Meta:** 15/15 taps gave `globalShortcutPressed` for `ghost-shell/launcher`. With that entry kept, the key is shared and only plasmashell's action fires (0/20) |
 | Does a launched app get focus? | **Yes, by every route** (`DesktopEntry.execute()`, `gtk-launch`, `kioclient exec`), 9/9 in each effect set |
 | Does KWin fade an `xdg_popup` (`PopupWindow`)? | **Yes**, under both effect sets (`fadingpopups`) |
 | Does KWin fade a layer-shell `dock` surface? | **Not with the stock effects; yes with the user's own effect set** (`kinetic_fadingpopups`, from opacity 0.2) |
 | A surface that no effect fades | **Layer-shell namespace `utility`**, under both effect sets |
 
-**The Meta answer is the plan's stop condition** (design §8: "Any 'no' on 1–3 without a working fallback stops the
-plan"). The brief names no fallback, and none was built or tried. The section "Meta on its own" below gives the
-evidence and the route that Plasma 6.7 uses instead.
+**The `kwinrc` route for Meta is dead, but a fallback works.** Design §8 says "Any 'no' on 1–3 without a working
+fallback stops the plan". A follow-up in the same sandbox ("Meta through KGlobalAccel") showed that bare Meta reaches
+ghostd as a KGlobalAccel shortcut of the `ghost-shell` component, registered the way ghostd registers its view
+shortcuts. That works only once bare Meta is removed from plasmashell's `activate application launcher` entry. While
+both hold the key, plasmashell's action fires and ghost-shell's never does, whichever registers first.
 
 **Plan call 1 ("every surface uses `dock`") does not hold on this machine.** Under the user's effect set a `dock`
 surface fades in from 20 % over the windows behind it, as the 2c spike also found. See "Popup fades".
@@ -164,13 +167,78 @@ From the stub logging `queued` to the script logging the KWin signal, all on the
 - Service components whose desktop files live in the user's own data dir (9 of them) failed to load in the sandbox
   ("could not create a component"), so none of the user's custom launchers could fire.
 
-**Not tried** (outside the brief, and the brief's instruction was to stop at a "no"): binding Meta alone through
-KGlobalAccel. ghostd already registers a `ghost-shell` component there. Plasma 6.7's own route for a bare Meta is a
-KGlobalAccel action, so that is the obvious fallback to try. It would conflict with plasmashell's launcher binding,
-which then has to give up `Meta`. That needs the user's decision, and a spike of its own.
+The KGlobalAccel route was tried afterwards, at the coordinator's request; see the next section.
 
 **Not covered:** design §8.3's "With the panel gone, are Meta+1…0 still held by plasmashell?" needs a running
 plasmashell, which this brief did not include. The copied file shows plasmashell's task manager holding Meta+1…9.
+
+## Meta through KGlobalAccel
+
+A follow-up, `spikes/bar-bridge/meta.sh`, in a headless KWin `3a-t1-meta` with the same isolation as `run.sh`: own
+session bus, private system bus, sandboxed XDG dirs, and the user's `kwinrc` and `kglobalshortcutsrc` copied in with
+`cp`. Only the copies were edited. `meta_kglobalaccel.py` registers actions as ghostd's
+`crates/ghostd/src/feeds/shortcuts.rs` does:
+- `doRegister(["ghost-shell", "launcher", "ghost-shell", "Open the launcher"])`;
+- then `setShortcutKeys(id, [[key, 0, 0, 0]], SET_PRESENT | NO_AUTOLOADING)`.
+
+It logs every `globalShortcutPressed` from `org.kde.kglobalaccel.Component`. `fake_key.py` tapped Meta alone (5 taps,
+0.5 s apart). `fake_chord.py` then pressed Meta+S, Meta+1 and Meta+K.
+
+### The key
+
+- The copy holds bare Meta in `[plasmashell] activate application launcher=Meta\tAlt+F1,Meta\tAlt+F1,…`. The `\t`
+  there is a literal backslash and `t` joining the keys.
+- KGlobalAccel (`allShortcutInfos` on `/component/plasmashell`) stores the action's keys as `150994992` (`0x09000030`,
+  Alt+F1) and **`16777250` (`0x01000022`, `Qt::Key_Meta` with no modifier bit) for bare Meta**.
+  - That differs from `Meta+<key>` combinations, which carry the modifier bit `0x10000000`, as in `keyseq.rs`'s
+    `Meta+M` = `0x1000004D`.
+  - `keyseq::parse` rejects a bare "Meta" today (`Unparsable`: "meta" is no key name), so Task 5 or 11 must special-case it.
+- The registration asked for exactly `16777250`. KGlobalAccel granted `[[16777250, 0, 0, 0]]` in every run.
+
+### Retired: bare Meta removed from plasmashell's entry in the copy
+
+The retire step was taken in the copy: the first field became `Alt+F1`, and the defaults were left alone. KGlobalAccel
+then held `keys=[150994992]` for plasmashell's action, and `globalShortcutsByKey(16777250, Equal)` listed only
+`ghost-shell/launcher`.
+
+| Input | `ghost-shell/launcher` pressed | Other effects |
+|---|---|---|
+| Meta tapped alone, 5 × 3 runs | **15/15** | none |
+| Meta+S | 0 | KRunner's binding still fired: 1 `org.freedesktop.Application.Activate` to `org.kde.krunner` per press |
+| Meta+1 | 0 | none (plasmashell's task manager, which holds it, wasn't running) |
+| Meta+K | 0 | none |
+
+- The signal fires on Meta's **release**, within 0–1 ms of `fake_key.py`'s press-and-release. This is kglobalacceld's
+  modifier-only rule (`globalshortcutsregistry.cpp:479–528`), and the release is also why a held Meta followed by
+  another key never fires it.
+- `globalShortcutPressed` arrives on `/component/ghost_shell` with arguments (`"ghost-shell"`, `"launcher"`,
+  timestamp): the path, interface and member ghostd already matches for its view shortcuts.
+
+### Shared: plasmashell's entry kept
+
+A stand-in plasmashell registered `["plasmashell", "activate application launcher", "plasmashell", "Activate
+Application Launcher"]` with `SET_PRESENT` only, so it took its stored keys (`Alt+F1` and bare Meta), as a running
+plasmashell would. KGlobalAccel granted ghost-shell's bare Meta anyway. `globalShortcutsByKey(16777250, Equal)` then
+listed **two holders**, plasmashell's action and `ghost-shell/launcher`.
+
+| Order | Meta taps | `plasmashell/activate application launcher` | `ghost-shell/launcher` |
+|---|---|---|---|
+| plasmashell registers first (as at login), 3 runs | 15 | **15** | **0** |
+| ghost-shell registers first, 1 run | 5 | **5** | **0** |
+
+Meta+S, Meta+1 and Meta+K fired neither action, and Meta+S still reached KRunner. So a shared bare Meta is a silent
+loss for ghost-shell. ghostd's existing `warn_if_shared` check would log it, but the user would just get Plasma's
+launcher.
+
+### What it means for the plan
+
+- The launcher's Meta works through KGlobalAccel, with no new mechanism. It is one more action on ghostd's existing
+  `ghost-shell` component, listened for exactly as the view shortcuts are.
+- It needs a retire step that **removes bare Meta from plasmashell's `activate application launcher`**, and
+  only that key: Alt+F1 can stay. It can't be done by registering over it. The plan must decide how and when that step
+  runs on the live session, and how it is undone. That is the user's call, and nothing here touched their files.
+- Because the key is `0x01000022`, not a modifier bit plus a key, the config parser and the shared-key check need a
+  bare-Meta case.
 
 ## Launch focus
 
@@ -221,6 +289,8 @@ shown 3 times per run.
 
 - Headless KWin, one output, a virtual input device, no GPU-specific timing. The effect sets were copies of the
   user's configuration and files, not their live compositor.
-- No plasmashell ran, so plasmashell's KGlobalAccel shortcuts (Meta for the launcher, Meta+1…9) were inactive.
+- No plasmashell ran, so plasmashell's KGlobalAccel shortcuts (Meta for the launcher, Meta+1…9) were inactive in
+  `run.sh`. In `meta.sh`'s shared mode a stand-in registered the launcher action the way an app does, not the real
+  plasmashell.
 - Latencies were measured on one machine with an idle KWin. The command path is one D-Bus round trip on the
   session bus.
