@@ -52,6 +52,13 @@ Item {
             password.clear();
         }
 
+        // A backend that stops without a verdict must not leave the password behind in the hidden field.
+        function onBusyChanged() {
+            if (!root.adapter.busy) {
+                password.clear();
+            }
+        }
+
         function onMessageChanged() {
             if (root.adapter.message !== "") {
                 root.raiseAlert();

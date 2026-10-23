@@ -14,3 +14,4 @@ ScanPass 1.0 ScanPass.qml
 GateScreen 1.0 GateScreen.qml
 Prompt 1.0 Prompt.qml
 FakeAdapter 1.0 FakeAdapter.qml
+LockAdapter 1.0 LockAdapter.qml

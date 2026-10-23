@@ -102,6 +102,21 @@ export function parseSnapshot(sections) {
   };
 }
 
+// For readers such as QtCore Settings, whose value("section/key") cannot list the keys a file holds.
+export function readSnapshot(read) {
+  const sections = { gate: { style: read('gate/style') } };
+  for (const key of Object.keys(DEFAULTS.gate)) {
+    sections.gate[key] = read(`gate/${key}`);
+  }
+  for (const name of ['appearance', 'colors', 'dots', 'scanlines']) {
+    sections[name] = {};
+    for (const key of Object.keys(DEFAULTS[name])) {
+      sections[name][key] = read(`${name}/${key}`);
+    }
+  }
+  return parseSnapshot(sections);
+}
+
 export function cells(length, count = CELLS) {
   return { lit: Math.min(length, count), cursor: Math.min(length, count - 1) };
 }

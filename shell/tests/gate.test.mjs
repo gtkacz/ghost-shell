@@ -14,6 +14,7 @@ import {
   nextLayout,
   nextUser,
   parseSnapshot,
+  readSnapshot,
   resolveStyle,
   scanStep,
   sessionTag,
@@ -62,6 +63,23 @@ test('parseSnapshot keeps the default for a value it cannot use', () => {
   assert.equal(parseSnapshot({ colors: { ground: 'red' } }).appearance.colors.ground, '#0a0f11');
   assert.equal(parseSnapshot({ appearance: { panel_fill: 'abc' } }).appearance.panel_fill, 55);
   assert.equal(parseSnapshot({ appearance: { japanese: 'pirate' } }).appearance.japanese, 'mixed');
+});
+
+test('readSnapshot asks for every snapshot key as section/key and parses the answers', () => {
+  const ini = { 'gate/display_model': 'M27Q', 'gate/host': 'hal', 'colors/ground': '#112233', 'dots/spacing': '30' };
+  const asked = [];
+  const snapshot = readSnapshot((key) => {
+    asked.push(key);
+    return ini[key];
+  });
+  assert.equal(snapshot.displayModel, 'M27Q');
+  assert.equal(snapshot.host, 'hal');
+  assert.equal(snapshot.appearance.colors.ground, '#112233');
+  assert.equal(snapshot.appearance.dots.spacing, 30);
+  assert.equal(snapshot.appearance.panel_fill, 55);
+  for (const key of ['gate/style', 'appearance/japanese', 'colors/burn', 'dots/cover', 'scanlines/opacity']) {
+    assert.ok(asked.includes(key), key);
+  }
 });
 
 test('resolveStyle resolves every name to prompt for now', () => {

@@ -118,6 +118,16 @@ TestCase {
         compare(screen.adapter.submitCount, 1);
     }
 
+    function test_busy_ending_without_a_verdict_clears_the_field() {
+        const screen = makeScreen({ holdBusy: true });
+        const password = find(screen, "password");
+        type("abc");
+        keyClick(Qt.Key_Return);
+        compare(password.lit, 3);
+        screen.adapter.busy = false;
+        compare(password.lit, 0);
+    }
+
     function test_full_row_keeps_cursor_off_the_last_cell() {
         const password = find(makeScreen(), "password");
         type("abc");

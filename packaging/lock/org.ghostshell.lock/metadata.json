@@ -1,0 +1,8 @@
+{
+    "KPackageStructure": "Plasma/Shell",
+    "KPlugin": {
+        "Id": "org.ghostshell.lock",
+        "Name": "ghost-shell lock screen"
+    },
+    "X-Plasma-APIVersion": "2"
+}

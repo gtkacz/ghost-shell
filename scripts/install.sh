@@ -36,6 +36,16 @@ nvidia_version_file=/proc/driver/nvidia/version
 drm_dir=/sys/class/drm
 nvidia_drm_driver=nvidia
 
+lock_package_id=org.ghostshell.lock
+lock_package_src=$repo/packaging/lock/$lock_package_id
+lock_package=$data_home/plasma/shells/$lock_package_id
+# On KWin's unit alone: KWin hands its environment to the lock greeter, and plasmashell, which reads the same variable
+# to pick its desktop shell, never sees it.
+lock_dropin_dir=$unit_dir/plasma-kwin_wayland.service.d
+lock_dropin=$lock_dropin_dir/ghost-shell-lock.conf
+lock_previous=$app_dir/lock.previous
+lock_snapshot=${XDG_STATE_HOME:-$HOME/.local/state}/ghost-shell/gate.ini
+
 excluded_widget=broken-example
 required_tools=(cargo fc-list fc-cache kpackagetool6 kreadconfig6)
 
@@ -242,6 +252,86 @@ install_kwin_script() {
         step "the KWin desktop script is installed but not enabled; enable it with: $kwin_script enable"
     fi
 }
+
+daemon_reload() {
+    if systemctl --user show-environment > /dev/null 2>&1; then
+        systemctl --user daemon-reload
+    else
+        warn "systemctl --user is unavailable; run 'systemctl --user daemon-reload' from a login session"
+    fi
+}
+
+install_lock() {
+    local shell_package frag
+
+    for frag in "$shaders_src"/*.frag; do
+        if [[ -e $frag && ! -f $frag.qsb ]]; then
+            die "no compiled shader for ${frag##*/}; run make shaders first"
+        fi
+    done
+
+    # The key beats the variable, so the drop-in would do nothing (lock greeters spike, (a)).
+    shell_package=$(kreadconfig6 --file plasmashellrc --group Shell --key ShellPackage)
+    if [[ -n $shell_package ]]; then
+        die "plasmashellrc sets [Shell] ShellPackage=$shell_package, which overrides the lock screen's pointer; remove it first"
+    fi
+
+    step "installing the lock screen package into $lock_package"
+    rm -rf -- "$lock_package"
+    mkdir -p -- "$lock_package"
+    cp -r -- "$lock_package_src/." "$lock_package/"
+    "$repo/scripts/assemble-gate.sh" "$lock_package/contents/lockscreen"
+
+    # Recorded once, so a second --lock does not take our own drop-in for the user's.
+    if [[ ! -e $lock_previous ]]; then
+        mkdir -p -- "$app_dir"
+        if [[ -e $lock_dropin ]]; then
+            { echo present; cat -- "$lock_dropin"; } > "$lock_previous"
+        else
+            echo absent > "$lock_previous"
+        fi
+    fi
+    step "pointing KWin's lock screen at it with $lock_dropin"
+    mkdir -p -- "$lock_dropin_dir"
+    printf '[Service]\nEnvironment=PLASMA_DEFAULT_SHELL=%s\n' "$lock_package_id" > "$lock_dropin"
+    daemon_reload
+
+    if [[ ! -e $lock_snapshot ]]; then
+        step "no snapshot at $lock_snapshot yet: the lock screen uses its default look until ghostd writes one"
+    fi
+    step "done; the lock screen changes at your next login"
+}
+
+remove_lock() {
+    if [[ -e $lock_previous ]] && [[ $(head -n 1 -- "$lock_previous") == present ]]; then
+        step "restoring the previous $lock_dropin"
+        mkdir -p -- "$lock_dropin_dir"
+        tail -n +2 -- "$lock_previous" > "$lock_dropin"
+    else
+        step "removing $lock_dropin"
+        rm -f -- "$lock_dropin"
+        # Fails, harmlessly, when the directory holds another drop-in or does not exist.
+        rmdir -- "$lock_dropin_dir" 2> /dev/null || true
+    fi
+    rm -f -- "$lock_previous"
+    step "removing $lock_package"
+    rm -rf -- "$lock_package"
+    daemon_reload
+    step "done; the stock lock screen returns at your next login"
+}
+
+case ${1:-} in
+    --lock)
+        install_lock
+        exit
+        ;;
+    --remove-lock)
+        remove_lock
+        exit
+        ;;
+    '') ;;
+    *) die "unknown option $1; usage: install.sh [--lock | --remove-lock]" ;;
+esac
 
 check_prerequisites
 
