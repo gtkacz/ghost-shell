@@ -481,3 +481,18 @@ pub struct TickerSnapshot {
     pub updates: Option<u32>,
     pub nvidia_driver: Option<String>,
 }
+
+/// The files the user opened most recently, newest first.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RecentFiles {
+    pub files: Vec<RecentFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RecentFile {
+    pub path: String,
+    pub name: String,
+    /// The containing folder, with `$HOME` shortened to `~`.
+    pub dir: String,
+    pub modified_s: u64,
+}

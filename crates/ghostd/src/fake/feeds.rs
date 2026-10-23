@@ -3,9 +3,10 @@ use std::time::Duration;
 
 use ghost_proto::{
     AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, Endpoint, HostSnapshot,
-    LanLink, LauncherEntries, LauncherEntry, LinkState, LinksSnapshot, RainPeak, SessionSnapshot,
-    SkySnapshot, SpectrumSnapshot, TailscaleLink, TickerSnapshot, UplinkSnapshot, VpnLink,
-    WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo, WindowsSnapshot, topics,
+    LanLink, LauncherEntries, LauncherEntry, LinkState, LinksSnapshot, RainPeak, RecentFile,
+    RecentFiles, SessionSnapshot, SkySnapshot, SpectrumSnapshot, TailscaleLink, TickerSnapshot,
+    UplinkSnapshot, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo,
+    WindowsSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -32,6 +33,7 @@ pub fn feeds() -> Vec<Feed> {
         windows(),
         launcher_entries(),
         ticker(),
+        recent(),
     ]
 }
 
@@ -489,6 +491,35 @@ fn ticker() -> Feed {
                 nvidia_driver: Some(TICKER_NVIDIA_DRIVER.to_owned()),
             },
         );
+        pending::<()>().await;
+    })
+}
+
+const RECENT_NEWEST_S: u64 = 1_792_500_000;
+const RECENT_STEP_S: u64 = 3600;
+
+/// Generic documents, newest first, published once.
+fn recent() -> Feed {
+    Feed::new(topics::RECENT, |context| async move {
+        let files = [
+            ("budget.ods", "~/Documents"),
+            ("notes.md", "~/Documents"),
+            ("holiday.jpg", "~/Pictures"),
+            ("report.pdf", "~/Downloads"),
+            ("script.py", "~/Projects"),
+        ]
+        .into_iter()
+        .zip(0u64..)
+        .map(|((name, dir), age)| RecentFile {
+            path: format!("{}/{name}", dir.replacen('~', "/home/user", 1)),
+            name: name.to_owned(),
+            dir: dir.to_owned(),
+            modified_s: RECENT_NEWEST_S - age * RECENT_STEP_S,
+        })
+        .collect();
+        context
+            .publisher
+            .publish(topics::RECENT, &RecentFiles { files });
         pending::<()>().await;
     })
 }

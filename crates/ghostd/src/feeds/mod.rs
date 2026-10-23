@@ -9,6 +9,7 @@ pub mod http;
 mod kwin_script;
 pub mod launcher_entries;
 pub mod links;
+pub mod recent;
 pub mod session;
 pub mod shortcuts;
 pub mod sky;

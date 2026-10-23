@@ -6,12 +6,15 @@ license.workspace = true
 
 [dependencies]
 futures-core.workspace = true
+jiff.workspace = true
 ghost-proto = { path = "../ghost-proto" }
 maxminddb = { workspace = true, features = ["mmap"] }
 nix = { workspace = true, features = ["feature", "fs", "hostname", "signal", "socket", "user"] }
 notify.workspace = true
 nvml-wrapper.workspace = true
+percent-encoding.workspace = true
 pipewire.workspace = true
+quick-xml.workspace = true
 realfft.workspace = true
 serde.workspace = true
 serde_json.workspace = true

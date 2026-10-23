@@ -15,6 +15,7 @@ notify = "8.2.0"
 nvml-wrapper = "0.13.0"
 percent-encoding = "2.3.2"
 pipewire = "0.10.1"
+quick-xml = "0.42.0"
 realfft = "3.5.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
