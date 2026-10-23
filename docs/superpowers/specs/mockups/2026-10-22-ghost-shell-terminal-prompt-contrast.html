@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ghost-shell · prompt contrast options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kode+Mono:wght@400..700&family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #040506; }
+body { color: #b7d1cd; font-family: 'Kode Mono', 'Noto Sans JP', monospace; padding: 24px 36px 80px; }
+.wrap { max-width: 1240px; margin: 0 auto; }
+.kick { font-size: 11px; letter-spacing: .3em; color: #587170; }
+h1 { font-size: 24px; font-weight: 700; letter-spacing: .04em; color: #e4f1ef; margin-top: 6px; }
+.lede { color: #8a9e9c; font-size: 13px; line-height: 1.65; margin-top: 8px; max-width: 1100px; }
+.lede strong { color: #e4f1ef; font-weight: 500; }
+.opt { margin-top: 24px; border: 1px solid #161b1e; padding: 14px; }
+.opt header { display: flex; gap: 14px; align-items: baseline; margin-bottom: 10px; }
+.opt header .lt { font-size: 22px; font-weight: 700; color: #a3d4cc; }
+.opt header h3 { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: #e4f1ef; }
+.opt header p { font-size: 12px; color: #8a9e9c; line-height: 1.5; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.lbl { font-size: 10px; letter-spacing: .2em; color: #587170; margin-bottom: 4px; }
+
+.term { font-size: 13px; line-height: 1.6; background: #070a0b; border: 1px solid #2a3a3d; border-left: 3px solid #a3d4cc; padding: 12px 16px; white-space: pre; }
+.gray { filter: grayscale(1); }
+.d { color: #587170; } .s { color: #a3d4cc; } .h { color: #e4f1ef; } .w { color: #e9a84c; } .c { color: #ff3b45; } .o { color: #e0875a; }
+.sel { background: #2a3a3d; color: #e4f1ef; }
+.cur { display: inline-block; width: .6em; height: 1.15em; background: #a3d4cc; vertical-align: text-bottom; }
+
+/* the typed text is regular weight in the body colour in every option */
+.in { color: #b7d1cd; font-weight: 400; }
+
+/* A: chip */
+.A .pwd { background: #2a3a3d; color: #e4f1ef; font-weight: 700; padding: 1px 8px; }
+/* B: lightness split */
+.B .pwd { color: #7d9492; font-weight: 700; }
+.B .in { color: #ffffff; }
+/* C: underline + hue */
+.C .pwd { color: #a3d4cc; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kick">GHOST-SHELL // TERMINAL</div>
+  <h1>Telling the path from what you are typing</h1>
+  <p class="lede">The old pair was <strong>#e4f1ef vs #b7d1cd</strong>, nearly the same lightness and hue. Each option below differs by a cue that does not depend on colour vision
+    (a background block, a large lightness gap, or an underline). The right-hand copy is forced to grayscale to show what is left once hue is removed.</p>
+
+  <section class="opt A">
+    <header><span class="lt">A</span><h3>CHIP</h3><p>The path sits on a tinted block with bold text. Shape separates it, so it holds up under any colour vision. My recommendation.</p></header>
+    <div class="pair">
+      <div><div class="lbl">COLOUR</div><div class="term"><span class="d">9990254 (HEAD -&gt; main) feat(shell): greet after an unlock or a wake</span>
+<span class="pwd">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> <span class="in">cargo test </span><span class="sel">-p</span><span class="cur"></span><span class="d"> ghostd</span></div></div>
+      <div class="gray"><div class="lbl">GRAYSCALE</div><div class="term"><span class="d">9990254 (HEAD -&gt; main) feat(shell): greet after an unlock or a wake</span>
+<span class="pwd">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> <span class="in">cargo test </span><span class="sel">-p</span><span class="cur"></span><span class="d"> ghostd</span></div></div>
+    </div>
+  </section>
+
+  <section class="opt B">
+    <header><span class="lt">B</span><h3>LIGHTNESS SPLIT</h3><p>The path is a muted mid-grey-teal and your typing is pure white, so the typed text is always the brightest thing on the line. No extra shapes, but the path loses prominence.</p></header>
+    <div class="pair">
+      <div><div class="lbl">COLOUR</div><div class="term"><span class="d">9990254 (HEAD -&gt; main) feat(shell): greet after an unlock or a wake</span>
+<span class="pwd">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> <span class="in">cargo test </span><span class="sel">-p</span><span class="cur"></span><span class="d"> ghostd</span></div></div>
+      <div class="gray"><div class="lbl">GRAYSCALE</div><div class="term"><span class="d">9990254 (HEAD -&gt; main) feat(shell): greet after an unlock or a wake</span>
+<span class="pwd">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> <span class="in">cargo test </span><span class="sel">-p</span><span class="cur"></span><span class="d"> ghostd</span></div></div>
+    </div>
+  </section>
+
+  <section class="opt C">
+    <header><span class="lt">C</span><h3>UNDERLINE</h3><p>The path is teal, bold and underlined. Lightest touch, but underlines compete with <code>eza</code>'s underlined headers and text that is only underlined can look like a link.</p></header>
+    <div class="pair">
+      <div><div class="lbl">COLOUR</div><div class="term"><span class="d">9990254 (HEAD -&gt; main) feat(shell): greet after an unlock or a wake</span>
+<span class="pwd">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> <span class="in">cargo test </span><span class="sel">-p</span><span class="cur"></span><span class="d"> ghostd</span></div></div>
+      <div class="gray"><div class="lbl">GRAYSCALE</div><div class="term"><span class="d">9990254 (HEAD -&gt; main) feat(shell): greet after an unlock or a wake</span>
+<span class="pwd">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> <span class="in">cargo test </span><span class="sel">-p</span><span class="cur"></span><span class="d"> ghostd</span></div></div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

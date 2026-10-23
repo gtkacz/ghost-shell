@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ghost-shell · terminal font weight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kode+Mono:wght@400..700&family=JetBrains+Mono:wght@100..800&family=Martian+Mono:wght@100..800&family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #040506; }
+body { color: #b7d1cd; font-family: 'Kode Mono', monospace; padding: 24px 36px 80px; }
+.wrap { max-width: 1240px; margin: 0 auto; }
+.kick { font-size: 11px; letter-spacing: .3em; color: #587170; }
+h1 { font-size: 24px; font-weight: 700; letter-spacing: .04em; color: #e4f1ef; margin-top: 6px; }
+.lede { color: #8a9e9c; font-size: 13px; line-height: 1.65; margin-top: 8px; max-width: 1100px; }
+.lede strong { color: #e4f1ef; font-weight: 500; }
+.opt { margin-top: 24px; border: 1px solid #161b1e; padding: 14px; }
+.opt header { display: flex; gap: 14px; align-items: baseline; margin-bottom: 10px; flex-wrap: wrap; }
+.opt header .lt { font-size: 22px; font-weight: 700; color: #a3d4cc; }
+.opt header h3 { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: #e4f1ef; }
+.opt header p { font-size: 12px; color: #8a9e9c; line-height: 1.5; }
+.term { font-size: 13px; line-height: 1.55; background: #070a0b; border: 1px solid #2a3a3d; border-left: 3px solid #a3d4cc; padding: 12px 16px; white-space: pre; overflow: hidden; }
+.chip { background: #2a3a3d; color: #e4f1ef; padding: 1px 8px; }
+.d { color: #587170; } .s { color: #a3d4cc; } .h { color: #e4f1ef; } .w { color: #e9a84c; } .c { color: #ff6b81; }
+.g { color: #86d19a; } .b { color: #8fb8f5; } .o { color: #e0875a; } .u { text-decoration: underline; text-underline-offset: 3px; }
+.kode { font-family: 'Kode Mono', monospace; --reg: 400; --bold: 700; }
+.jb   { font-family: 'JetBrains Mono', monospace; --reg: 300; --bold: 800; }
+.mar  { font-family: 'Martian Mono', monospace; --reg: 300; --bold: 800; }
+.term { font-weight: var(--reg); }
+.B { font-weight: var(--bold); }
+.chip.B { font-weight: var(--bold); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kick">GHOST-SHELL // TERMINAL</div>
+  <h1>Regular versus bold, in three fonts</h1>
+  <p class="lede">Each window shows the cases where weight matters: the path chip, a directory next to files, and a failed command. Directories are bold <strong>and underlined</strong>
+    here, and the failure uses <strong>✗</strong> (a proposal), so weight is no longer the only cue. Kode Mono is limited to 400 and 700; the other two use <strong>300 regular and 800 bold</strong>.
+    Compare the gap between a bold and a regular line in each.</p>
+
+  <section class="opt">
+    <header><span class="lt">1</span><h3>KODE MONO (CURRENT)</h3><p>Weights 400 / 700. The range you already have.</p></header>
+    <div class="term kode"><span class="chip B">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> ls
+<span class="b B u">crates</span>   <span class="b B u">docs</span>   <span class="b B u">scripts</span>   <span class="b B u">term</span>
+Cargo.toml  Cargo.lock  LICENSE  Makefile  README.md
+<span class="chip B">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="c B">✗</span> cargo test        <span class="c B">101</span> <span class="d">3s</span></div>
+  </section>
+
+  <section class="opt">
+    <header><span class="lt">2</span><h3>MARTIAN MONO (RECOMMENDED)</h3><p>Weights 300 / 800. Squared, geometric, closest to Kode Mono's angular feel; wider, so fewer columns per window.</p></header>
+    <div class="term mar"><span class="chip B">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> ls
+<span class="b B u">crates</span>   <span class="b B u">docs</span>   <span class="b B u">scripts</span>   <span class="b B u">term</span>
+Cargo.toml  Cargo.lock  LICENSE  Makefile  README.md
+<span class="chip B">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="c B">✗</span> cargo test        <span class="c B">101</span> <span class="d">3s</span></div>
+  </section>
+
+  <section class="opt">
+    <header><span class="lt">3</span><h3>JETBRAINS MONO (ALREADY INSTALLED)</h3><p>Weights 300 / 800. Plainer and more neutral; no download needed.</p></header>
+    <div class="term jb"><span class="chip B">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="s">❯</span> ls
+<span class="b B u">crates</span>   <span class="b B u">docs</span>   <span class="b B u">scripts</span>   <span class="b B u">term</span>
+Cargo.toml  Cargo.lock  LICENSE  Makefile  README.md
+<span class="chip B">~/Codes/ghost-shell</span> <span class="w">main*2</span> <span class="s">⇡1</span> <span class="c B">✗</span> cargo test        <span class="c B">101</span> <span class="d">3s</span></div>
+  </section>
+</div>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ghost-shell · terminal directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kode+Mono:wght@400..700&family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #040506; }
+body { color: #b7d1cd; font-family: 'Kode Mono', 'Noto Sans JP', monospace; padding: 24px 36px 80px; }
+.wrap { max-width: 1240px; margin: 0 auto; }
+.kick { font-size: 11px; letter-spacing: .3em; color: #587170; }
+h1 { font-size: 24px; font-weight: 700; letter-spacing: .04em; color: #e4f1ef; margin-top: 6px; }
+.lede { color: #8a9e9c; font-size: 13px; line-height: 1.65; margin-top: 8px; max-width: 1100px; }
+.lede strong { color: #e4f1ef; font-weight: 500; }
+
+.pal { display: flex; gap: 0; margin-top: 16px; border: 1px solid #161b1e; width: max-content; }
+.pal div { width: 56px; height: 44px; font-size: 9px; padding: 4px; letter-spacing: .05em; display: flex; align-items: flex-end; }
+
+.dir { margin: 30px 0 0; border: 1px solid #161b1e; padding: 14px; }
+.dir header { display: flex; gap: 14px; align-items: baseline; margin-bottom: 10px; }
+.dir header .lt { font-size: 22px; font-weight: 700; color: #a3d4cc; }
+.dir header h3 { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: #e4f1ef; white-space: nowrap; }
+.dir header p { font-size: 12px; color: #8a9e9c; line-height: 1.5; }
+.dir .note { font-size: 11px; color: #587170; margin-top: 8px; letter-spacing: .06em; line-height: 1.6; }
+
+/* the desktop the terminal sits on, so the contrast with it is visible */
+.desk { position: relative; height: 560px; overflow: hidden; background: #0a0f11;
+  background-image: radial-gradient(rgba(163,212,204,.16) 1px, transparent 1.5px); background-size: 24px 24px; }
+.desk::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.15) 0 1px, transparent 1px 3px); }
+.bar { position: absolute; left: 0; right: 0; top: 0; height: 26px; border-bottom: 1px solid #1a2527; background: rgba(10,15,17,.55);
+  display: flex; align-items: center; justify-content: space-between; padding: 0 14px; font-size: 10px; letter-spacing: .2em; color: #587170; z-index: 5; }
+.bar b { color: #a3d4cc; font-weight: 500; }
+.hud { position: absolute; right: 24px; width: 230px; border: 1px solid #2a3a3d; background: rgba(10,15,17,.55); padding: 10px 12px; font-size: 10px; letter-spacing: .14em; color: #587170; z-index: 1; }
+.hud i { display: block; font-style: normal; color: #e4f1ef; font-size: 20px; letter-spacing: .02em; margin-top: 4px; }
+.hud .meter { height: 4px; background: #1a2527; margin-top: 8px; } .hud .meter u { display: block; height: 100%; background: #a3d4cc; }
+
+/* terminal common */
+.term { position: absolute; font-size: 13px; line-height: 1.5; color: #b7d1cd; z-index: 3; overflow: hidden; }
+.term pre { font: inherit; white-space: pre; }
+.d { color: #587170; } .s { color: #a3d4cc; } .h { color: #e4f1ef; } .w { color: #e9a84c; } .c { color: #ff3b45; }
+.g { color: #8cc7a1; } .b { color: #7ba9bf; } .m { color: #a99bbd; }
+.sel { background: #2a3a3d; color: #e4f1ef; }
+.cur { display: inline-block; width: .6em; height: 1.15em; background: #a3d4cc; vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.chip { padding: 0 7px; font-size: 11px; letter-spacing: .08em; }
+.chip.on { background: #a3d4cc; color: #071012; font-weight: 700; }
+.chip.off { border: 1px solid #2a3a3d; color: #8a9e9c; }
+.chip.wn { border: 1px solid #e9a84c; color: #e9a84c; }
+
+/* A · framed console */
+.A { left: 5%; top: 62px; width: 68%; height: 450px; background: rgba(7,10,11,.94); border: 1px solid #2a3a3d; }
+.A .tabs { display: flex; height: 26px; border-bottom: 1px solid #1a2527; font-size: 10px; letter-spacing: .16em; align-items: stretch; }
+.A .tabs span { padding: 0 14px; display: flex; align-items: center; color: #587170; border-right: 1px solid #1a2527; }
+.A .tabs span.on { color: #e4f1ef; background: #0f1618; box-shadow: inset 0 -2px #a3d4cc; }
+.A .tabs em { margin-left: auto; font-style: normal; padding: 0 12px; display: flex; align-items: center; color: #587170; }
+.A .body { padding: 12px 16px; position: relative; }
+.A .body::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); }
+.A .tag { position: absolute; left: 14px; top: -7px; background: #0a0f11; padding: 0 8px; font-size: 10px; letter-spacing: .2em; color: #a3d4cc; }
+
+/* B · bare tty */
+.B { left: 5%; top: 62px; width: 68%; height: 450px; background: #06090a; border-left: 2px solid #a3d4cc; display: flex; flex-direction: column; }
+.B .body { padding: 14px 18px; flex: 1; }
+.B .status { height: 24px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; font-size: 10px; letter-spacing: .18em; color: #587170; border-top: 1px solid #1a2527; background: #0a0f11; }
+.B .status .l { display: flex; gap: 14px; align-items: center; }
+
+/* C · phosphor */
+.C { left: 5%; top: 62px; width: 68%; height: 450px; background: #050809; border: 1px solid #1a2527; box-shadow: 0 0 40px rgba(163,212,204,.12), inset 0 0 90px rgba(0,0,0,.85); }
+.C .body { padding: 16px 20px; position: relative; text-shadow: 0 0 5px rgba(163,212,204,.55); }
+.C .body::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.34) 0 1px, transparent 1px 3px); }
+.C .body::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); }
+.C .on-line { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: #fff; box-shadow: 0 0 14px #fff; opacity: .0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kick">GHOST-SHELL // TERMINAL</div>
+  <h1>Where does the terminal sit relative to the desktop?</h1>
+  <p class="lede">The desktop is a <strong>HUD</strong>: dot grid, scanlines, hairline panels, Japanese tags, translucent glass.
+    A terminal is where you <strong>work</strong>, so each direction below keeps the palette and font but drops a different amount of the HUD
+    vocabulary. All three are shown on a stand-in desktop so the contrast is visible. Same prompt content in each: a Starship prompt, a git and
+    <code>eza</code> listing, a failing test (<span style="color:#ff3b45">crit</span>), an atuin/autosuggestion ghost, and a selection.</p>
+  <div class="pal">
+    <div style="background:#0a0f11;color:#587170">bg</div><div style="background:#b7d1cd;color:#071012">fg</div>
+    <div style="background:#ff3b45;color:#071012">red</div><div style="background:#8cc7a1;color:#071012">green</div>
+    <div style="background:#e9a84c;color:#071012">yellow</div><div style="background:#7ba9bf;color:#071012">blue</div>
+    <div style="background:#a99bbd;color:#071012">magenta</div><div style="background:#a3d4cc;color:#071012">cyan</div>
+    <div style="background:#587170;color:#e4f1ef">br.blk</div><div style="background:#e4f1ef;color:#071012">br.wht</div>
+  </div>
+
+  <!-- A -->
+  <section class="dir">
+    <header><span class="lt">A</span><h3>FRAMED CONSOLE</h3>
+      <p>The terminal is a HUD panel that has gone solid: same hairline frame and title tag as the desktop's widgets, but opaque, no dot grid, and the lightest scanlines.</p></header>
+    <div class="desk">
+      <div class="bar"><span><b>GHOST</b> · WS 2</span><span>THU 22 OCT · 14:07</span></div>
+      <div class="hud" style="top:60px">CPU<i>23%</i><div class="meter"><u style="width:23%"></u></div></div>
+      <div class="hud" style="top:150px">MEM<i>6.1G</i><div class="meter"><u style="width:41%"></u></div></div>
+      <div class="term A">
+        <div class="tabs"><span class="on">zsh · ghost-shell</span><span>nvim</span><span>cargo watch</span><em>＋</em></div>
+        <div class="body">
+          <span class="tag">ターミナル · TERM</span>
+<pre><span class="s">gtkacz</span><span class="d">@</span><span class="s">ghost</span> <span class="d">in</span> <span class="h">~/Codes/ghost-shell</span> <span class="d">on</span> <span class="g">⎇ main</span> <span class="w">±2 ⇡1</span> <span class="d">via</span> <span class="w">🦀 1.91</span>
+<span class="s">❯</span> eza -l --git crates
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="w">N</span> <span class="b">ghost-alerts-inmet</span>
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="w">M</span> <span class="b">ghost-proto</span>
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="g">-</span> <span class="b">ghostd</span>
+
+<span class="s">❯</span> cargo test -p ghostd
+<span class="d">   Compiling</span> ghostd v0.1.0
+<span class="d">test</span> config::load::unknown_keys_rejected <span class="d">...</span> <span class="g">ok</span>
+<span class="d">test</span> disk_identity::matches_by_model <span class="d">...</span> <span class="c">FAILED</span>
+<span class="c">error</span>: test failed, to rerun pass `-p ghostd --test disk_identity`
+
+<span class="s">gtkacz</span><span class="d">@</span><span class="s">ghost</span> <span class="d">in</span> <span class="h">~/Codes/ghost-shell</span> <span class="d">on</span> <span class="g">⎇ main</span> <span class="w">±2 ⇡1</span> <span class="c">✘ 101</span> <span class="d">took</span> <span class="w">3.2s</span>
+<span class="s">❯</span> git <span class="sel">st</span><span class="cur"></span><span class="d">ash push -m "wip: disk identity"</span></pre>
+        </div>
+      </div>
+    </div>
+    <p class="note">Most "of the family": a viewer would read it as another panel. Cost: it is the least distinct from the desktop, so the terminal feels like a widget rather than a place.</p>
+  </section>
+
+  <!-- B -->
+  <section class="dir">
+    <header><span class="lt">B</span><h3>BARE TTY</h3>
+      <p>Strips the HUD: no dots, no scanlines, near-black solid ground, one signal-coloured edge. Chrome collapses into a single status line at the bottom (tmux-like) that carries the Japanese tag and system info.</p></header>
+    <div class="desk">
+      <div class="bar"><span><b>GHOST</b> · WS 2</span><span>THU 22 OCT · 14:07</span></div>
+      <div class="hud" style="top:60px">CPU<i>23%</i><div class="meter"><u style="width:23%"></u></div></div>
+      <div class="hud" style="top:150px">MEM<i>6.1G</i><div class="meter"><u style="width:41%"></u></div></div>
+      <div class="term B">
+        <div class="body">
+<pre><span class="s">gtkacz</span><span class="d">@</span><span class="s">ghost</span> <span class="h">~/Codes/ghost-shell</span> <span class="g">⎇ main</span> <span class="w">±2 ⇡1</span>
+<span class="s">❯</span> eza -l --git crates
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="w">N</span> <span class="b">ghost-alerts-inmet</span>
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="w">M</span> <span class="b">ghost-proto</span>
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="g">-</span> <span class="b">ghostd</span>
+
+<span class="s">❯</span> cargo test -p ghostd
+<span class="d">   Compiling</span> ghostd v0.1.0
+<span class="d">test</span> config::load::unknown_keys_rejected <span class="d">...</span> <span class="g">ok</span>
+<span class="d">test</span> disk_identity::matches_by_model <span class="d">...</span> <span class="c">FAILED</span>
+<span class="c">error</span>: test failed, to rerun pass `-p ghostd --test disk_identity`
+
+<span class="s">gtkacz</span><span class="d">@</span><span class="s">ghost</span> <span class="h">~/Codes/ghost-shell</span> <span class="g">⎇ main</span> <span class="w">±2 ⇡1</span> <span class="c">✘ 101</span> <span class="d">3.2s</span>
+<span class="s">❯</span> git <span class="sel">st</span><span class="cur"></span><span class="d">ash push -m "wip: disk identity"</span></pre>
+        </div>
+        <div class="status"><span class="l"><span class="chip on">ZSH</span><span>ターミナル</span><span>~/Codes/ghost-shell</span></span><span class="l"><span class="chip wn">EXIT 101</span><span>1/3</span><span>14:07</span></span></div>
+      </div>
+    </div>
+    <p class="note">Most "terminal-like": the austerity itself signals a different place. Cost: loses the HUD identity inside the window; the status line does all the branding.</p>
+  </section>
+
+  <!-- C -->
+  <section class="dir">
+    <header><span class="lt">C</span><h3>PHOSPHOR</h3>
+      <p>Leans into the glass: glowing text, heavier scanlines, vignette, and a power-on line when it opens (same gesture as the greeting). The only direction that uses a shader.</p></header>
+    <div class="desk">
+      <div class="bar"><span><b>GHOST</b> · WS 2</span><span>THU 22 OCT · 14:07</span></div>
+      <div class="hud" style="top:60px">CPU<i>23%</i><div class="meter"><u style="width:23%"></u></div></div>
+      <div class="hud" style="top:150px">MEM<i>6.1G</i><div class="meter"><u style="width:41%"></u></div></div>
+      <div class="term C">
+        <div class="body">
+<pre><span class="d">GHOST/TTY 0.1 ── zsh 5.9 ── ready</span>
+
+<span class="s">gtkacz</span><span class="d">@</span><span class="s">ghost</span> <span class="h">~/Codes/ghost-shell</span> <span class="g">⎇ main</span> <span class="w">±2 ⇡1</span>
+<span class="s">❯</span> eza -l --git crates
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="w">N</span> <span class="b">ghost-alerts-inmet</span>
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="w">M</span> <span class="b">ghost-proto</span>
+<span class="b">drwxr-xr-x</span> <span class="d">-</span> gtkacz 22 Oct <span class="g">-</span> <span class="b">ghostd</span>
+
+<span class="s">❯</span> cargo test -p ghostd
+<span class="d">test</span> config::load::unknown_keys_rejected <span class="d">...</span> <span class="g">ok</span>
+<span class="d">test</span> disk_identity::matches_by_model <span class="d">...</span> <span class="c">FAILED</span>
+<span class="c">error</span>: test failed, to rerun pass `-p ghostd --test disk_identity`
+
+<span class="s">gtkacz</span><span class="d">@</span><span class="s">ghost</span> <span class="h">~/Codes/ghost-shell</span> <span class="g">⎇ main</span> <span class="w">±2 ⇡1</span> <span class="c">✘ 101</span> <span class="d">3.2s</span>
+<span class="s">❯</span> git <span class="sel">st</span><span class="cur"></span><span class="d">ash push -m "wip: disk identity"</span></pre>
+        </div>
+      </div>
+    </div>
+    <p class="note">Most dramatic, and the same visual idea as the greeting. Cost: glow and heavy scanlines reduce legibility for long sessions and diffs, and a shader costs GPU. It would need a one-key toggle to flat.</p>
+  </section>
+</div>
+</body>
+</html>
