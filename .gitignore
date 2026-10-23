@@ -3,3 +3,5 @@ target/
 *.qsb
 .serena/
 .claude/
+term/out/
+__pycache__/

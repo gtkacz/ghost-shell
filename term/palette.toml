@@ -1,0 +1,21 @@
+# Terminal-only colours. The desktop colours (ground, hair, text, hi, dim, signal, warn, crit) are read
+# from crates/ghostd/src/config/default.toml by scripts/term-theme.py, so they are not repeated here.
+# Regenerate the terminal files with `uv run --no-project python -I scripts/term-theme.py`.
+
+[terminal]
+ground = "#070a0b"
+opacity = 94
+cursor = "#a3d4cc"
+selection = "#2a3a3d"
+orange = "#e0875a"
+
+[ansi]
+normal = ["#0a0f11", "#ff3b45", "#86d19a", "#e9a84c", "#7fa6e8", "#b98ae0", "#a3d4cc", "#b7d1cd"]
+bright = ["#587170", "#ff6b73", "#a6e3b4", "#f3c274", "#a3c1f5", "#d0b0f0", "#c4e8e1", "#e4f1ef"]
+
+# Per-hue replacements applied last, keyed by ansi name (bright- prefix for the bright row).
+[overrides]
+red = "#ff6b81"
+bright-red = "#ff8fa0"
+blue = "#8fb8f5"
+magenta = "#a574e8"
