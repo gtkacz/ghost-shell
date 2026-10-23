@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTasks, clickAction, marks, badge, matchOrder, pinnedTask } from '../kit/GhostKit/lib/tasks.mjs';
+import { buildTasks, clickAction, marks, badge, matchOrder, pinnedTask, tabsFor, tabClick, pad2 } from '../kit/GhostKit/lib/tasks.mjs';
 
 const win = (id, appId, extra = {}) => ({ id, app_id: appId, resource_class: appId, caption: id, active: false, minimized: false, ...extra });
 const byAppId = (window) => window.app_id;
@@ -80,4 +80,43 @@ test('matching tries the desktop file name, the startup class, the lower-cased c
   assert.equal(of('Firefox', 'Firefox'), 'firefox');
   assert.equal(of('Weird', 'Weird'), 'weird-app');
   assert.equal(of('nothing', 'nothing'), null);
+});
+
+const windowsOf = (count) => Array.from({ length: count }, (_, i) => win(String(i + 1), 'a'));
+
+test('tabs keep the windows in the order the feed gives, most recently activated first', () => {
+  const { shown } = tabsFor([win('3', 'a'), win('1', 'a'), win('2', 'a')], 1000);
+  assert.deepEqual(shown.map((window) => window.id), ['3', '1', '2']);
+});
+
+test('tabs overflow counts hidden windows', () => {
+  const { shown, hidden } = tabsFor(windowsOf(20), 600);
+  assert.equal(shown.length, 4);
+  assert.equal(hidden, 16);
+});
+
+test('no overflow label when everything fits', () => {
+  const { shown, hidden } = tabsFor(windowsOf(4), 4 * 128);
+  assert.equal(shown.length, 4);
+  assert.equal(hidden, 0);
+});
+
+test('tabs leave room for the overflow label once one is hidden', () => {
+  const { shown, hidden } = tabsFor(windowsOf(5), 4 * 128);
+  assert.equal(shown.length, 3);
+  assert.equal(hidden, 2);
+});
+
+test('a bar too narrow for one tab and the label shows none', () => {
+  assert.deepEqual(tabsFor(windowsOf(3), 100), { shown: [], hidden: 3 });
+});
+
+test('clicking the active tab minimizes it', () => {
+  assert.deepEqual(tabClick(win('1', 'a', { active: true })), { kind: 'minimize', id: '1' });
+  assert.deepEqual(tabClick(win('2', 'a')), { kind: 'activate', id: '2' });
+});
+
+test('index is two digits', () => {
+  assert.equal(pad2(1), '01');
+  assert.equal(pad2(12), '12');
 });

@@ -51,7 +51,7 @@ Item {
     // Asks the cell of an app to open its title list, which a task shortcut on an app with several windows means.
     signal listRequested(string appId)
 
-    implicitWidth: view.implicitWidth
+    implicitWidth: view.item ? view.item.implicitWidth : 0
 
     onAppKeyChanged: appIds = tasks.map(task => task.appId)
     Component.onCompleted: appIds = tasks.map(task => task.appId)
@@ -139,10 +139,26 @@ Item {
         });
     }
 
-    IconTasks {
+    Loader {
         id: view
 
         anchors.fill: parent
-        host: root
+        sourceComponent: root.settings?.style === "tabs" ? tabs : icons
+    }
+
+    Component {
+        id: icons
+
+        IconTasks {
+            host: root
+        }
+    }
+
+    Component {
+        id: tabs
+
+        TabTasks {
+            host: root
+        }
     }
 }

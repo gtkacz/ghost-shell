@@ -68,3 +68,25 @@ export function pinnedTask(tasks, index) {
   const task = Number.isInteger(index) ? tasks[index] : undefined;
   return task?.pinned ? task : null;
 }
+
+const TAB_PX = 128;
+const MORE_PX = 32;
+
+// The windows that fit as tabs in the given width, keeping the feed's most-recently-used order. Once any window is
+// hidden the "+N" label needs its own room, so a tab gives way to it.
+export function tabsFor(windows, availablePx, tabPx = TAB_PX, morePx = MORE_PX) {
+  const fitting = Math.max(0, Math.floor(availablePx / tabPx));
+  if (windows.length <= fitting) {
+    return { shown: windows, hidden: 0 };
+  }
+  const shownCount = Math.max(0, Math.floor((availablePx - morePx) / tabPx));
+  return { shown: windows.slice(0, shownCount), hidden: windows.length - shownCount };
+}
+
+export function tabClick(window) {
+  return { kind: window.active ? 'minimize' : 'activate', id: window.id };
+}
+
+export function pad2(number) {
+  return String(number).padStart(2, '0');
+}

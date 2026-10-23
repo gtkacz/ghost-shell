@@ -29,6 +29,18 @@ Singleton {
         return TasksLib.badge(entries, appId);
     }
 
+    function tabs(windows, availablePx, tabPx, morePx) {
+        return TasksLib.tabsFor(windows, availablePx, tabPx, morePx);
+    }
+
+    function tabClick(window) {
+        return TasksLib.tabClick(window);
+    }
+
+    function pad2(number) {
+        return TasksLib.pad2(number);
+    }
+
     function pinnedTask(tasks, index) {
         return TasksLib.pinnedTask(tasks, index);
     }

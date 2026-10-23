@@ -88,6 +88,7 @@ Scope {
                 bottom: parent.bottom
             }
             area: "left"
+            limit: parent.width - right.width - Theme.d(root.rightPadPx + root.itemGapPx)
             slots: root.slots ? root.slots.left : []
             spacing: Theme.d(root.itemGapPx)
         }

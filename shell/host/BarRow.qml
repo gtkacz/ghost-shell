@@ -25,6 +25,8 @@ Item {
     property string area
     property real spacing
     property bool fill: false
+    // The widest this group may be, so a slot that would take everything (the tabs) is held to what the bar has left.
+    property real limit: Infinity
 
     implicitWidth: row.implicitWidth
 
@@ -47,7 +49,7 @@ Item {
                 readonly property real wanted: host.failure !== "" ? root.height : (host.instance ? host.instance.implicitWidth : 0)
                 readonly property real share: (root.width - root.spacing * (root.slots.length - 1)) / root.slots.length
 
-                width: root.fill ? share : wanted
+                width: root.fill ? share : Math.min(wanted, Math.max(0, root.limit - cell.x))
                 height: root.height
                 visible: width > 0
 

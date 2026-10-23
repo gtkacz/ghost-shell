@@ -9,6 +9,7 @@ Item {
 
     property string name
     property bool focused: false
+    property color monoColor: focused ? Theme.hi : Theme.signal
     property real size: Theme.d(17)
 
     readonly property bool mono: (Data.config ? Data.config.bar.icons : "mono") === "mono"
@@ -35,6 +36,6 @@ Item {
         visible: root.mono
         source: picture
         shadowColor: "transparent"
-        lightColor: root.focused ? Theme.hi : Theme.signal
+        lightColor: root.monoColor
     }
 }
