@@ -50,6 +50,10 @@ impl FakeManager {
         self.calls.method(&header, "Subscribe");
     }
 
+    fn unsubscribe(&self, #[zbus(header)] header: Header<'_>) {
+        self.calls.method(&header, "Unsubscribe");
+    }
+
     #[zbus(property, name = "NFailedUnits")]
     fn failed_units(&self, #[zbus(header)] header: Option<Header<'_>>) -> u32 {
         self.calls.property(header.as_ref(), "NFailedUnits");
@@ -87,6 +91,13 @@ impl Systemd {
             failed,
             calls,
         }
+    }
+
+    async fn reloading(&self, active: bool) {
+        self.connection
+            .emit_signal(None::<&str>, SYSTEMD_PATH, MANAGER, "Reloading", &(active,))
+            .await
+            .unwrap();
     }
 
     async fn job_removed(&self) {
@@ -489,4 +500,50 @@ async fn ticker_idles_while_unwanted() {
 
     running.want();
     running.snapshot_where(|s| s.failed_units.is_some()).await;
+}
+
+#[tokio::test]
+async fn ticker_unsubscribes_and_stops_reading_once_unwanted() {
+    let (system, session) = (PrivateBus::start(), PrivateBus::start());
+    let system_manager = Systemd::start(&system, SYSTEM_FAILED).await;
+    let user_manager = Systemd::start(&session, USER_FAILED).await;
+    let mut running = Running::start(&system, &session, &FakeRoot::new(), true).await;
+    running.snapshot_where(|s| s.failed_units.is_some()).await;
+
+    running.demand.send_replace(BTreeSet::new());
+    timeout(BUS_WAIT, async {
+        while system_manager.calls.count_of("Unsubscribe") < 1
+            || user_manager.calls.count_of("Unsubscribe") < 1
+        {
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("systemd was not unsubscribed from");
+    let reads = system_manager.calls.count_of("NFailedUnits");
+    system_manager.job_removed().await;
+    sleep(COALESCE_SETTLE).await;
+
+    assert_eq!(system_manager.calls.count_of("NFailedUnits"), reads);
+
+    running.want();
+    running.snapshot_where(|s| s.failed_units.is_some()).await;
+    assert_eq!(system_manager.calls.count_of("Subscribe"), 2);
+}
+
+#[tokio::test]
+async fn failed_units_refresh_after_a_reload_finishes() {
+    let (system, session) = (PrivateBus::start(), PrivateBus::start());
+    let system_manager = Systemd::start(&system, SYSTEM_FAILED).await;
+    let _user_manager = Systemd::start(&session, USER_FAILED).await;
+    let mut running = Running::start(&system, &session, &FakeRoot::new(), true).await;
+    running.snapshot_where(|s| s.failed_units == Some(3)).await;
+
+    system_manager.failed.store(0, Ordering::SeqCst);
+    system_manager.reloading(true).await;
+    sleep(QUIET).await;
+    assert!(running.drain().is_empty());
+    system_manager.reloading(false).await;
+
+    running.snapshot_where(|s| s.failed_units == Some(2)).await;
 }

@@ -33,6 +33,7 @@ const SYSTEMD_PATH: &str = "/org/freedesktop/systemd1";
 const MANAGER_INTERFACE: &str = "org.freedesktop.systemd1.Manager";
 const N_FAILED_UNITS: &str = "NFailedUnits";
 const SUBSCRIBE: &str = "Subscribe";
+const UNSUBSCRIBE: &str = "Unsubscribe";
 const JOB_REMOVED: &str = "JobRemoved";
 const RELOADING: &str = "Reloading";
 const FIREWALLD: &str = "org.fedoraproject.FirewallD1";
@@ -100,6 +101,12 @@ async fn run(system: Connection, session: Connection, root: SysRoot, mut context
                     nvidia_driver(&root, &ticker),
                 )
             } => {}
+        }
+        for bus in [&system, &session] {
+            // The connections outlive the want, and a subscribed manager keeps signalling them.
+            if let Err(error) = unsubscribe(bus).await {
+                warn!(%error, "systemd would not drop the ticker's subscription");
+            }
         }
     }
 }
@@ -203,6 +210,14 @@ async fn manager_signals(bus: &Connection) -> zbus::Result<SignalStream<'static>
         .await?
         .receive_all_signals()
         .await
+}
+
+async fn unsubscribe(bus: &Connection) -> zbus::Result<()> {
+    proxy(bus, SYSTEMD, SYSTEMD_PATH, MANAGER_INTERFACE)
+        .await?
+        .call_with_flags::<_, _, ()>(UNSUBSCRIBE, MethodFlags::NO_AUTO_START, &())
+        .await?;
+    Ok(())
 }
 
 async fn subscribe(bus: &Connection) -> zbus::Result<()> {
