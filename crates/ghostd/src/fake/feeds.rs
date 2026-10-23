@@ -8,7 +8,7 @@ use ghost_proto::{
     UplinkSnapshot, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo,
     WindowsSnapshot, topics,
 };
-use tokio::time::{MissedTickBehavior, interval};
+use tokio::time::{MissedTickBehavior, interval, sleep};
 
 use super::Wave;
 use super::sampled::DRIVES;
@@ -410,9 +410,14 @@ const WINDOWS: [(&str, &str, bool, bool); 4] = [
     ("org.kde.kate", "Text Editor", false, true),
 ];
 
+/// The real desktop feed publishes an empty window list as it starts, and it runs in fake mode too.
+const DESKTOP_DEFAULT_SETTLE: Duration = Duration::from_millis(300);
+
 /// A fixed window list, published once; the window calls have nothing to act on in fake mode.
 fn windows() -> Feed {
     Feed::new(topics::WINDOWS, |context| async move {
+        // After that default, which would otherwise replace this list for good.
+        sleep(DESKTOP_DEFAULT_SETTLE).await;
         let windows = WINDOWS
             .iter()
             .zip(1_u32..)

@@ -1,0 +1,12 @@
+id = "tasks"
+name = "Tasks"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+requires = ["windows", "launcher.entries", "desktop"]
+
+# Icons fit layouts A and B, tabs layout C.
+[settings.style]
+type = "enum"
+values = ["icons", "tabs"]
+default = "icons"

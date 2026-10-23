@@ -1,0 +1,83 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildTasks, clickAction, marks, badge, matchOrder, pinnedTask } from '../kit/GhostKit/lib/tasks.mjs';
+
+const win = (id, appId, extra = {}) => ({ id, app_id: appId, resource_class: appId, caption: id, active: false, minimized: false, ...extra });
+const byAppId = (window) => window.app_id;
+
+test('pinned first then running unpinned', () => {
+  const tasks = buildTasks({ pinned: ['a', 'b'], windows: [win('1', 'c'), win('2', 'a')], findEntry: byAppId });
+  assert.deepEqual(tasks.map((task) => [task.appId, task.pinned, task.windows.length]), [['a', true, 1], ['b', true, 0], ['c', false, 1]]);
+});
+
+test('window joins its pinned app through startup class', () => {
+  const steam = win('1', 'Steam');
+  const tasks = buildTasks({ pinned: ['steam'], windows: [steam], findEntry: (window) => (window.app_id === 'Steam' ? 'steam' : null) });
+  assert.deepEqual(tasks.map((task) => [task.appId, task.windows.length]), [['steam', 1]]);
+});
+
+test('unmatched window is its own task', () => {
+  const tasks = buildTasks({ pinned: [], windows: [win('1', 'x', { resource_class: 'Odd' })], findEntry: () => null });
+  assert.equal(tasks[0].appId, 'class:Odd');
+  assert.equal(tasks[0].pinned, false);
+});
+
+test('windows of one app stay in most-recently-used order and flag focus', () => {
+  const tasks = buildTasks({ pinned: [], windows: [win('1', 'a'), win('2', 'b'), win('3', 'a', { active: true })], findEntry: byAppId });
+  assert.deepEqual(tasks.map((task) => task.appId), ['a', 'b']);
+  assert.deepEqual(tasks[0].windows.map((w) => w.id), ['1', '3']);
+  assert.deepEqual(tasks.map((task) => task.focused), [true, false]);
+});
+
+test('click on an app with no window launches', () => {
+  assert.deepEqual(clickAction({ windows: [] }), { kind: 'launch' });
+});
+
+test('click on a single window activates it', () => {
+  assert.deepEqual(clickAction({ windows: [win('1', 'a')] }), { kind: 'activate', id: '1' });
+});
+
+test('click on the focused single window minimizes it', () => {
+  assert.deepEqual(clickAction({ windows: [win('1', 'a', { active: true })] }), { kind: 'minimize', id: '1' });
+});
+
+test('click on an app with two windows opens the list, focused or not', () => {
+  assert.deepEqual(clickAction({ windows: [win('1', 'a'), win('2', 'a')] }), { kind: 'list' });
+  assert.deepEqual(clickAction({ windows: [win('1', 'a', { active: true }), win('2', 'a')] }), { kind: 'list' });
+});
+
+test('marks cap at four and flag the focused app', () => {
+  const many = Array.from({ length: 6 }, (_, i) => win(String(i), 'a'));
+  assert.deepEqual(marks({ windows: many, focused: true }), { count: 4, focusedFirst: true });
+  assert.deepEqual(marks({ windows: many.slice(0, 2), focused: false }), { count: 2, focusedFirst: false });
+});
+
+test('badge hides a count the app made invisible', () => {
+  const entries = { a: { count: null, progress: 0.5, urgent: true }, b: { count: 3, progress: null, urgent: false } };
+  assert.deepEqual(badge(entries, 'a'), { count: null, progress: 0.5, urgent: true });
+  assert.deepEqual(badge(entries, 'b'), { count: 3, progress: null, urgent: false });
+  assert.deepEqual(badge(entries, 'zzz'), { count: null, progress: null, urgent: false });
+  assert.deepEqual(badge(null, 'a'), { count: null, progress: null, urgent: false });
+});
+
+test('task shortcut beyond the pinned list does nothing', () => {
+  const tasks = buildTasks({ pinned: ['a', 'b', 'c'], windows: [win('1', 'z')], findEntry: byAppId });
+  assert.equal(pinnedTask(tasks, 5), null);
+  assert.equal(pinnedTask(tasks, 3), null);
+  assert.equal(pinnedTask(tasks, 1).appId, 'b');
+  assert.equal(pinnedTask(tasks, null), null);
+});
+
+test('matching tries the desktop file name, the startup class, the lower-cased class, then the heuristic', () => {
+  const lookups = {
+    hasId: (id) => id === 'org.kde.dolphin' || id === 'firefox',
+    byStartupClass: (cls) => (cls.toLowerCase() === 'steamwebhelper' ? 'steam' : null),
+    heuristic: (cls) => (cls === 'Weird' ? 'weird-app' : null),
+  };
+  const of = (appId, resourceClass) => matchOrder({ app_id: appId, resource_class: resourceClass }, lookups);
+  assert.equal(of('org.kde.dolphin', 'dolphin'), 'org.kde.dolphin');
+  assert.equal(of('SteamWebHelper', 'SteamWebHelper'), 'steam');
+  assert.equal(of('Firefox', 'Firefox'), 'firefox');
+  assert.equal(of('Weird', 'Weird'), 'weird-app');
+  assert.equal(of('nothing', 'nothing'), null);
+});

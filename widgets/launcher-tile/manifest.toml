@@ -1,0 +1,6 @@
+id = "launcher-tile"
+name = "Launcher tile"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+requires = []
