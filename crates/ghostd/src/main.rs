@@ -12,6 +12,7 @@ use ghostd::collect::{
     CpuCollector, DiskCollector, GpuCollector, GpuSource, MemCollector, NetCollector, NvmlSource,
     ProcCollector, SensorCollector, Source, StatvfsFs,
 };
+use ghostd::config::edit::plasma_config_dir;
 use ghostd::config::{DEFAULT_TOML, default_path};
 use ghostd::feeds::desktop::ScriptReload;
 use ghostd::feeds::http::Ureq;
@@ -180,7 +181,7 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
     let (sampler, mut feeds) = if options.fake {
         (fake::sampler(), fake::feeds())
     } else {
-        (host_sampler(config.subscribe()), host_feeds())
+        (host_sampler(config.subscribe()), host_feeds(&config_path))
     };
     let shortcuts = Registration::default();
     // Real in fake mode too, so a smoke run can drive the views over its own private bus.
@@ -295,7 +296,7 @@ fn host_sampler(config: watch::Receiver<ResolvedConfig>) -> Sampler {
     )
 }
 
-fn host_feeds() -> Vec<Feed> {
+fn host_feeds(config_path: &Path) -> Vec<Feed> {
     vec![
         feeds::host::feed(SysRoot::host()),
         feeds::weather::feed(Arc::new(Ureq::default())),
@@ -310,6 +311,7 @@ fn host_feeds() -> Vec<Feed> {
         feeds::actions::feed(),
         feeds::ticker::feed(),
         feeds::recent::feed(),
+        feeds::pins::feed(config_path.to_owned(), plasma_config_dir()),
     ]
 }
 
