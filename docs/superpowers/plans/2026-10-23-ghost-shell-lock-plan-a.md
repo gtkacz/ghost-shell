@@ -302,6 +302,9 @@ git commit -m "feat(gate): build the prompt style on the shared password, alert,
   - assembles and installs the package into that sandbox's `XDG_DATA_HOME`;
   - runs `kscreenlocker_greet --testing` with the package, with the root sized by `Theme.d`;
   - asserts from the greeter's log that the gate root loaded (a `console.info("gate: prompt lock")` line) and that there are no QML warnings;
+  - **proves the real greeter takes input.** A screen that loads but ignores keys locks the user out, and KDE's fallback doesn't catch it. Inject keys into the sandbox KWin (its fake-input or virtual-keyboard protocol, or whatever note (b) finds; e.g. `wtype` against the sandbox socket). Then assert two things through the greeter's log:
+    - a wrong password reaches the authenticator and logs `gate: failed 1`;
+    - the sandbox user's real test password (set with `--testing`'s own auth, or whatever note (b) finds) logs `gate: succeeded`;
   - kills KWin.
 - [ ] **Step 2: Run it to see it fail.** Run `scripts/smoke-lock.sh`. Expected: FAIL (no package).
 - [ ] **Step 3: Implement** `LockAdapter`, the package and the install flags.
@@ -373,22 +376,29 @@ git commit -m "feat(login): draw the SDDM login screen with the gate's prompt as
 - Create: `docs/superpowers/notes/2026-10-23-lock-a-acceptance.md`
 - Modify: `README.md`: document the "Performance" readings, `--lock` and `--login`, and the `[lock]` setting
 
-- [ ] **Step 1: Show the user the shots** from `lock-a-shots/` and **ask** whether to install `--lock` on this machine. If they say yes, run it.
-- [ ] **Step 2: Have the user lock with Meta+L.** Check with them:
+- [ ] **Step 1: Rehearse the escape** with the user, on KDE's **stock** lock screen, before anything is switched:
+  1. lock with Meta+L;
+  2. press Ctrl+Alt+F3 and log in;
+  3. run `loginctl unlock-sessions`;
+  4. press Ctrl+Alt+F2 (or F1) to get back to the desktop.
+
+  Write in the acceptance note which VT the session is on. Keep `scripts/install.sh --remove-lock` as the documented undo, and run it from that console if the new screen misbehaves.
+- [ ] **Step 2: Show the user the shots** from `lock-a-shots/` and **ask** whether to install `--lock` on this machine. If they say yes, run it.
+- [ ] **Step 3: Have the user lock with Meta+L.** Check with them:
   - the prompt shows on the M27Q only;
   - a wrong password shows the alert;
   - the right one passes, and the greeting plays with no flash;
   - US/BR switching and Caps Lock work.
-- [ ] **Step 3: Have the user sleep and wake.** One greeting plays.
-- [ ] **Step 4: Measure** the idle greeter's CPU over 60 s while locked, by project 1's method (`scripts/measure-cpu.sh` against `kscreenlocker_greet`'s pid). Expected: ≤ 1 %. Record it in README "Performance".
-- [ ] **Step 5: Ask** whether to install `--login`, including the keymap question. If they say yes, run it.
-- [ ] **Step 6: Have the user log out and in.** Check that:
+- [ ] **Step 4: Have the user sleep and wake.** One greeting plays.
+- [ ] **Step 5: Measure** the idle greeter's CPU over 60 s while locked, by project 1's method (`scripts/measure-cpu.sh` against `kscreenlocker_greet`'s pid). Expected: ≤ 1 %. Record it in README "Performance".
+- [ ] **Step 6: Ask** whether to install `--login`, including the keymap question. If they say yes, run it.
+- [ ] **Step 7: Have the user log out and in.** Check that:
   - the login screen matches the lock screen;
   - US/BR works;
   - the greeting plays.
 
   Ask whether KDE's splash showed between login and the greeting, and **only if they want it gone**, set `ksplashrc` `[KSplash] Theme=None` and `Engine=none`.
-- [ ] **Step 7: Write the acceptance note.** List each check with pass/fail and the readings, then commit.
+- [ ] **Step 8: Write the acceptance note.** List each check with pass/fail and the readings, then commit.
 
 ```bash
 git add README.md docs/superpowers/notes/2026-10-23-lock-a-acceptance.md
