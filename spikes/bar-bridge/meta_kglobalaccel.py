@@ -23,6 +23,9 @@ from dbus_next import Message, MessageType
 from dbus_next.aio import MessageBus
 
 EXIT_USAGE = 64
+PRIVATE_BUS_PREFIX = "unix:"
+# The user's own buses live under /run/user; the spike's private ones under /tmp.
+LIVE_BUS_DIR = "/run/user/"
 SERVICE = "org.kde.kglobalaccel"
 ROOT_PATH = "/kglobalaccel"
 ROOT_INTERFACE = "org.kde.KGlobalAccel"
@@ -34,6 +37,13 @@ NO_AUTOLOADING = 4
 MATCH_EQUAL = 0
 NO_KEY = 0
 KEYS_PER_SEQUENCE = 4
+
+
+# dbus-next takes an empty address for the default session bus, which here would be the user's live one.
+def private_bus(address: str) -> str:
+    if not address.startswith(PRIVATE_BUS_PREFIX) or LIVE_BUS_DIR in address:
+        raise SystemExit(f"refusing bus address {address!r}: only a private {PRIVATE_BUS_PREFIX} bus is allowed")
+    return address
 
 
 def log(text: str) -> None:
@@ -134,6 +144,7 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__.strip(), file=sys.stderr)
         return EXIT_USAGE
+    private_bus(argv[1])
     return asyncio.run(run(argv))
 
 

@@ -24,8 +24,18 @@ from dbus_next.aio import MessageBus
 from dbus_next.service import ServiceInterface, method
 
 EXIT_USAGE = 64
+PRIVATE_BUS_PREFIX = "unix:"
+# The user's own buses live under /run/user; the spike's private ones under /tmp.
+LIVE_BUS_DIR = "/run/user/"
 SERVICE = "org.ghostshell.Ghostd"
 NEXT_TIMEOUT_S = 20
+
+
+# dbus-next takes an empty address for the default session bus, which here would be the user's live one.
+def private_bus(address: str) -> str:
+    if not address.startswith(PRIVATE_BUS_PREFIX) or LIVE_BUS_DIR in address:
+        raise SystemExit(f"refusing bus address {address!r}: only a private {PRIVATE_BUS_PREFIX} bus is allowed")
+    return address
 
 
 def log(text: str) -> None:
@@ -108,7 +118,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 1:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         return EXIT_USAGE
-    asyncio.run(serve(argv[0]))
+    asyncio.run(serve(private_bus(argv[0])))
     return 0
 
 

@@ -25,6 +25,9 @@ from dbus_next import Message, MessageType
 from dbus_next.aio import MessageBus
 
 EXIT_USAGE = 64
+PRIVATE_BUS_PREFIX = "unix:"
+# The user's own buses live under /run/user; the spike's private ones under /tmp.
+LIVE_BUS_DIR = "/run/user/"
 SERVICE = "org.ghostshell.Ghostd"
 SPIKE_PATH = "/org/ghostshell/Spike"
 SPIKE_INTERFACE = "org.ghostshell.Spike1"
@@ -39,6 +42,13 @@ REPORTED = re.compile(r"stub report (.*) at (\d+)$")
 KWIN_EVENT = re.compile(r"bar-bridge (\w+) (\S+) at (\d+)")
 KWIN_COMMAND = re.compile(r"bar-bridge command (\w+) (\S+) at (\d+)")
 MONITOR_HEADER = re.compile(r"^(method call|method return|signal|error) time=([0-9.]+) sender=(\S+) -> destination=(\S+)")
+
+
+# dbus-next takes an empty address for the default session bus, which here would be the user's live one.
+def private_bus(address: str) -> str:
+    if not address.startswith(PRIVATE_BUS_PREFIX) or LIVE_BUS_DIR in address:
+        raise SystemExit(f"refusing bus address {address!r}: only a private {PRIVATE_BUS_PREFIX} bus is allowed")
+    return address
 
 
 class Bridge:
@@ -265,7 +275,7 @@ async def run_bus(command: str, address: str, args: list[str]) -> None:
 def main(argv: list[str]) -> int:
     bus_commands = {"wait": 1, "order": 0, "cycle": 1, "close": 1, "focus": 1, "state": 2}
     if len(argv) >= 2 and argv[0] in bus_commands and len(argv) == 2 + bus_commands[argv[0]]:
-        asyncio.run(run_bus(argv[0], argv[1], argv[2:]))
+        asyncio.run(run_bus(argv[0], private_bus(argv[1]), argv[2:]))
         return 0
     if len(argv) == 3 and argv[0] == "latency":
         latency(argv[1], argv[2])

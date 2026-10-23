@@ -6,9 +6,10 @@ set -euo pipefail
 #   SPIKE_OUT        directory for logs and results, kept afterwards (default: a new temp dir)
 #   SPIKE_META_MODE  retired: bare Meta is first removed from plasmashell's launcher entry in the copy, as the
 #                    plan's retire step would;
-#                    shared: the entry is kept, and a stand-in plasmashell takes its stored keys before
-#                    ghost-shell registers, as the real one does at login
-#   SPIKE_META_ORDER plasmashell-first (default) or ghost-first: which registers first in shared mode
+#                    shared: the entry is kept
+#                    In both, a stand-in plasmashell registers its launcher action and takes the keys KGlobalAccel
+#                    stored for it, as the real one does at login.
+#   SPIKE_META_ORDER plasmashell-first (default) or ghost-first: which of the two registers first
 
 spike=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd "$spike/../.." && pwd)
@@ -32,9 +33,12 @@ key_s=31
 key_1=2
 # Unbound in the user's shortcuts with Meta; Meta+L would lock.
 key_k=37
+key_alt=56
+key_f1=59
 
 # -B: fake_chord.py imports the 2c spike's fake_key.py, which would otherwise leave a bytecode cache in its dir.
-py=(uv run --no-project --with dbus-next python -I -B)
+# The user's bus addresses are dropped too, so no helper can fall back to their live session.
+py=(env -u DBUS_SESSION_BUS_ADDRESS -u DBUS_SYSTEM_BUS_ADDRESS uv run --no-project --with dbus-next python -I -B)
 
 system_pid=
 session_pid=
@@ -100,6 +104,10 @@ now_ms() {
     date +%s%3N
 }
 
+is_private_bus() {
+    [[ $1 == unix:* && $1 != *"/run/user/"* ]]
+}
+
 note() {
     echo "$*" | tee -a "$results"
 }
@@ -152,6 +160,7 @@ dbus-daemon --config-file="$repo/scripts/private-bus.conf" --nofork --print-addr
 system_pid=$!
 wait_for "$socket_deadline_s" test -s "$root/system.addr" || fail "no private system bus"
 system_bus=$(head -n 1 "$root/system.addr")
+is_private_bus "$system_bus" || fail "the private system bus has no unix: address: ${system_bus@Q}"
 
 wayland=$root/run/ghost-sbx-$name
 # The fake input switch holds only inside this KWin, for fake_key.py and fake_chord.py.
@@ -164,6 +173,7 @@ env -i HOME="$root" PATH=/usr/bin:/bin XDG_RUNTIME_DIR="$root/run" XDG_CONFIG_HO
 session_pid=$!
 wait_for "$socket_deadline_s" test -S "$wayland" || fail "KWin made no socket, see $out/kwin.log"
 session_bus=$(< "$root/session.addr")
+is_private_bus "$session_bus" || fail "KWin's session bus has no unix: address: ${session_bus@Q}"
 wait_for "$ready_deadline_s" kga keys "$session_bus" plasmashell "$launcher_action" > /dev/null 2>&1 \
     || fail "KGlobalAccel never answered, see $out/kwin.log"
 dbus-monitor --address "$session_bus" > "$out/session-bus.log" 2>&1 &
@@ -189,11 +199,11 @@ register_ghost_shell() {
     wait_for "$ready_deadline_s" has_line "meta-kga registered" "$out/ghost-shell.log" || fail "ghost-shell never registered"
     note "ghost-shell: $(grep -a 'meta-kga registered' "$out/ghost-shell.log")"
 }
-if [[ $mode == shared && $order == plasmashell-first ]]; then
+if [[ $order == plasmashell-first ]]; then
     register_plasmashell
 fi
 register_ghost_shell
-if [[ $mode == shared && $order == ghost-first ]]; then
+if [[ $order == ghost-first ]]; then
     register_plasmashell
 fi
 note "$(kga bykey "$session_bus" "$meta_key" 2>&1 | grep -a -v -i zoxide | tr '\n' ';')"
@@ -211,10 +221,7 @@ wait_for "$ready_deadline_s" has_line "fake-key ready" "$out/fake-key.log" || fa
 wait_for "$ready_deadline_s" has_line "fake-key ready" "$out/fake-chord.log" || fail "no chord keyboard, see $out/fake-chord.log"
 sleep "$settle_s"
 
-press_logs=("$out/ghost-shell.log")
-if [[ $mode == shared ]]; then
-    press_logs+=("$out/plasmashell.log")
-fi
+press_logs=("$out/ghost-shell.log" "$out/plasmashell.log")
 pressed() {
     local from=$1 counts=""
     for log in "${press_logs[@]}"; do
@@ -233,7 +240,8 @@ note "after $taps Meta taps: $(pressed "$taps_from")"
 note "tap to press, ms: $(awk -v from="$taps_from" '/fake-key typed/ && $NF >= from { print $NF }' "$out/fake-key.log" | paste -sd ' ')" \
     "| presses at: $(awk -v from="$taps_from" '/meta-kga pressed/ && $NF >= from { print $NF }' "${press_logs[@]}" | paste -sd ' ')"
 
-for chord in "$key_meta $key_s" "$key_meta $key_1" "$key_meta $key_k"; do
+# Alt+F1 is the launcher key the retire step leaves to plasmashell.
+for chord in "$key_meta $key_s" "$key_meta $key_1" "$key_meta $key_k" "$key_alt $key_f1"; do
     chord_from=$(now_ms)
     echo "$chord" >&4
     sleep "$settle_s"

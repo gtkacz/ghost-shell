@@ -42,7 +42,8 @@ key_s=31
 key_k=37
 
 # -B: fake_chord.py imports the 2c spike's fake_key.py, which would otherwise leave a bytecode cache in its dir.
-py=(uv run --no-project --with dbus-next python -I -B)
+# The user's bus addresses are dropped too, so no helper can fall back to their live session.
+py=(env -u DBUS_SESSION_BUS_ADDRESS -u DBUS_SYSTEM_BUS_ADDRESS uv run --no-project --with dbus-next python -I -B)
 qml_runtime=/usr/lib64/qt6/bin/qml
 
 system_pid=
@@ -113,6 +114,10 @@ count_lines() {
 
 now_ms() {
     date +%s%3N
+}
+
+is_private_bus() {
+    [[ $1 == unix:* && $1 != *"/run/user/"* ]]
 }
 
 note() {
@@ -186,6 +191,7 @@ dbus-daemon --config-file="$repo/scripts/private-bus.conf" --nofork --print-addr
 system_pid=$!
 wait_for "$socket_deadline_s" test -s "$root/system.addr" || fail "no private system bus"
 system_bus=$(head -n 1 "$root/system.addr")
+is_private_bus "$system_bus" || fail "the private system bus has no unix: address: ${system_bus@Q}"
 
 wayland=$root/run/ghost-sbx-$name
 # Both permission switches hold only inside this KWin: ScreenShot2 for grab.py, fake input for fake_chord.py.
@@ -200,6 +206,7 @@ env -i HOME="$root" PATH=/usr/bin:/bin XDG_RUNTIME_DIR="$root/run" XDG_CONFIG_HO
 session_pid=$!
 wait_for "$socket_deadline_s" test -S "$wayland" || fail "KWin made no socket, see $out/kwin.log"
 session_bus=$(< "$root/session.addr")
+is_private_bus "$session_bus" || fail "KWin's session bus has no unix: address: ${session_bus@Q}"
 dbus-monitor --address "$session_bus" > "$out/session-bus.log" 2>&1 &
 monitor_pid=$!
 wait_for "$ready_deadline_s" has_line "bar-bridge next failed" "$out/kwin.log" || fail "the script never polled, see $out/kwin.log"

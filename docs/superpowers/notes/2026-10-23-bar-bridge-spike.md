@@ -14,8 +14,8 @@ launched app get focus, does KWin fade `xdg_popup`s).
 | **Does the `kwinrc` `[ModifierOnlyShortcuts]` binding reach a ghostd method?** | **No. KWin 6.7.5 no longer reads that group.** 5 Meta taps, 0 `ToggleLauncher` calls |
 | Does Meta+S still reach KRunner's binding? | **Yes**, through KIO's D-Bus activation of `org.kde.krunner`. No `globalShortcutPressed` signal is emitted for it |
 | Does Meta held with another key toggle? | No toggle (moot, since Meta alone doesn't toggle either) |
-| **Does bare Meta as a KGlobalAccel shortcut of ghost-shell's own component reach ghostd?** | **Yes, once plasmashell's launcher entry no longer holds bare Meta:** 15/15 taps gave `globalShortcutPressed` for `ghost-shell/launcher`. With that entry kept, the key is shared and only plasmashell's action fires (0/20) |
-| Does a launched app get focus? | **Yes, by every route** (`DesktopEntry.execute()`, `gtk-launch`, `kioclient exec`), 9/9 in each effect set |
+| **Does bare Meta as a KGlobalAccel shortcut of ghost-shell's own component reach ghostd?** | **Yes, once plasmashell's launcher entry no longer holds bare Meta:** with a stand-in plasmashell registered on the retired entry, 25/25 taps gave `globalShortcutPressed` for `ghost-shell/launcher` and 0 for plasmashell. With the entry kept, the key is shared and only plasmashell's action fires (ghost-shell 0/25) |
+| Does a launched app get focus? | **Yes, by every route** (`DesktopEntry.execute()`, `gtk-launch`, `kioclient exec`): 3 trials per route per run, 18/18 over the two stock runs and 9/9 in the live run |
 | Does KWin fade an `xdg_popup` (`PopupWindow`)? | **Yes**, under both effect sets (`fadingpopups`) |
 | Does KWin fade a layer-shell `dock` surface? | **Not with the stock effects; yes with the user's own effect set** (`kinetic_fadingpopups`, from opacity 0.2) |
 | A surface that no effect fades | **Layer-shell namespace `utility`**, under both effect sets |
@@ -112,7 +112,9 @@ Each of these broke the spike once:
 ### Latency, queue to signal
 
 From the stub logging `queued` to the script logging the KWin signal, all on the epoch-ms clock. n = 24 activations
-(4 order checks + 20 alternating), 20 minimizes, 20 activations of a minimized window, 20 closes.
+(4 order checks + 20 alternating), 20 minimizes, 20 activations of a minimized window, 20 closes. "Stock" is the
+first stock run and "Live" the live run. The repeat stock run had the same medians, with a worst sample of 3 ms
+(close).
 
 | Action, signal | Stock: median / p90 / max | Live: median / p90 / max |
 |---|---|---|
@@ -181,8 +183,14 @@ session bus, private system bus, sandboxed XDG dirs, and the user's `kwinrc` and
 - `doRegister(["ghost-shell", "launcher", "ghost-shell", "Open the launcher"])`;
 - then `setShortcutKeys(id, [[key, 0, 0, 0]], SET_PRESENT | NO_AUTOLOADING)`.
 
-It logs every `globalShortcutPressed` from `org.kde.kglobalaccel.Component`. `fake_key.py` tapped Meta alone (5 taps,
-0.5 s apart). `fake_chord.py` then pressed Meta+S, Meta+1 and Meta+K.
+It logs every `globalShortcutPressed` from `org.kde.kglobalaccel.Component`. In every run a stand-in plasmashell also
+registers `["plasmashell", "activate application launcher", "plasmashell", "Activate Application Launcher"]` with
+`SET_PRESENT` only, so it takes the keys KGlobalAccel stored from the copied file, as a running plasmashell does. Then
+`fake_key.py` taps Meta alone (5 taps, 0.5 s apart), and `fake_chord.py` presses Meta+S, Meta+1, Meta+K and, in the
+later runs, Alt+F1.
+
+The helpers refuse any bus address that is empty, not `unix:`, or under `/run/user/`. The scripts also run them with
+`DBUS_SESSION_BUS_ADDRESS` and `DBUS_SYSTEM_BUS_ADDRESS` unset, so none can fall back to the user's session bus.
 
 ### The key
 
@@ -197,16 +205,23 @@ It logs every `globalShortcutPressed` from `org.kde.kglobalaccel.Component`. `fa
 
 ### Retired: bare Meta removed from plasmashell's entry in the copy
 
-The retire step was taken in the copy: the first field became `Alt+F1`, and the defaults were left alone. KGlobalAccel
-then held `keys=[150994992]` for plasmashell's action, and `globalShortcutsByKey(16777250, Equal)` listed only
-`ghost-shell/launcher`.
+The retire step was taken in the copy: the first field became `Alt+F1`, and the defaults were left alone.
+- The stand-in plasmashell registered on that entry and was granted `[[150994992, 0, 0, 0]]`, Alt+F1 alone.
+- KGlobalAccel then held `keys=[150994992]` for plasmashell's action, and `globalShortcutsByKey(16777250, Equal)`
+  listed only `ghost-shell/launcher`.
+- Runs: 4 with plasmashell registering first (as at login), 1 with ghost-shell first. The table counts presses
+  across all 5.
 
-| Input | `ghost-shell/launcher` pressed | Other effects |
-|---|---|---|
-| Meta tapped alone, 5 × 3 runs | **15/15** | none |
-| Meta+S | 0 | KRunner's binding still fired: 1 `org.freedesktop.Application.Activate` to `org.kde.krunner` per press |
-| Meta+1 | 0 | none (plasmashell's task manager, which holds it, wasn't running) |
-| Meta+K | 0 | none |
+| Input | `ghost-shell/launcher` pressed | `plasmashell/activate application launcher` pressed | Other effects |
+|---|---|---|---|
+| Meta tapped alone, 5 × 5 runs | **25/25** | **0** | none |
+| Meta+S | 0 | 0 | KRunner's binding still fired: 1 `org.freedesktop.Application.Activate` to `org.kde.krunner` per press |
+| Meta+1 | 0 | 0 | none (plasmashell's task manager, which holds it, wasn't running) |
+| Meta+K | 0 | 0 | none |
+| Alt+F1, 1 run | 0 | **1/1** | the key the retire step leaves to plasmashell still opens Plasma's launcher |
+
+Three earlier retired runs had no stand-in, so no plasmashell component was registered at all. They gave the same
+15/15, but on their own they could not tell "entry retired" from "plasmashell absent". The runs above can.
 
 - The signal fires on Meta's **release**, within 0–1 ms of `fake_key.py`'s press-and-release. This is kglobalacceld's
   modifier-only rule (`globalshortcutsregistry.cpp:479–528`), and the release is also why a held Meta followed by
@@ -223,10 +238,11 @@ listed **two holders**, plasmashell's action and `ghost-shell/launcher`.
 
 | Order | Meta taps | `plasmashell/activate application launcher` | `ghost-shell/launcher` |
 |---|---|---|---|
-| plasmashell registers first (as at login), 3 runs | 15 | **15** | **0** |
+| plasmashell registers first (as at login), 4 runs | 20 | **20** | **0** |
 | ghost-shell registers first, 1 run | 5 | **5** | **0** |
 
-Meta+S, Meta+1 and Meta+K fired neither action, and Meta+S still reached KRunner. So a shared bare Meta is a silent
+Meta+S, Meta+1 and Meta+K fired neither action, and Meta+S still reached KRunner. Alt+F1 fired plasmashell's action
+(1/1). So a shared bare Meta is a silent
 loss for ghost-shell. ghostd's existing `warn_if_shared` check would log it, but the user would just get Plasma's
 launcher.
 
@@ -245,8 +261,8 @@ launcher.
 - `shell.qml` shows a `dock` layer surface with exclusive keyboard focus, like the launcher, then waits 300 ms. It
   starts the test entry (in the sandbox's `XDG_DATA_HOME/applications`, `Exec=sh -c "sleep 1; exec qml …"`) and
   hides the surface at once. Before each trial a normal window (`a-1`) was made active.
-- **`DesktopEntry.execute()` gave the launched window focus in 3/3 trials, in both runs.** `Quickshell.execDetached`
-  with `gtk-launch <id>` and with `kioclient exec <path>` did too, 3/3 each, in both runs. The window opened
+- **`DesktopEntry.execute()` gave the launched window focus in 3/3 trials in each of the three runs.**
+  `Quickshell.execDetached` with `gtk-launch <id>` and with `kioclient exec <path>` did too, 3/3 each in each run. The window opened
   1.10–1.15 s after the call, and was then active and first in the report, with `demandsAttention` false.
 - **Why:** at focus stealing prevention Low, KWin activates every new window that wants input, token or not
   (`src/workspace.cpp:930–934`: "focus stealing prevention 'low' should always activate new windows"). So the route
@@ -260,8 +276,15 @@ launcher.
 `shell.qml` shows one 300 x 300 red surface at a time, at the same place: an xdg_popup (`PopupWindow` anchored to a
 `dock` bar `PanelWindow`), a layer-shell `dock` surface, and a layer-shell `utility` surface. KWin placed all three at
 460,46–804,390 (Quickshell scales layer-shell margins with `QT_SCALE_FACTOR`, as it does the popup's anchor).
-`grab.py watch` sampled 64 x 64 at 500,100 over black, at **1 428–2 224 captures/s**. Each kind was
-shown 3 times per run.
+`grab.py watch` sampled 64 x 64 at 500,100 over black, at **1 428–2 224 captures/s**. Each kind was shown 3 times per
+run.
+
+Two captures ran below the brief's 1 500/s floor, at 1 428/s (stock `utility-2`) and 1 400/s (an earlier debug run).
+That does not change any result:
+- the fades seen lasted 430–650 ms, so they were sampled hundreds of times;
+- KWin's nominal 150 ms popup fade would still get about 210 captures at 1 400/s;
+- the no-fade results hold too: a surface that is full red in its first capture, with nothing between black and red,
+  had no intermediate frame lasting even 1 ms.
 
 | Surface | Stock effects | Live effects |
 |---|---|---|
@@ -290,7 +313,8 @@ shown 3 times per run.
 - Headless KWin, one output, a virtual input device, no GPU-specific timing. The effect sets were copies of the
   user's configuration and files, not their live compositor.
 - No plasmashell ran, so plasmashell's KGlobalAccel shortcuts (Meta for the launcher, Meta+1…9) were inactive in
-  `run.sh`. In `meta.sh`'s shared mode a stand-in registered the launcher action the way an app does, not the real
-  plasmashell.
+  `run.sh`. In `meta.sh`, a stand-in registered plasmashell's launcher action the way an app does, autoloading
+  what KGlobalAccel stored, in both modes. It was not the real plasmashell, and it registered nothing else, so
+  plasmashell's other keys (Meta+1…9 among them) were not held.
 - Latencies were measured on one machine with an idle KWin. The command path is one D-Bus round trip on the
   session bus.
