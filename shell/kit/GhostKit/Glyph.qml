@@ -51,6 +51,50 @@ Item {
                 path: "M1.4 5a3.6 3.6 0 1 0 7.2 0a3.6 3.6 0 1 0-7.2 0M7.7 7.7 11 11",
                 filled: false
             },
+            "bluetooth": {
+                path: "M4 4l5 4.5L6.5 11V1L9 3.5 4 8",
+                filled: false
+            },
+            "network": {
+                path: "M2 11V7h8v4M4 7V4h4v3M6 4V1",
+                filled: false
+            },
+            "volume": {
+                path: "M1.5 4.5h2.5L7 2v8L4 7.5H1.5zM9 4a3 3 0 0 1 0 4",
+                filled: false
+            },
+            "phone": {
+                path: "M3.5 1h5v10h-5zM5.5 9h1",
+                filled: false
+            },
+            "clipboard": {
+                path: "M2.5 2h7v9h-7zM4.5 1h3v2h-3z",
+                filled: false
+            },
+            "file": {
+                path: "M2.5 1h5l2 2v8h-7zM7.5 1v2h2",
+                filled: false
+            },
+            "lock": {
+                path: "M2.5 5.5h7v5.5h-7zM4 5.5V3.5a2 2 0 0 1 4 0v2",
+                filled: false
+            },
+            "logout": {
+                path: "M6.5 1.5h-5v9h5M8 3.5 10.5 6 8 8.5M5 6h5.5",
+                filled: false
+            },
+            "sleep": {
+                path: "M9.8 7.6A4.3 4.3 0 1 1 4.4 2.2a3.6 3.6 0 0 0 5.4 5.4z",
+                filled: false
+            },
+            "restart": {
+                path: "M10 6a4 4 0 1 1-1.2-2.85M6.6 3.4 9 3.1 9.3 0.8",
+                filled: false
+            },
+            "power": {
+                path: "M6 1v5M3.4 3a4 4 0 1 0 5.2 0",
+                filled: false
+            },
             "scroll": {
                 path: "M3 4.6 6 2.2l3 2.4M3 7.4 6 9.8l3-2.4",
                 filled: false

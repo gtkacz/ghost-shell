@@ -140,6 +140,30 @@ cleanup() {
     fi
 }
 
+# GHOST_SMOKE_BAR picks the bar a run shows, as words separated by commas or spaces: top or bottom, a, b or c, and
+# broken, which gives the bar a slot naming a panel-only widget that must show as an error mark. Words edit the run's
+# own copy of the defaults, so a given GHOST_CONFIG, which the run leaves as it is, can't be combined with them.
+smoke_bar_allow=
+# What the daemon reports for the broken slot. The shell shows it as a mark, so the line is expected, and its absence is not.
+broken_slot_line='ghostd config problem: layout\.bar\.right\[0\]: widget "processor" can.t be placed in the bar'
+apply_smoke_bar() {
+    local word words=${GHOST_SMOKE_BAR:-}
+    for word in ${words//,/ }; do
+        case $word in
+            top | bottom) sed -i "s/^position = .*/position = \"$word\"/" "$1" ;;
+            a | b | c) sed -i "s/^layout = \"[abc]\"/layout = \"$word\"/" "$1" ;;
+            broken)
+                smoke_bar_allow=$broken_slot_line
+                printf '\n[layout.bar]\nleft = [{ widget = "brand" }]\nright = [{ widget = "processor" }, { widget = "view-chip" }, { widget = "bar-clock" }]\n' >> "$1"
+                ;;
+            *)
+                echo "smoke: FAIL (GHOST_SMOKE_BAR takes top, bottom, a, b, c or broken, got \"$word\")" >&2
+                exit 1
+                ;;
+        esac
+    done
+}
+
 start_daemon() {
     DBUS_SESSION_BUS_ADDRESS=$daemon_bus "$daemon" run --fake --socket "$socket" --config "$config" \
         --widgets-dir "$repo/widgets" >> "$daemon_log" 2>&1 &
@@ -191,7 +215,11 @@ cargo build -q -p ghostd --manifest-path "$repo/Cargo.toml"
 if [[ -z $config ]]; then
     temp_config=$(mktemp --suffix=.toml -t ghost-smoke-config.XXXXXX)
     "$daemon" default-config > "$temp_config"
+    apply_smoke_bar "$temp_config"
     config=$temp_config
+elif [[ -n ${GHOST_SMOKE_BAR:-} ]]; then
+    echo "smoke: FAIL (GHOST_SMOKE_BAR edits the default config, so it can't be combined with GHOST_CONFIG)" >&2
+    exit 1
 elif [[ ! -r $config ]]; then
     echo "smoke: FAIL (cannot read GHOST_CONFIG $config)" >&2
     exit 1
@@ -230,9 +258,9 @@ stop daemon_pid
 connects=$(connect_count)
 view_changes=$(grep -cE "$view_change_line" "$shell_log" || true)
 
-error_lines=$(shell_log_errors "$shell_log")
+error_lines=$(shell_log_errors "$shell_log" ${smoke_bar_allow:+"$smoke_bar_allow"})
 errors=$(grep -c . <<< "$error_lines" || true)
-allowed=$(shell_log_allowed "$shell_log")
+allowed=$(shell_log_allowed "$shell_log" ${smoke_bar_allow:+"$smoke_bar_allow"})
 mapfile -t missing < <(missing_fixture_lines "$config" "$shell_log")
 
 if (( errors > 0 )); then
@@ -243,6 +271,10 @@ fi
 if (( ${#missing[@]} > 0 )); then
     echo "smoke: FAIL (the layout names a test fixture, but $shell_log lacks its line)" >&2
     printf '  missing: %s\n' "${missing[@]}" >&2
+    exit 1
+fi
+if [[ -n $smoke_bar_allow ]] && ! grep -qE -- "$smoke_bar_allow" "$shell_log"; then
+    echo "smoke: FAIL (the layout gives the bar a broken slot, but $shell_log lacks the daemon's report of it)" >&2
     exit 1
 fi
 if (( connects < required_connects )); then

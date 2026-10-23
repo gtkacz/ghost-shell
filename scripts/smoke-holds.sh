@@ -221,6 +221,19 @@ ipc() {
     qs ipc --pid "$shell_pid" "$@" || fail "qs ipc $* failed; see $shell_log"
 }
 
+# GHOST_SMOKE_BAR picks the bar a run shows, as words separated by commas or spaces: top or bottom, and a, b or c. They
+# edit the run's own copy of the defaults, so a given GHOST_CONFIG, which the run leaves as it is, can't be combined with them.
+apply_smoke_bar() {
+    local word words=${GHOST_SMOKE_BAR:-}
+    for word in ${words//,/ }; do
+        case $word in
+            top | bottom) sed -i "s/^position = .*/position = \"$word\"/" "$1" ;;
+            a | b | c) sed -i "s/^layout = \"[abc]\"/layout = \"$word\"/" "$1" ;;
+            *) fail "GHOST_SMOKE_BAR takes top, bottom, a, b or c, got \"$word\"" ;;
+        esac
+    done
+}
+
 # The log's last counts outlive the shell, so a shell that crashed would otherwise go on reporting the
 # baseline.
 require_alive() {
@@ -452,9 +465,13 @@ if [[ -n ${GHOST_CONFIG:-} ]]; then
     if [[ ! -r $GHOST_CONFIG ]]; then
         fail "cannot read GHOST_CONFIG $GHOST_CONFIG"
     fi
+    if [[ -n ${GHOST_SMOKE_BAR:-} ]]; then
+        fail "GHOST_SMOKE_BAR edits the default config, so it can't be combined with GHOST_CONFIG"
+    fi
     cp -- "$GHOST_CONFIG" "$config_original"
 else
     "$daemon" default-config > "$config_original"
+    apply_smoke_bar "$config_original"
 fi
 cp -- "$config_original" "$config"
 # The shell's own state lives in a directory made for this run, so it never reads or writes the desktop

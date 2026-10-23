@@ -5,12 +5,21 @@ set -euo pipefail
 # daemon together at most 0.5 % of one core), then checks that it shows again once they are gone. The
 # covers are reported the way the KWin script reports them, to a release ghostd started for this run on
 # a bus made for this run.
+#
+# GHOST_MEASURE_BAR=on measures with the bar loaded, as it runs on the desktop: the bar keeps drawing, so its frames
+# are reported rather than held to zero, and the budget stays. Without it the shell runs with GHOST_BAR=off, which
+# keeps the dashboard-only check of zero frames exact.
 
 if [[ $# -gt 1 || ! ${1:-60} =~ ^[1-9][0-9]*$ ]]; then
     echo "usage: ${0##*/} [seconds=60]" >&2
     exit 64
 fi
 seconds=${1:-60}
+bar=${GHOST_MEASURE_BAR:-off}
+if [[ $bar != on && $bar != off ]]; then
+    echo "GHOST_MEASURE_BAR must be on or off, got \"$bar\"" >&2
+    exit 64
+fi
 
 # One dbus-run-session around both processes, as in qml-smoke.sh: the script runs again inside it, told
 # which bus it left behind and where to write its pid, and this one waits for it. Stopping
@@ -183,7 +192,7 @@ config=$run_dir/config.toml
 daemon_pid=$!
 # Without the variables that add a debug overlay, a gallery or a snapshot, whatever the caller has set.
 # The greeting would hide the dashboard for its first seconds; GHOST_GREETING=login or auto plays it.
-env -u GHOST_DEBUG -u GHOST_VIEW -u GHOST_SNAPSHOT GHOST_GREETING="${GHOST_GREETING:-off}" QSG_RENDER_TIMING=1 GHOST_SOCKET="$socket" \
+env -u GHOST_DEBUG -u GHOST_VIEW -u GHOST_SNAPSHOT GHOST_BAR="$bar" GHOST_GREETING="${GHOST_GREETING:-off}" QSG_RENDER_TIMING=1 GHOST_SOCKET="$socket" \
     QML_IMPORT_PATH="$repo/shell/kit" qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
 shell_pid=$!
 
@@ -221,7 +230,7 @@ frames=$(( $(line_count "$frame_line") - frames_before ))
 shell_cpu=$(cpu_of "$run_dir/shell.cpu")
 daemon_cpu=$(cpu_of "$run_dir/daemon.cpu")
 total=$(awk -v shell="$shell_cpu" -v daemon="$daemon_cpu" 'BEGIN { printf "%.2f", shell + daemon }')
-echo "covered: frames=$frames shell_cpu=$shell_cpu daemon_cpu=$daemon_cpu total=$total"
+echo "covered: bar=$bar frames=$frames shell_cpu=$shell_cpu daemon_cpu=$daemon_cpu total=$total"
 
 visible_before=$(line_count "$visible_line")
 report ""
@@ -232,7 +241,7 @@ failures=()
 if (( ! covered_logged )); then
     failures+=("the shell never logged \"${covered_line#qml: }\" after the cover was reported")
 fi
-if (( frames > max_frames )); then
+if [[ $bar == off ]] && (( frames > max_frames )); then
     failures+=("$frames frames while covered, expected $max_frames")
 fi
 if ! awk -v total="$total" -v max="$max_total_pct" 'BEGIN { exit !(total <= max) }'; then

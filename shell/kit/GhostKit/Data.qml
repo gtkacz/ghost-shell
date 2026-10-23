@@ -83,8 +83,8 @@ Singleton {
         readonly property int defaultStepMs: 1000
         readonly property int defaultHistoryMinutes: 5
         readonly property int msPerMinute: 60000
-        // The bar's topics, which stay subscribed while the dashboard is covered. There is no bar yet.
-        readonly property var barRequires: []
+        // The bar's topics, which stay subscribed while the dashboard is covered.
+        readonly property var barRequires: layout ? Subscriptions.barRequiresOf(layout) : []
 
         readonly property string socketPath: Quickshell.env("GHOST_SOCKET") || runtimeSocket()
         // Read once, so with the flag off a want or release costs one bool read and logs nothing.

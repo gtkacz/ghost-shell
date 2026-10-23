@@ -1,0 +1,6 @@
+id = "bar-clock"
+name = "Bar clock"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+requires = []

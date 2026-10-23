@@ -110,3 +110,21 @@ export function computeRects(node, rect, gutter) {
   }
   return out.rects;
 }
+
+export const BAR_BAND_PX = 30;
+export const DOCK_BAND_PX = 58;
+const POSITION_BOTTOM = 'bottom';
+
+// The rect the views share once the bar's band is kept free on its side and, in layout B, the dock's on the other.
+export function contentArea({ designWidth, designHeight, margin, position, hasDock }) {
+  const atBottom = position === POSITION_BOTTOM;
+  const dockBand = hasDock ? DOCK_BAND_PX : 0;
+  const top = atBottom ? dockBand : BAR_BAND_PX;
+  const bottom = atBottom ? BAR_BAND_PX : dockBand;
+  return {
+    x: margin,
+    y: margin + top,
+    w: designWidth - 2 * margin,
+    h: designHeight - 2 * margin - top - bottom,
+  };
+}

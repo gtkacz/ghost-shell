@@ -1,0 +1,6 @@
+id = "brand"
+name = "Brand"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+requires = []

@@ -8,9 +8,6 @@ import "../kit/GhostKit/lib/layout.mjs" as Layout
 Item {
     id: root
 
-    // Design pixels: the band kept free for the bar.
-    readonly property real barBandPx: 30
-
     // The resolved layout, as Data.layout carries it.
     property var layout: null
     property string viewName
@@ -20,21 +17,18 @@ Item {
     // Bound rather than read once: the surface reports a provisional ratio before it is configured.
     readonly property real pixelRatio: QsWindow.window ? QsWindow.window.devicePixelRatio : 1
     readonly property var node: layout && layout.views[viewName] ? layout.views[viewName] : null
-    readonly property var rects: {
-        if (!node) {
-            return [];
-        }
-        const margin = layout.margin;
-        return Layout.computeRects(node, {
-            x: margin,
-            y: margin + barBandPx,
-            w: designWidth - 2 * margin,
-            h: designHeight - 2 * margin - barBandPx
-        }, layout.gutter);
-    }
+    // Design pixels: what the views share once the bar's band, and the dock's in layout B, are kept free.
+    readonly property var area: layout ? Layout.contentArea({
+        designWidth: designWidth,
+        designHeight: designHeight,
+        margin: layout.margin,
+        position: Data.config ? Data.config.bar.position : "top",
+        hasDock: Data.config ? Data.config.bar.layout === "b" : false
+    }) : null
+    readonly property var rects: node && area ? Layout.computeRects(node, area, layout.gutter) : []
     // Logical pixels: the top and bottom of the area the slots share, as rects places them.
-    readonly property real areaTop: layout ? snap(Theme.d(layout.margin + barBandPx)) : 0
-    readonly property real areaBottom: layout ? snap(Theme.d(designHeight - layout.margin)) : 0
+    readonly property real areaTop: area ? snap(Theme.d(area.y)) : 0
+    readonly property real areaBottom: area ? snap(Theme.d(area.y + area.h)) : 0
     // The ClickAreas of the widgets and of the tab strips, which hand themselves to the view they sit in.
     property var clickAreas: []
     // Logical pixels, whole ones as the input region takes them, covering every ClickArea that is

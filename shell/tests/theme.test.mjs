@@ -172,3 +172,23 @@ test('an unknown or missing dotMotion keeps the grid still', () => {
     assert.deepEqual(dotMotion(name), { mode: 0, timed: false, pointer: false });
   }
 });
+
+test('launcher tags', () => {
+  assert.equal(tag('launch', 'mixed'), '起動');
+  assert.equal(tag('recent', 'katakana'), 'ヒストリー');
+  assert.equal(tag('pin', 'off'), '');
+});
+
+test('every launcher tag in the constraints table resolves in both scripts', () => {
+  const expected = {
+    launch: ['起動', 'ランチャー'],
+    pin: ['固定', 'ピン'],
+    recent: ['最近', 'ヒストリー'],
+    all: ['全部', 'オール'],
+    results: ['検索', 'サーチ'],
+  };
+  for (const [key, [kanji, katakana]] of Object.entries(expected)) {
+    assert.equal(tag(key, 'kanji'), kanji);
+    assert.equal(tag(key, 'katakana'), katakana);
+  }
+});

@@ -1,0 +1,6 @@
+id = "view-chip"
+name = "View chip"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+requires = []

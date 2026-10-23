@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeRects } from '../kit/GhostKit/lib/layout.mjs';
+import { computeRects, contentArea } from '../kit/GhostKit/lib/layout.mjs';
 
 const slot = (widget, size = null, settings = {}) => ({ widget, source: 'builtin', size, settings, requires: [], animates: false, error: null });
 const tab = (widget, title, settings = {}) => ({ widget, title, source: 'builtin', settings, error: null });
@@ -209,3 +209,10 @@ test('a tabs rect fills its slot and lists the flat tab entries', () => {
   assert.deepEqual(r[0].tabs, [{ title: 'A', widget: 'a', source: 'builtin', settings: { k: 1 }, error: null }]);
   assert.equal(r[1].widget, 'b');
 });
+
+const SCREEN = { designWidth: 1280, designHeight: 720, margin: 12 };
+
+test('content area reserves the bar band on top', () => assert.deepEqual(contentArea({ ...SCREEN, position: 'top', hasDock: false }), { x: 12, y: 42, w: 1256, h: 666 }));
+test('content area reserves the bar band at the bottom', () => assert.deepEqual(contentArea({ ...SCREEN, position: 'bottom', hasDock: false }), { x: 12, y: 12, w: 1256, h: 666 }));
+test('layout b reserves the dock band opposite the bar', () => assert.deepEqual(contentArea({ ...SCREEN, position: 'top', hasDock: true }), { x: 12, y: 42, w: 1256, h: 608 }));
+test('layout b with the bar at the bottom puts the dock band on top', () => assert.deepEqual(contentArea({ ...SCREEN, position: 'bottom', hasDock: true }), { x: 12, y: 70, w: 1256, h: 608 }));

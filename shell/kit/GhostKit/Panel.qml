@@ -37,6 +37,8 @@ Item {
     property string label
     property string tagKey
     property string meta
+    // The dock draws the same frame over a denser ground.
+    property color fill: ThemeLib.withAlpha(Theme.panel, Theme.panelFill)
     property real padding: Theme.d(paddingPx)
     // Logical pixels at the right end of the header line that the host draws over: a tabs node's
     // strip. Only the host sets it; a widget leaves it at 0.
@@ -57,7 +59,7 @@ Item {
         preferredRendererType: Shape.CurveRenderer
 
         ShapePath {
-            fillColor: ThemeLib.withAlpha(Theme.panel, Theme.panelFill)
+            fillColor: root.fill
             strokeColor: "transparent"
             startX: 0
             startY: 0

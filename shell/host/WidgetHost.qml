@@ -22,6 +22,8 @@ Item {
     // A component still loading, which only a remote or very large source does.
     property var pending: null
     property bool completed: false
+    // What shows in place of a widget that fails; a host with a different frame, such as the bar's, brings its own.
+    property Component errorComponent: dashboardError
     // The URL the current component was requested from.
     property string requested: ""
 
@@ -143,14 +145,19 @@ Item {
         when: root.headerReserve > 0 && root.instance !== null && root.instance.headerReserve !== undefined && root.instance.header !== false
     }
 
-    Loader {
-        anchors.fill: parent
-        active: root.failure !== ""
+    Component {
+        id: dashboardError
 
-        sourceComponent: ErrorCard {
+        ErrorCard {
             widgetId: root.widgetId
             message: root.failure
             headerReserve: root.headerReserve
         }
+    }
+
+    Loader {
+        anchors.fill: parent
+        active: root.failure !== ""
+        sourceComponent: root.errorComponent
     }
 }

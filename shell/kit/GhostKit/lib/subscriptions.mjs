@@ -24,7 +24,18 @@ export function requiresOf(layout) {
   return Array.from(topics).sort();
 }
 
+const BAR_AREAS = Object.freeze(['left', 'centre', 'right', 'dock']);
+
+// The slots of the bar and the dock, which stay subscribed while the dashboard is covered.
+export function barRequiresOf(layout) {
+  const topics = new Set();
+  BAR_AREAS.forEach((area) => (layout?.bar?.[area] ?? []).forEach((slot) => slot.requires.forEach((topic) => topics.add(topic))));
+  return Array.from(topics).sort();
+}
+
+// Wants outlive a cover because the dashboard's widgets, whose wants they were, are destroyed by it; what remains is
+// the bar's.
 export function subscriptionFor({ requires, wanted, covered, barRequires }) {
-  const dashboard = covered ? [] : requires.concat(wanted);
-  return Array.from(new Set(dashboard.concat(barRequires, ALWAYS_SUBSCRIBED))).sort();
+  const dashboard = covered ? [] : requires;
+  return Array.from(new Set(dashboard.concat(wanted, barRequires, ALWAYS_SUBSCRIBED))).sort();
 }

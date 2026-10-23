@@ -46,14 +46,8 @@ Scope {
         }
     }
 
-    // While covered nothing on the dashboard is seen, so nothing animates and the daemon collects only
-    // what the bar needs.
-    Binding {
-        target: FrameClock.hostControl
-        property: "suspended"
-        value: root.hidden
-    }
-
+    // While covered the daemon collects only what the bar needs. The frame clock keeps running for the
+    // bar's clock: the dashboard's widgets are destroyed, so they hold it no longer.
     Binding {
         target: Data.hostControl
         property: "covered"

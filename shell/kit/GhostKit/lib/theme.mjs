@@ -30,6 +30,11 @@ export const TAGS = Object.freeze({
   tree: Object.freeze({ kanji: '系譜', katakana: 'プロセス' }),
   telem: Object.freeze({ kanji: '遠隔', katakana: 'テレメトリ' }),
   switch: Object.freeze({ kanji: '窓切替', katakana: 'スイッチ' }),
+  launch: Object.freeze({ kanji: '起動', katakana: 'ランチャー' }),
+  pin: Object.freeze({ kanji: '固定', katakana: 'ピン' }),
+  recent: Object.freeze({ kanji: '最近', katakana: 'ヒストリー' }),
+  all: Object.freeze({ kanji: '全部', katakana: 'オール' }),
+  results: Object.freeze({ kanji: '検索', katakana: 'サーチ' }),
 });
 
 export const CHIPS = Object.freeze({

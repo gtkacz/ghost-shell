@@ -25,5 +25,8 @@ Glyph 1.0 Glyph.qml
 SegBars 1.0 SegBars.qml
 Duotone 1.0 Duotone.qml
 ClickArea 1.0 ClickArea.qml
+BarPopup 1.0 BarPopup.qml
+OutsideCatcher 1.0 OutsideCatcher.qml
+AppIcon 1.0 AppIcon.qml
 internal TopicValue TopicValue.qml
 internal HeatBand HeatBand.qml
