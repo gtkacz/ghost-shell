@@ -8,7 +8,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const KIT = join(ROOT, 'shell/kit/GhostKit');
 const GATE = join(ROOT, 'shell/gate/GhostGate');
 const QSB_SUFFIX = '.qsb';
-const QT_TYPES = new Set(['Item', 'Text', 'Rectangle', 'Shape', 'ShapePath', 'ShaderEffect', 'QtObject', 'Binding', 'Connections', 'Timer', 'Image', 'PathSvg', 'PathLine', 'PathMove', 'PathArc', 'PathQuad', 'PathCubic', 'Repeater', 'Row', 'Column', 'MouseArea', 'Component', 'Loader']);
+const QT_TYPES = new Set(['Item', 'Text', 'Rectangle', 'Shape', 'ShapePath', 'ShaderEffect', 'QtObject', 'Binding', 'Connections', 'Timer', 'Image', 'PathSvg', 'PathLine', 'PathMove', 'PathArc', 'PathQuad', 'PathCubic', 'Repeater', 'Row', 'Column', 'MouseArea', 'Component', 'Loader', 'TextInput', 'TestCase', 'SignalSpy']);
 
 const script = readFileSync(join(ROOT, 'scripts/assemble-gate.sh'), 'utf8');
 const sharedBlock = script.match(/SHARED_FILES=\(([^)]*)\)/);
@@ -53,7 +53,8 @@ test('every Theme member the shared files read is declared by the gate Theme', (
 
 test('every QML type the shared files instantiate is a Qt type or in the gate qmldir', () => {
   const qmldir = read(join(GATE, 'qmldir'));
-  const known = new Set([...QT_TYPES, ...[...qmldir.matchAll(/^(?:singleton\s+)?(\w+)\s+\d/gm)].map((m) => m[1])]);
+  const inline = [...[...sharedQml, ...gateQml].flatMap((path) => [...read(path).matchAll(/^\s*component\s+(\w+)\s*:/gm)].map((m) => m[1]))];
+  const known = new Set([...QT_TYPES, ...inline, ...[...qmldir.matchAll(/^(?:singleton\s+)?(\w+)\s+\d/gm)].map((m) => m[1])]);
   for (const path of [...sharedQml, ...gateQml]) {
     for (const match of read(path).matchAll(/^\s*([A-Z]\w*)\s*\{/gm)) {
       assert.ok(known.has(match[1]), `${match[1]} in ${path}`);

@@ -8,8 +8,13 @@ export const BLINK_STEPS = [1, 0.5, 0, 0.5];
 const BLINK_END_MS = 9600;
 
 const PERCENT = 100;
-const SCAN_STEPS = 30;
+export const SCAN_STEPS = 30;
 const SCAN_SWEEP_MS = 800;
+export const SCAN_TICK_MS = Math.round(SCAN_SWEEP_MS / SCAN_STEPS);
+const MS_PER_MINUTE = 60_000;
+const MS_PER_SECOND = 1000;
+const CLOCK_DIGITS = 2;
+const ACTION_LABELS = { 'switch-user': 'SWITCH USER', sleep: 'SLEEP', restart: 'RESTART', power: 'SHUT DOWN' };
 const DEFAULT_STYLE = 'prompt';
 const JAPANESE_MODES = ['kanji', 'katakana', 'mixed', 'off'];
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -88,12 +93,12 @@ export function parseSnapshot(sections) {
     style: resolveStyle(gate.style),
     host: gate.host ?? DEFAULTS.gate.host,
     displayModel: gate.display_model ?? DEFAULTS.gate.display_model,
-    appearance: {
-      ...appearance,
+    // Object.assign, not spread: QML's JS engine rejects object spread.
+    appearance: Object.assign(appearance, {
       colors: fill(DEFAULTS.colors, sections.colors),
       dots: fill(DEFAULTS.dots, sections.dots),
       scanlines: fill(DEFAULTS.scanlines, sections.scanlines),
-    },
+    }),
   };
 }
 
@@ -149,4 +154,38 @@ export function actionsFor(mode, allowed) {
 
 export function scanStep(ms) {
   return Math.min(SCAN_STEPS, Math.max(0, Math.round((SCAN_STEPS * ms) / SCAN_SWEEP_MS)));
+}
+
+// Milliseconds until alertOpacity next changes, or 0 once the blink has ended and the alert holds still.
+export function alertDelay(msSinceShown) {
+  if (msSinceShown >= BLINK_END_MS) {
+    return 0;
+  }
+  if (msSinceShown >= ARRIVAL_MS) {
+    return BLINK_STEP_MS - ((msSinceShown - ARRIVAL_MS) % BLINK_STEP_MS);
+  }
+  const boundaries = ARRIVAL_START_PERCENTS.map((percent) => (percent * ARRIVAL_MS) / PERCENT).concat(ARRIVAL_MS);
+  return boundaries.find((boundary) => boundary > msSinceShown) - msSinceShown;
+}
+
+export function actionLabel(name) {
+  return ACTION_LABELS[name] ?? name.toUpperCase();
+}
+
+// "Plasma (Wayland)" reads "Plasma · Wayland" in the small tag under the user name.
+export function sessionTag(name) {
+  return name.replace(/\s*\((.*)\)/, ' · $1');
+}
+
+function pad(value) {
+  return String(value).padStart(CLOCK_DIGITS, '0');
+}
+
+export function metaText(mode, now) {
+  const clock = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  return mode === 'lock' ? `LOCKED ${clock}` : clock;
+}
+
+export function minuteDelay(now) {
+  return MS_PER_MINUTE - (now.getSeconds() * MS_PER_SECOND + now.getMilliseconds());
 }

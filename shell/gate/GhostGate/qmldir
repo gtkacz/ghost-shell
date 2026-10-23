@@ -6,3 +6,11 @@ ScrambleText 1.0 ScrambleText.qml
 Panel 1.0 Panel.qml
 Chip 1.0 Chip.qml
 Glyph 1.0 Glyph.qml
+Password 1.0 Password.qml
+GateAlert 1.0 GateAlert.qml
+Chips 1.0 Chips.qml
+Actions 1.0 Actions.qml
+ScanPass 1.0 ScanPass.qml
+GateScreen 1.0 GateScreen.qml
+Prompt 1.0 Prompt.qml
+FakeAdapter 1.0 FakeAdapter.qml

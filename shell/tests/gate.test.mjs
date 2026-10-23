@@ -3,15 +3,20 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   CELLS,
+  actionLabel,
   actionsFor,
+  alertDelay,
   alertOpacity,
   cells,
   failureText,
+  metaText,
+  minuteDelay,
   nextLayout,
   nextUser,
   parseSnapshot,
   resolveStyle,
   scanStep,
+  sessionTag,
 } from '../gate/GhostGate/lib/gate.mjs';
 import { ARRIVAL_MS, ARRIVAL_OPACITIES, ARRIVAL_START_PERCENTS } from '../kit/GhostKit/lib/attention.mjs';
 import { pickScreen } from '../kit/GhostKit/lib/scale.mjs';
@@ -138,4 +143,25 @@ test('the gate defaults for dots and scanlines equal GhostKit Theme.qml defaultA
 test('parseSnapshot reads the dot strengths', () => {
   const { dots } = parseSnapshot({ dots: { size_range: '3', brightness: '2.2', cover: '0.7', scale: '1.5' } }).appearance;
   assert.deepEqual([dots.size_range, dots.brightness, dots.cover, dots.scale], [3, 2.2, 0.7, 1.5]);
+});
+
+test('alertDelay runs to each arrival step, then each blink step, then stops', () => {
+  assert.equal(alertDelay(0), 96);
+  assert.equal(alertDelay(96), 64);
+  assert.equal(alertDelay(1119), 1);
+  assert.equal(alertDelay(1120), 480);
+  assert.equal(alertDelay(1600), 250);
+  assert.equal(alertDelay(1700), 150);
+  assert.equal(alertDelay(9599), 1);
+  assert.equal(alertDelay(9600), 0);
+});
+
+test('action labels, session tags and the meta line', () => {
+  assert.equal(actionLabel('power'), 'SHUT DOWN');
+  assert.equal(actionLabel('switch-user'), 'SWITCH USER');
+  assert.equal(sessionTag('Plasma (Wayland)'), 'Plasma · Wayland');
+  assert.equal(sessionTag('Plasma'), 'Plasma');
+  assert.equal(metaText('lock', new Date(2026, 9, 23, 7, 5)), 'LOCKED 07:05');
+  assert.equal(metaText('login', new Date(2026, 9, 23, 17, 45)), '17:45');
+  assert.equal(minuteDelay(new Date(2026, 9, 23, 7, 5, 13, 500)), 46_500);
 });
