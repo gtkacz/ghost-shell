@@ -142,7 +142,8 @@ PanelWindow {
                     // Burn-in: from burn to the character's own colour as its burn progress goes from 0 to 1.
                     color: visible ? Qt.tint(index >= typedLine.nameStart && typedLine.nameStart >= 0 ? typedLine.nameColor : typedLine.textColor, ThemeLib.withAlpha(Theme.burn, (1 - typedLine.shown.burn[index]) * window.percent)) : "transparent"
                     font {
-                        family: typedLine.family
+                        // Only CJK characters take the CJK face; Latin text keeps the UI font.
+                        family: typedLine.line.text.charCodeAt(index) >= 0x3000 ? Theme.fontCjk : typedLine.family
                         pixelSize: typedLine.pixelSize
                         weight: typedLine.weight
                         letterSpacing: typedLine.letterSpacing
@@ -283,7 +284,7 @@ PanelWindow {
                         shown: window.typed ? window.frame.lines[1] : null
                         pixelSize: Theme.d(window.subtitlePx)
                         boxEm: window.subtitleBoxEm
-                        family: Theme.fontCjk
+                        family: Theme.font
                         weight: Font.Medium
                         letterSpacing: window.subtitleTrackingEm * pixelSize
                         textColor: Theme.signal
