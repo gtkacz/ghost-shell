@@ -15,7 +15,5 @@ bright = ["#587170", "#ff6b73", "#a6e3b4", "#f3c274", "#a3c1f5", "#d0b0f0", "#c4
 
 # Per-hue replacements applied last, keyed by ansi name (bright- prefix for the bright row).
 [overrides]
-red = "#ff6b81"
-bright-red = "#ff8fa0"
 blue = "#8fb8f5"
 magenta = "#a574e8"

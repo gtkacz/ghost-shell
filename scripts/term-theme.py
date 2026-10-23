@@ -145,8 +145,11 @@ def contrast(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-# Failure text is the one thing colour must still carry, so it gets the WCAG AA floor for normal text.
-MIN_RED_CONTRAST = 4.5
+# Red only has to clear the WCAG floor for large text and UI parts, because making it brighter than that turns it
+# into a light grey-tan for a protan eye, which is what hid a near-limit usage bar.
+MIN_RED_CONTRAST = 3.0
+# Red must stay clearly darker than green and cyan under protan, so danger is recognisable by darkness.
+MIN_RED_GAP = 2.5
 # Blue and magenta are the pair a protan eye merges once hue is gone, so they must differ in lightness.
 MIN_BLUE_MAGENTA_CONTRAST = 1.25
 # Body text and the dimmest caption colour must stay readable on the terminal ground.
@@ -167,6 +170,11 @@ def check_palette(p: Palette) -> list[str]:
         ratio = contrast(seen(slot["red"]), ground)
         if ratio < MIN_RED_CONTRAST:
             failures.append(f"{kind}: red on ground contrast {ratio:.2f} < {MIN_RED_CONTRAST}")
+        if kind == "protan":
+            for other in ("green", "cyan"):
+                ratio = contrast(seen(slot["red"]), seen(slot[other]))
+                if ratio < MIN_RED_GAP:
+                    failures.append(f"{kind}: red vs {other} contrast {ratio:.2f} < {MIN_RED_GAP}")
         ratio = contrast(seen(slot["blue"]), seen(slot["magenta"]))
         if ratio < MIN_BLUE_MAGENTA_CONTRAST:
             failures.append(f"{kind}: blue vs magenta contrast {ratio:.2f} < {MIN_BLUE_MAGENTA_CONTRAST}")
@@ -197,6 +205,9 @@ def render_ghostty(p: Palette) -> str:
         "window-padding-x = 16",
         "window-padding-y = 12",
         "window-padding-color = background",
+        # New windows would otherwise open where the previous one was; tabs and splits keep inheriting.
+        "working-directory = home",
+        "window-inherit-working-directory = false",
         "gtk-custom-css = ~/.config/ghostty/ghost.css",
     ]
     lines += [f"palette = {slot}={colour}" for slot, colour in enumerate(p.ansi)]

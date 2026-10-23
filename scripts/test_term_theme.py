@@ -303,7 +303,7 @@ def test_main_writes_every_file_when_palette_passes(tmp_path):
 
 
 def test_main_refuses_to_write_when_check_fails(tmp_path, capsys):
-    term = _write(tmp_path, "palette.toml", TERM_BODY)
+    term = _write(tmp_path, "palette.toml", TERM_BODY + '\n[overrides]\nred = "#ff6b81"\n')
     out = tmp_path / "out"
     assert tt.main(["--out", str(out), "--term-toml", str(term)]) != 0
     assert not out.exists() or not list(out.iterdir())
@@ -465,7 +465,7 @@ def test_ansi_row_that_is_a_string_raises_naming_the_row(tmp_path):
 
 def test_failure_chevron_is_bold_as_well_as_red(tmp_path):
     out = _prompt(tmp_path, _repo(tmp_path), "--status=101")
-    assert "\x1b[1;38;2;255;107;129m✗" in out
+    assert _fg(_palette().ansi[1]).replace("\x1b[", "\x1b[1;") + "✗" in out
 
 
 def test_bare_repo_shows_no_branch(tmp_path):
@@ -520,3 +520,22 @@ def test_install_writes_the_css_and_sources_the_env_file_once(tmp_path):
     assert (home / ".config/ghostty/ghost.css").exists()
     assert (home / ".config/ghost-shell/term.zsh").exists()
     assert (home / ".zshrc").read_text().count("ghost-shell/term.zsh") == 1
+
+
+def test_ghostty_opens_new_windows_in_home_but_tabs_and_splits_still_inherit():
+    out = tt.render_ghostty(_palette())
+    assert "working-directory = home" in out
+    assert "window-inherit-working-directory = false" in out
+    assert "tab-inherit-working-directory" not in out and "split-inherit-working-directory" not in out
+
+
+def test_check_rejects_a_red_that_a_protan_eye_cannot_tell_from_green_and_cyan():
+    # The lightened rose reads as a light grey-tan to a protan eye, so a near-limit bar stopped looking like danger.
+    palette = _with_ansi(tt.load_palette(DEFAULT_TOML, TERM_TOML), red="#ff6b81")
+    messages = tt.check_palette(palette)
+    assert any("protan" in m and "red vs green" in m for m in messages)
+    assert any("protan" in m and "red vs cyan" in m for m in messages)
+
+
+def test_shipped_red_is_the_desktop_crit_red():
+    assert _palette().ansi[1] == _palette().desktop["crit"]
