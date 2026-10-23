@@ -148,7 +148,7 @@ opacity=15
     - `snapshot_has_every_key`: for `load_str("")` and host `"ghost"`, every key above is present, with `style=prompt` and `ground=#0a0f11`;
     - `snapshot_reflects_style_and_fill`: `style=idcheck` and `panel_fill=40` come through;
     - `write_atomic_replaces_whole_file`: writing `a` then `b` into a tempdir leaves exactly `b`, with mode `0o644` and no `*.tmp` left behind;
-    - `system_path_skipped_when_dir_missing`: `snapshot_paths_in(state: Some(tmp), system_dir: tmp/"absent")` returns only the state path.
+    - `system_path_skipped_when_dir_missing`: `snapshot_paths_in(Some(tmp.into()), None, &tmp.join("absent"))` returns only `tmp/ghost-shell/gate.ini`.
 - [ ] **Step 2: Run them to see them fail.** Run `cargo test -p ghostd gate lock_style unknown_lock_style`. Expected: compile errors or FAIL.
 - [ ] **Step 3: Implement.**
   - Put the state path in a `snapshot_paths_in(state_home: Option<OsString>, home: Option<OsString>, system_dir: &Path)` helper, following `ghost-alerts-inmet/src/store.rs::store_path_in`. That gives `$XDG_STATE_HOME/ghost-shell/gate.ini`, or `~/.local/state/ghost-shell/gate.ini`, and creates the state dir.
@@ -169,9 +169,10 @@ git commit -m "feat(ghostd): add [lock] style and keep a gate snapshot for the l
 ### Task 3: GhostGate core — theme, shared files, rules
 
 **Files:**
-- Create: `shell/gate/GhostGate/qmldir`, `Theme.qml` (`pragma Singleton`, `QtObject`), `Dots.qml`, `Scanlines.qml`, `lib/gate.mjs`
+- Create: `shell/gate/GhostGate/qmldir`, `Theme.qml` (`pragma Singleton`, `QtObject`), `Dots.qml`, `Scanlines.qml`, `ScrambleText.qml`, `lib/gate.mjs`
 - Create: `scripts/assemble-gate.sh`
 - Modify: `shell/kit/GhostKit/Glyph.qml`: add `keyboard` and `switch-user` shapes, drawn like the mockup's `#i-kb` and `#i-user` symbols, in the existing shape format
+- Modify: `shell/kit/GhostKit/lib/theme.mjs`: add `auth: { kanji: '認証', katakana: 'アクセス' }` to `TAGS` (the katakana is a designer's call; the spec only fixes the kanji)
 - Modify: `shell/kit/GhostKit/lib/attention.mjs` and `AlertBox.qml`: move `arrivalMs`, `arrivalStartPercents` and `arrivalOpacities` into `attention.mjs` as `ARRIVAL_MS`, `ARRIVAL_START_PERCENTS` and `ARRIVAL_OPACITIES`. `AlertBox` reads them from there; its behaviour is unchanged.
 - Test: `shell/tests/gate.test.mjs`, `shell/tests/gate-kit.test.mjs`
 
@@ -193,7 +194,9 @@ git commit -m "feat(ghostd): add [lock] style and keep a gate snapshot for the l
     - `alertOpacity(msSinceShown) -> number`;
     - `failureText(attempt: number, message: string) -> string`;
     - `actionsFor(mode: 'lock'|'login', allowed: {switchUser, sleep, restart, shutdown}) -> string[]`;
-    - `scanStep(ms) -> number` (0…30).
+    - `scanStep(ms) -> number` (0…30);
+    - `nextUser(users: string[], current: string) -> string` (same wrap-around as `nextLayout`).
+  - `ScrambleText.qml` is a stand-in that `Panel` and `Chip` use. GhostKit's version needs `FrameClock` and `FirstWrite`, which are Quickshell. The stand-in is a plain `Text` that declares the same extra properties GhostKit's `ScrambleText` has, and ignores them. The gate never scrambles.
   - `Dots.qml` and `Scanlines.qml` use the same shaders and uniforms as GhostKit's `DotGrid` (with motion off, matching the greeting's resting frame in `shell/host/GreetingScreen.qml`) and `Scanlines`. They read the pixel ratio from `Screen.devicePixelRatio`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -212,6 +215,7 @@ git commit -m "feat(ghostd): add [lock] style and keep a gate snapshot for the l
     - The fifth Review Focus item: `pickScreen([{model:'X'}], 'M27Q')` from `lib/scale.mjs` returns that screen.
   - `gate-kit.test.mjs`:
     - every `Theme.<name>` in the `SHARED_FILES` QML resolves to a property or function declared in `shell/gate/GhostGate/Theme.qml`;
+    - every capitalised QML type the `SHARED_FILES` QML instantiates (e.g. `ScrambleText`, `Glyph`) is either a Qt type or listed in the gate's `qmldir` (shared or the gate's own stand-in);
     - no file under `shell/gate/` or in `SHARED_FILES` has `import Quickshell` or `import GhostKit`;
     - every `SHARED_FILES` entry exists. Parse `SHARED_FILES` out of `scripts/assemble-gate.sh` so there's one list.
 - [ ] **Step 2: Run them to see them fail.** Run `node --test shell/tests/gate.test.mjs shell/tests/gate-kit.test.mjs`. Expected: FAIL.
@@ -236,11 +240,11 @@ git commit -m "feat(gate): add the Quickshell-free gate module on GhostKit's sha
 **Interfaces:**
 - Consumes: Task 3's `Theme`, `lib/gate.mjs`, `Panel`, `Chip`, `Glyph`.
 - **Produces the adapter contract.** Every adapter is a `QtObject` with:
-  - read-only properties: `string mode` (`'lock'` or `'login'`), `string userName`, `bool busy`, `int attempts`, `string message`, `bool capsLock`, `var layouts`, `string layout`, `var sessions`, `int sessionIndex`, `var allowed` (`{switchUser, sleep, restart, shutdown}`);
-  - methods: `submit(password)`, `cycleLayout()`, `chooseSession(index)`, `act(name)`, where `name` is one of `actionsFor`'s values;
+  - read-only properties: `string mode` (`'lock'` or `'login'`), `var users`, `string userName`, `bool busy`, `int attempts`, `string message`, `bool capsLock`, `var layouts`, `string layout`, `var sessions`, `int sessionIndex`, `var allowed` (`{switchUser, sleep, restart, shutdown}`);
+  - methods: `submit(password)`, `cycleUser()`, `cycleLayout()`, `chooseSession(index)`, `act(name)`, where `name` is one of `actionsFor`'s values;
   - signals: `succeeded()`, `failed()`.
 
-  `FakeAdapter` accepts `"ghost"`. For tests, its `mode`, `capsLock`, `message` and `holdBusy` (stay busy after a submit) are settable, and `submitCount` counts calls to `submit`.
+  `FakeAdapter` accepts `"ghost"`. Its defaults are: `users ['gtkacz']`, `layouts ['us','br']` with `layout 'us'`, `sessions [{name: 'Plasma (Wayland)'}]`, and everything allowed. For tests, its `mode`, `capsLock`, `message` and `holdBusy` (stay busy after a submit) are settable, and `submitCount` counts calls to `submit`.
 - **`GateScreen { adapter; primary: bool }`** draws ground, `Dots` and `Scanlines`. On the primary screen it loads the style named by `Theme.style` (via `resolveStyle`); other screens get dots only. On `adapter.succeeded` it plays `ScanPass` (lock mode only) and then emits `done()`. At login there's no pass (spec §6.5), so it emits `done()` at once.
 - **`Prompt { adapter }`** implements spec §7.1 using `Panel` (label `AUTHENTICATE`, `tagKey` for `認証`, and meta `LOCKED HH:MM` in lock mode or `HH:MM` at login), `Password`, `GateAlert`, `Chips` and `Actions`.
 
@@ -253,6 +257,8 @@ git commit -m "feat(gate): add the Quickshell-free gate module on GhostKit's sha
   - `test_empty_enter_does_nothing`: `submit` is never called;
   - `test_pam_message_replaces_alert`: the fake's `message` = "Account locked" shows `ACCOUNT LOCKED`;
   - `test_caps_chip`: `capsLock = true` shows `CAPS LOCK`;
+  - `test_click_refocuses`: click the empty ground, then type, and the cells light (spec §6.1);
+  - `test_user_chip_only_with_many_users`: with one user the name is plain text; with `users = ['a','b']` it's a chip, and clicking it moves to `b` (spec §12);
   - `test_layout_chip_cycles`: clicking the chip goes `US`, then `BR`;
   - `test_lock_vs_login_actions`: the action row reads `SWITCH USER`, `SLEEP` in lock mode and `SLEEP`, `RESTART`, `SHUT DOWN` at login; the session chip only shows at login;
   - `test_japanese_off_hides_tag`: `Theme.japanese = 'off'` leaves no `認証`;
@@ -267,7 +273,7 @@ git commit -m "feat(gate): add the Quickshell-free gate module on GhostKit's sha
   - Nothing uses a continuous `Animation` or binds to the frame rate (§8.4).
   - The password text lives only in a local `TextInput` with `echoMode: TextInput.NoEcho`, which is never shown. Clear it on submit and on Esc.
 - [ ] **Step 4: Run it to see it pass.** Run `make test`. Expected: PASS.
-- [ ] **Step 5: Render the screenshots** offscreen, at 2560×1440 with the scale at 1.15: lock idle, lock with 12 characters and the alert, and login idle, using `grabToImage` in a helper test. Compare them by eye against the mockup's frame A. Fix any spacing differences, then save the shots to `docs/superpowers/notes/lock-a-shots/` for the user.
+- [ ] **Step 5: Render the screenshots** offscreen with `QT_SCALE_FACTOR=1.15` and a 2226×1252 logical window (2560×1440 physical): lock idle, lock with 12 characters and the alert, and login idle, using `grabToImage` in a helper test. Compare them by eye against the mockup's frame A. Fix any spacing differences, then save the shots to `docs/superpowers/notes/lock-a-shots/` for the user.
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -280,7 +286,7 @@ git commit -m "feat(gate): build the prompt style on the shared password, alert,
 ### Task 5: The lock screen part (`--lock`)
 
 **Files:**
-- Create: `packaging/lock/`, a package laid out as spike note (a) says, with the lock entry QML that builds one `GateScreen` per screen with a `LockAdapter`
+- Create: `packaging/lock/`, a package laid out as spike note (a) says, with the lock entry QML that builds one `GateScreen` per screen with a `LockAdapter`. `primary` is true only for `pickScreen(screens, Theme.displayModel)` (Task 6's SDDM `Main.qml` does the same)
 - Create: `shell/gate/GhostGate/LockAdapter.qml`
 - Modify: `scripts/install.sh`: add `--lock` and `--remove-lock`; a plain run stays exactly as today
 - Create: `scripts/smoke-lock.sh`
@@ -302,9 +308,9 @@ git commit -m "feat(gate): build the prompt style on the shared password, alert,
   - assembles and installs the package into that sandbox's `XDG_DATA_HOME`;
   - runs `kscreenlocker_greet --testing` with the package, with the root sized by `Theme.d`;
   - asserts from the greeter's log that the gate root loaded (a `console.info("gate: prompt lock")` line) and that there are no QML warnings;
-  - **proves the real greeter takes input.** A screen that loads but ignores keys locks the user out, and KDE's fallback doesn't catch it. Inject keys into the sandbox KWin (its fake-input or virtual-keyboard protocol, or whatever note (b) finds; e.g. `wtype` against the sandbox socket). Then assert two things through the greeter's log:
-    - a wrong password reaches the authenticator and logs `gate: failed 1`;
-    - the sandbox user's real test password (set with `--testing`'s own auth, or whatever note (b) finds) logs `gate: succeeded`;
+  - **proves the real greeter takes input.** A screen that loads but ignores keys locks the user out, and KDE's fallback doesn't catch it. Inject keys into the sandbox KWin (its fake-input or virtual-keyboard protocol, or whatever note (b) finds; e.g. `wtype` against the sandbox socket). Then assert that **exactly one** wrong password reaches real PAM and logs `gate: failed 1`.
+    - Only one attempt, because on a machine with `pam_faillock`, repeated failures lock the account.
+    - **Never script the user's real password.** The success path (`succeeded`, then the pass, then the greeter exits) is proven by the Task 4 fake-adapter test and by Task 7 with the user, behind the rehearsed escape.
   - kills KWin.
 - [ ] **Step 2: Run it to see it fail.** Run `scripts/smoke-lock.sh`. Expected: FAIL (no package).
 - [ ] **Step 3: Implement** `LockAdapter`, the package and the install flags.
@@ -379,7 +385,7 @@ git commit -m "feat(login): draw the SDDM login screen with the gate's prompt as
 - [ ] **Step 1: Rehearse the escape** with the user, on KDE's **stock** lock screen, before anything is switched:
   1. lock with Meta+L;
   2. press Ctrl+Alt+F3 and log in;
-  3. run `loginctl unlock-sessions`;
+  3. run `loginctl list-sessions`, then `loginctl unlock-session <id of the graphical session>`. Confirm it works without sudo;
   4. press Ctrl+Alt+F2 (or F1) to get back to the desktop.
 
   Write in the acceptance note which VT the session is on. Keep `scripts/install.sh --remove-lock` as the documented undo, and run it from that console if the new screen misbehaves.

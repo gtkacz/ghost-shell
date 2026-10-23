@@ -276,7 +276,7 @@ The idle lock screen animates only:
   style = "prompt"   # prompt | terminal | idcheck
   ```
 
-  - The default is `prompt`. An unknown value falls back to `prompt`, and ghostd logs a warning, as for any other invalid config.
+  - The default is `prompt`. An unknown value is refused like any other invalid config value: ghostd keeps the last good config, or the defaults at startup, and warns. The gates themselves treat any style they don't know as `prompt`.
   - **[call]** No other lock-specific knobs until a need appears.
 - The lock and login screens also follow these existing settings:
   - the font and CJK fallback;
