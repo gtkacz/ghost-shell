@@ -56,6 +56,14 @@ It stops with an error if `cargo`, `fc-list`, `fc-cache`, `kpackagetool6`, `krea
 
 When an install changes a compiled shader, the script says so at the end. The shell's first start after that compiles the shaders into its cache and stays about 61 MiB above its steady state until it is restarted (see Performance). So start or restart `ghost-shell`, wait about 30 s, and run `systemctl --user restart ghost-shell` once.
 
+### Terminal theme (optional)
+
+```sh
+make install-term
+```
+
+`scripts/install-term.sh` themes Ghostty, Starship, `eza` and `fast-syntax-highlighting` from the shell's palette, which `scripts/install.sh` never does. It first backs up `~/.zshrc` and the existing terminal configs into `~/.config/term-backup-*.tar.gz`, checks the checksum, and stops without changing anything if that fails. Then it writes the configs under `~/.config/` and adds one marked block to `~/.zshrc`. It needs `uv`, Ghostty and Starship, and it is idempotent. `--dry-run` lists what it would write. The colours come from `crates/ghostd/src/config/default.toml` and `term/palette.toml`, and the palette is checked under a protan and deutan colour-vision simulation before anything is written. Run its tests with `uv run --no-project --with pytest python -I -m pytest scripts/test_term_theme.py`.
+
 ### CPU package power (optional)
 
 The processor panel shows `PKG` (the CPU package's power draw) only when `ghostd` can read the RAPL energy counter, `/sys/class/powercap/intel-rapl:0/energy_uj`. The kernel makes it root-only, so the row stays hidden until you install the udev rule, which `scripts/install.sh` never does:

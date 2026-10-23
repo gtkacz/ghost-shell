@@ -3,7 +3,7 @@ SHADERS := $(wildcard $(SHADER_DIR)/*.frag)
 COMPILED_SHADERS := $(SHADERS:.frag=.frag.qsb)
 LAYOUT_TEST_CONFIG := /tmp/ghost-layout-test.toml
 
-.PHONY: shaders release install test smoke smoke-layout smoke-holds smoke-greeting
+.PHONY: shaders release install install-term test smoke smoke-layout smoke-holds smoke-greeting
 
 shaders: $(COMPILED_SHADERS)
 
@@ -15,6 +15,9 @@ release: shaders
 
 install: release
 	scripts/install.sh
+
+install-term:
+	scripts/install-term.sh
 
 test:
 	node --test 'shell/tests/*.test.mjs'
