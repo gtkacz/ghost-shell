@@ -26,16 +26,19 @@ Scope {
     readonly property var slots: ready && Data.layout.bar ? Data.layout.bar : null
 
     readonly property string summary: "bar on " + (screen ? screen.name : "") + " " + position + " layout " + layoutName
-    onSummaryChanged: {
-        if (ready) {
+    // One line per arrangement, though the config and layout that make it ready arrive separately.
+    property string announced: ""
+
+    function announce() {
+        if (ready && summary !== announced) {
+            announced = summary;
             console.info(summary);
         }
     }
-    onReadyChanged: {
-        if (ready) {
-            console.info(summary);
-        }
-    }
+
+    // Deferred, since the handler of ready runs before the position and layout bindings have caught up with it.
+    onSummaryChanged: Qt.callLater(announce)
+    onReadyChanged: Qt.callLater(announce)
 
     PanelWindow {
         id: window

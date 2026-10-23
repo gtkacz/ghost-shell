@@ -14,6 +14,8 @@ Item {
     readonly property real tipPadXPx: 8
     readonly property real tipPadYPx: 2
     readonly property real tipFillPct: 96
+    // The tips sit one pixel past the bar.
+    readonly property real tipGapPx: 1
     // Letter spacing in em.
     readonly property real tipTracking: 0.04
 
@@ -64,6 +66,9 @@ Item {
                     Item {
                         id: mark
 
+                        // Lets the smoke see that the shell drew the mark, which the daemon's report of the slot does not show.
+                        Component.onCompleted: console.info("bar mark " + host.widgetId)
+
                         Rectangle {
                             anchors.centerIn: parent
                             width: Theme.d(root.markPx)
@@ -77,6 +82,7 @@ Item {
 
                         BarPopup {
                             anchorItem: mark
+                            gap: Theme.d(root.tipGapPx)
                             open: hover.hovered
                             content: Component {
                                 Rectangle {

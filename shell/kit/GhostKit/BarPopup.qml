@@ -14,6 +14,8 @@ Item {
     // Closes on a click anywhere else, by emitting dismissed() for the owner to set open to false.
     property bool catchOutside: false
     property int keyboardFocus: WlrKeyboardFocus.None
+    // Logical pixels left between the anchor and the popup.
+    property real gap: 0
 
     signal dismissed
 
@@ -52,8 +54,8 @@ Item {
             }
             margins {
                 left: Math.max(0, Math.min(popup.leftEdge, root.barWindow.screen.width - width))
-                top: root.below ? root.barWindow.margins.top + root.anchorRect.y + root.anchorRect.height : 0
-                bottom: root.below ? 0 : Math.max(0, root.barWindow.margins.bottom + root.barWindow.height - root.anchorRect.y)
+                top: root.below ? root.barWindow.margins.top + root.anchorRect.y + root.anchorRect.height + root.gap : 0
+                bottom: root.below ? 0 : Math.max(0, root.barWindow.margins.bottom + root.barWindow.height - root.anchorRect.y + root.gap)
             }
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"

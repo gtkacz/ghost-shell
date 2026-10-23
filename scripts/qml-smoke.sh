@@ -277,6 +277,11 @@ if [[ -n $smoke_bar_allow ]] && ! grep -qE -- "$smoke_bar_allow" "$shell_log"; t
     echo "smoke: FAIL (the layout gives the bar a broken slot, but $shell_log lacks the daemon's report of it)" >&2
     exit 1
 fi
+# The daemon's report only says the slot is broken; the mark line says the shell drew it.
+if [[ -n $smoke_bar_allow ]] && ! grep -qF -- 'qml: bar mark processor' "$shell_log"; then
+    echo "smoke: FAIL (the daemon reported the broken bar slot, but $shell_log lacks the shell's \"bar mark processor\" line)" >&2
+    exit 1
+fi
 if (( connects < required_connects )); then
     echo "smoke: FAIL ($connects connects, expected at least $required_connects; see $shell_log)" >&2
     exit 1

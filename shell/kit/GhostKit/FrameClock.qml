@@ -16,14 +16,6 @@ Singleton {
     readonly property int blinkStepMs: 250
     readonly property var blinkSteps: [1, 0.5, 0, 0.5]
 
-    // Stops every animation at once, for example while the desktop is covered, without making each
-    // widget release the clock. Read-only here so that one widget cannot freeze the whole desktop;
-    // the host writes it through hostControl.
-    readonly property bool suspended: hostControl.suspended
-    readonly property QtObject hostControl: QtObject {
-        property bool suspended: false
-    }
-
     readonly property bool running: ticker.running
     readonly property int frame: ticker.frame
     readonly property real elapsedMs: ticker.elapsedMs
@@ -117,7 +109,7 @@ Singleton {
 
         interval: fastUsers > 0 ? root.fastIntervalMs : root.intervalMs
         repeat: true
-        running: users + fastUsers > 0 && !root.suspended
+        running: users + fastUsers > 0
         onTriggered: {
             frame += 1;
             epochMs = Date.now();
@@ -140,7 +132,7 @@ Singleton {
 
         // True while the ticker is stopped and a seconds holder remains: the single-shot timer below is
         // then the only source of frames, and it stops the moment the ticker resumes.
-        readonly property bool aloneWanted: users > 0 && !ticker.running && !root.suspended
+        readonly property bool aloneWanted: users > 0 && !ticker.running
 
         function sync() {
             epoch = Math.floor(Date.now() / msPerSecond);

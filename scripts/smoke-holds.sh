@@ -532,6 +532,13 @@ desktop_call Report sb "$output" false
 wait_for_more "$shell_log" "$covered_line" "$covered_before" "$change_within_s" \
     || fail "cover: the shell never logged \"${covered_line#qml: }\" after $output was reported covered"
 sleep "$settle_s"
+# While covered the dashboard's widgets are gone, so the only claims left are the bar's: no frame-clock holds but the
+# seconds hold of each bar-clock. This proves both that the dashboard released its holds and that the bar kept its own.
+# Only the default config has a known bar (every preset ends in one bar-clock).
+covered_holds=$(latest "$holds_prefix")
+if [[ -z ${GHOST_CONFIG:-} && $covered_holds != "normal=0 fast=0 seconds=1" ]]; then
+    fail "cover: holds $covered_holds while covered, expected normal=0 fast=0 seconds=1 (the bar clock's own)"
+fi
 visible_before=$(line_count "$shell_log" "$visible_line")
 desktop_call Report sb "" true
 wait_for_more "$shell_log" "$visible_line" "$visible_before" "$change_within_s" \
