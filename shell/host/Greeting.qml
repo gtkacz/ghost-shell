@@ -42,6 +42,8 @@ Scope {
     property bool revealed: false
     // Counts the connections to ghostd, whose first session value each is only a baseline for greeting_seq.
     property int connection: 0
+    // Up for one moment only, while the overlay is replaced by a new one.
+    property bool remapping: false
 
     readonly property bool playing: state !== null && state.phase === "playing"
     readonly property bool hidesDashboard: state === null || state.phase === "armed" || (playing && !revealed)
@@ -89,8 +91,16 @@ Scope {
         state = next;
     }
 
+    // KWin hides the overlay as soon as the lock starts, before ghostd says so, and keeps the buffer it drew last: a
+    // frame of the cut greeting, which the unlock would show. New surfaces mapped under the lock draw the resting
+    // frame as their one frame. A sleep without a lock leaves the screen painted, so the same windows draw it.
     function takeSession(session) {
+        const cutByLock = playing && session.locked;
         follow(GreetingLib.withSession(state, session, connection));
+        if (cutByLock) {
+            remapping = true;
+            remapping = false;
+        }
     }
 
     function elapsedMs() {
@@ -222,7 +232,7 @@ Scope {
     }
 
     LazyLoader {
-        active: root.state !== null && root.state.phase !== "idle"
+        active: root.state !== null && root.state.phase !== "idle" && !root.remapping
 
         Variants {
             model: Quickshell.screens
