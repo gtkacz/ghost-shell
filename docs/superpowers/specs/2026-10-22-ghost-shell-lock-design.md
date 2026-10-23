@@ -115,6 +115,7 @@ These come from the mockup unless marked.
 ### 6.3 Chips
 
 - **Keyboard layout:** a chip with a drawn keyboard icon and the current layout (`US` / `BR`). Clicking it cycles through the configured layouts. It always shows, because a password typed in the wrong layout is the commonest way to fail with two layouts.
+  - **At login:** system-wide, only `us` is set today (`localectl`). `br` exists only in the user's `~/.config/kxkbrc`. The SDDM greeter runs under its own KWin and gets only the system layout. **[call]** The installer offers to set the system layouts to `us,br` once (`localectl set-x11-keymap us,br`, with sudo), and asks first like the other system changes (§10). How the login screen then switches layouts on Wayland (SDDM's `keyboard` object, or its KWin) is spike 5. If the user declines, or switching can't work, the login chip shows the one layout and doesn't cycle.
 - **Caps Lock:** a `CAPS LOCK` chip in `warn`, shown only while Caps Lock is on.
 - **Session** (login only): a chip showing the session that will start, e.g. `PLASMA (WAYLAND)`, with a chevron. Clicking it opens a small list in the panel style. **[call]** The default is the last session used, as SDDM does.
 
@@ -136,8 +137,17 @@ These are a row of drawn icon + label buttons in `dim`; hovering turns them `hi`
 - Project 1 §7 then takes over:
   - after **unlock**, the greeting plays full-screen over the open windows;
   - after **login**, it plays when the session starts.
-- **No frame of the desktop or windows may show between the lock screen and the greeting.** Project 1 §17 already asks for this. Project 1 owns the greeting, but this project must make the hand-off possible. For example, the greeting may need to be up under the lock screen before the lock screen exits. If that turns out to be impossible, report it to the user. Don't silently ship a flash.
+- **No frame of the desktop or windows may show between the lock screen and the greeting.** Plan 2c has built the project 1 side; see the hand-off section of `docs/superpowers/notes/2026-10-22-plan2c-acceptance.md`.
+  - **What the lock screen can rely on:**
+    - from the moment of locking, the greeting's overlay is mapped on every screen, under the lock, resting on `ground` + the full dot grid;
+    - the overlay takes no keyboard while locked;
+    - KWin shows the overlay's frame first on unlock.
+  - **What it must do:**
+    - its exit ends on that same ground and dots, in the same place, so the switch to the overlay can't be seen;
+    - the lock has to keep `org.freedesktop.ScreenSaver`'s `ActiveChanged` true while it's up and false on exit, as kscreenlocker already does. If it doesn't, the greeting neither arms nor plays.
 - **[call]** The scan pass ends on bare `ground` + dots, and the greeting's tube power-on starts from that. Together they read as one sequence.
+- **[call] At login, there's no pass.** SDDM closes its greeter as soon as login succeeds, and holding login for 0.8 s would break "as fast as today". The greeting's own power-on opens the session.
+- **[call] KDE's login splash (KSplash):** it's still active (`~/.config/ksplashrc` is empty) and sits between SDDM and the greeting. At acceptance, log in once and check whether it shows. If it does, **ask the user** before switching it off. That's the same rule Plan 2c set.
 
 ### 6.6 Screens
 
@@ -302,8 +312,9 @@ These answers change the plan, so get them before building:
 
 1. **How kscreenlocker 6.7 picks its lock QML,** and the cleanest supported way to point it at ours: a custom shell package, a config key, or something else. Also what makes a lock QML "outdated" (the version check it falls back on).
 2. **What the lock greeter's sandbox allows:** reading the snapshot file, and which QML imports are available.
-3. **Whether the unlock-to-greeting hand-off (§6.5) can be done without a flash,** and what project 1's greeting needs from this side.
+3. **That ghost-shell's lock QML ends on the overlay's frame (§6.5)** with no visible change at unlock, on the real lock path.
 4. **Rendering A headlessly in both greeters** with the real backends (a wrong password shows the alert; the right one succeeds).
+5. **Switching layouts in SDDM 0.21 on Wayland** (§6.3).
 
 ## 12. Non-goals and anti-goals
 
