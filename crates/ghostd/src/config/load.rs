@@ -14,6 +14,7 @@ use crate::keyseq;
 use crate::providers::ALERTS_NAME_PREFIX;
 
 const PERCENT: RangeInclusive<u32> = 0..=100;
+const FRACTION: RangeInclusive<f64> = 0.0..=1.0;
 const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
 const LATITUDE: RangeInclusive<f64> = -90.0..=90.0;
 const LONGITUDE: RangeInclusive<f64> = -180.0..=180.0;
@@ -170,6 +171,12 @@ fn validate_appearance(appearance: &Appearance) -> Result<(), ConfigError> {
             ),
         ));
     }
+    let dots = &appearance.dots;
+    check_positive_finite("appearance.dots.size_range", dots.size_range)?;
+    check_positive_finite("appearance.dots.speed", dots.speed)?;
+    check_positive_finite("appearance.dots.scale", dots.scale)?;
+    check_non_negative_finite("appearance.dots.brightness", dots.brightness)?;
+    check_range("appearance.dots.cover", dots.cover, &FRACTION)?;
     let colors = &appearance.colors;
     let named_colors = [
         ("ground", &colors.ground),
@@ -228,6 +235,16 @@ fn check_positive_finite(path: &str, value: f64) -> Result<(), ConfigError> {
         path,
         format!("must be greater than 0, got {value}"),
     ))
+}
+
+fn check_non_negative_finite(path: &str, value: f64) -> Result<(), ConfigError> {
+    if !value.is_finite() {
+        return Err(invalid(path, format!("must be finite, got {value}")));
+    }
+    if value >= 0.0 {
+        return Ok(());
+    }
+    Err(invalid(path, format!("must be at least 0, got {value}")))
 }
 
 fn validate_thresholds(thresholds: &Thresholds) -> Result<(), ConfigError> {

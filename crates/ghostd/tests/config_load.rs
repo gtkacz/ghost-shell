@@ -1,4 +1,4 @@
-use ghost_proto::{LayoutConfig, LayoutNode, ResolvedConfig};
+use ghost_proto::{DotMotion, LayoutConfig, LayoutNode, ResolvedConfig};
 use ghostd::config::{DEFAULT_TOML, load_str_with_user};
 
 #[test]
@@ -72,6 +72,83 @@ fn spectrum_fps_must_be_15_or_30() {
         assert_eq!(
             rejected(&format!("[appearance]\nspectrum_fps = {fps}\n")),
             format!("appearance.spectrum_fps: must be 15 or 30, got {fps}")
+        );
+    }
+}
+
+#[test]
+fn dot_motion_defaults_to_none_with_the_previewed_tuning() {
+    let dots = load_str_with_user("", "u").unwrap().appearance.dots;
+    assert_eq!(dots.motion, DotMotion::None);
+    assert_eq!(
+        (dots.size_range, dots.brightness, dots.speed, dots.scale, dots.cover),
+        (2.5, 1.6, 1.0, 1.0, 0.4)
+    );
+}
+
+#[test]
+fn every_dot_motion_is_named_in_lowercase() {
+    for (written, motion) in [
+        ("none", DotMotion::None),
+        ("breathe", DotMotion::Breathe),
+        ("sweep", DotMotion::Sweep),
+        ("ripple", DotMotion::Ripple),
+        ("clouds", DotMotion::Clouds),
+        ("rain", DotMotion::Rain),
+        ("packets", DotMotion::Packets),
+        ("interference", DotMotion::Interference),
+        ("cursor", DotMotion::Cursor),
+    ] {
+        let c = load_str_with_user(&format!("[appearance.dots]\nmotion = \"{written}\"\n"), "u")
+            .unwrap();
+        assert_eq!(c.appearance.dots.motion, motion);
+    }
+}
+
+#[test]
+fn an_unknown_dot_motion_is_rejected() {
+    for dropped in ["drift", "twinkle", "radar", "glitch"] {
+        assert!(
+            rejected(&format!("[appearance.dots]\nmotion = \"{dropped}\"\n"))
+                .contains(&format!("unknown variant `{dropped}`"))
+        );
+    }
+}
+
+#[test]
+fn dot_motion_size_speed_and_scale_must_be_greater_than_zero() {
+    for key in ["size_range", "speed", "scale"] {
+        assert_eq!(
+            rejected(&format!("[appearance.dots]\n{key} = 0\n")),
+            format!("appearance.dots.{key}: must be greater than 0, got 0"),
+        );
+        assert_eq!(
+            rejected(&format!("[appearance.dots]\n{key} = inf\n")),
+            format!("appearance.dots.{key}: must be finite, got inf"),
+        );
+    }
+}
+
+#[test]
+fn dot_brightness_may_be_zero_but_not_negative() {
+    let c = load_str_with_user("[appearance.dots]\nbrightness = 0\n", "u").unwrap();
+    assert_eq!(c.appearance.dots.brightness, 0.0);
+    assert_eq!(
+        rejected("[appearance.dots]\nbrightness = -1\n"),
+        "appearance.dots.brightness: must be at least 0, got -1"
+    );
+    assert_eq!(
+        rejected("[appearance.dots]\nbrightness = nan\n"),
+        "appearance.dots.brightness: must be finite, got NaN"
+    );
+}
+
+#[test]
+fn dot_cover_is_a_fraction() {
+    for (written, shown) in [("-0.1", "-0.1"), ("1.5", "1.5"), ("nan", "NaN")] {
+        assert_eq!(
+            rejected(&format!("[appearance.dots]\ncover = {written}\n")),
+            format!("appearance.dots.cover: must be 0..=1, got {shown}"),
         );
     }
 }

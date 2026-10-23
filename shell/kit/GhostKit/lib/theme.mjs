@@ -87,3 +87,16 @@ export function isMonospace(width0, width1) {
 export function secondsToMs(seconds) {
   return Math.min(MAX_TIMING_MS, Math.max(MIN_TIMING_MS, Math.round(seconds * MS_PER_SECOND)));
 }
+
+// appearance.dots.motion, in the order of dotgrid.frag's `mode` switch. A timed motion moves by itself and so holds the
+// frame clock; the cursor motion moves only with the pointer.
+const DOT_MOTIONS = Object.freeze(['none', 'breathe', 'sweep', 'ripple', 'clouds', 'rain', 'packets', 'interference', 'cursor']);
+const UNTIMED_DOT_MOTIONS = Object.freeze(['none', 'cursor']);
+const POINTER_DOT_MOTION = 'cursor';
+
+// A name the daemon would reject, or none from a daemon older than the key, keeps the grid still.
+export function dotMotion(name) {
+  const mode = Math.max(0, DOT_MOTIONS.indexOf(name));
+  const known = DOT_MOTIONS[mode];
+  return { mode, timed: !UNTIMED_DOT_MOTIONS.includes(known), pointer: known === POINTER_DOT_MOTION };
+}

@@ -36,7 +36,13 @@ Singleton {
             },
             dots: {
                 spacing: 24,
-                opacity: 16
+                opacity: 16,
+                motion: "none",
+                size_range: 2.5,
+                brightness: 1.6,
+                speed: 1,
+                scale: 1,
+                cover: 0.4
             },
             scanlines: {
                 opacity: 15
@@ -84,6 +90,14 @@ Singleton {
 
     // Design pixels.
     readonly property real dotSpacing: appearance.dots.spacing
+
+    // The background grid's motion; a daemon older than these keys gives none, so the grid holds still.
+    readonly property var dotMotion: ThemeLib.dotMotion(appearance.dots.motion)
+    readonly property real dotSizeRange: appearance.dots.size_range ?? defaultAppearance.dots.size_range
+    readonly property real dotBrightness: appearance.dots.brightness ?? defaultAppearance.dots.brightness
+    readonly property real dotSpeed: appearance.dots.speed ?? defaultAppearance.dots.speed
+    readonly property real dotScale: appearance.dots.scale ?? defaultAppearance.dots.scale
+    readonly property real dotCover: appearance.dots.cover ?? defaultAppearance.dots.cover
 
     readonly property string font: appearance.font
     readonly property string fontCjk: appearance.font_cjk

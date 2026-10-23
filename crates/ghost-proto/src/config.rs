@@ -113,11 +113,38 @@ impl Default for Colors {
     }
 }
 
+/// How the background dot grid moves. `None` keeps it still and holds no clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DotMotion {
+    #[default]
+    None,
+    Breathe,
+    Sweep,
+    Ripple,
+    Clouds,
+    Rain,
+    Packets,
+    Interference,
+    /// Follows the pointer, so it draws only while the pointer moves over the desktop.
+    Cursor,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Dots {
     pub spacing: u32,
     pub opacity: u32,
+    pub motion: DotMotion,
+    /// A dot's radius at the motion's peak, as a multiple of its resting radius.
+    pub size_range: f64,
+    /// Extra brightness at the motion's peak, as a multiple of the resting opacity.
+    pub brightness: f64,
+    pub speed: f64,
+    /// Size of the motion's features (bands, rings, clouds, the cursor halo); larger is bigger.
+    pub scale: f64,
+    /// For `clouds`: the noise level below which a dot stays at rest, from 0 (all cloud) to 1 (clear).
+    pub cover: f64,
 }
 
 impl Default for Dots {
@@ -125,6 +152,12 @@ impl Default for Dots {
         Self {
             spacing: 24,
             opacity: 16,
+            motion: DotMotion::default(),
+            size_range: 2.5,
+            brightness: 1.6,
+            speed: 1.0,
+            scale: 1.0,
+            cover: 0.4,
         }
     }
 }

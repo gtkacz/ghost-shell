@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TAGS, tag, chip, withAlpha, isMonospace, secondsToMs } from '../kit/GhostKit/lib/theme.mjs';
+import { TAGS, tag, chip, withAlpha, isMonospace, secondsToMs, dotMotion } from '../kit/GhostKit/lib/theme.mjs';
 
 test('tags', () => {
   assert.equal(tag('cpu', 'mixed'), '演算');
@@ -147,4 +147,28 @@ test('secondsToMs never gives more than a 32-bit integer holds, which is as far 
   assert.equal(secondsToMs(int32Max / 1000 + 1), int32Max);
   assert.equal(secondsToMs(1e9), int32Max);
   assert.equal(secondsToMs(Number.MAX_VALUE), int32Max);
+});
+
+test('dotMotion numbers each motion the way dotgrid.frag switches on it', () => {
+  const names = ['none', 'breathe', 'sweep', 'ripple', 'clouds', 'rain', 'packets', 'interference', 'cursor'];
+  assert.deepEqual(names.map((name) => dotMotion(name).mode), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+});
+
+test('dotMotion runs the frame clock only for motions that move by themselves', () => {
+  assert.equal(dotMotion('none').timed, false);
+  assert.equal(dotMotion('cursor').timed, false);
+  for (const name of ['breathe', 'sweep', 'ripple', 'clouds', 'rain', 'packets', 'interference']) {
+    assert.equal(dotMotion(name).timed, true, name);
+  }
+});
+
+test('dotMotion follows the pointer only for cursor', () => {
+  assert.equal(dotMotion('cursor').pointer, true);
+  assert.equal(dotMotion('clouds').pointer, false);
+});
+
+test('an unknown or missing dotMotion keeps the grid still', () => {
+  for (const name of ['drift', '', undefined, null]) {
+    assert.deepEqual(dotMotion(name), { mode: 0, timed: false, pointer: false });
+  }
 });

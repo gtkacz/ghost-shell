@@ -137,8 +137,19 @@ Scope {
                     color: Theme.ground
                 }
 
+                // Passive, so it follows the pointer over widgets without taking their hover or clicks; only
+                // the cursor motion of the dot grid reads it.
+                HoverHandler {
+                    id: pointerHover
+
+                    enabled: Theme.dotMotion.pointer
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                }
+
                 DotGrid {
                     anchors.fill: parent
+                    pointerInside: pointerHover.hovered
+                    pointerAt: pointerHover.point.position
                 }
 
                 // Inactive while covered, so every widget is destroyed and gives back its wants and clock
