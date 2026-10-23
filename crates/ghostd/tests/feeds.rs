@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep, timeout, timeout_at};
 
 const WATCHED_TICKS: u64 = 6;
-const NEW_BUILTINS: [&str; 13] = [
+const NEW_BUILTINS: [&str; 14] = [
     topics::HOST,
     topics::DESKTOP,
     topics::WEATHER,
@@ -29,6 +29,7 @@ const NEW_BUILTINS: [&str; 13] = [
     topics::BATTERIES,
     topics::UPLINK,
     topics::SESSION,
+    topics::WINDOWS,
 ];
 const BOOT_TIME_S: u64 = 1_792_500_000;
 const RETURNING_FEED: &str = "returning";
@@ -118,6 +119,7 @@ async fn first_publish(feed: Feed) -> (String, Value) {
         }),
         demand,
         config,
+        calls: tokio::sync::broadcast::channel(64).1,
     };
     let _running = tokio::spawn(feed.run(context));
     timeout(WAIT, values.recv())
@@ -296,6 +298,7 @@ async fn the_fake_spectrum_publishes_only_while_wanted() {
                 publisher: publisher.clone(),
                 demand: demand.clone(),
                 config: config.clone(),
+                calls: tokio::sync::broadcast::channel(64).1,
             }))
         })
         .collect();

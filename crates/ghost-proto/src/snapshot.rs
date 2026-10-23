@@ -426,3 +426,23 @@ pub struct Endpoint {
     pub sockets: u32,
     pub tailnet: bool,
 }
+
+/// The windows the taskbar lists, most recently activated first.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WindowsSnapshot {
+    pub windows: Vec<WindowInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WindowInfo {
+    /// KWin's `internalId`, which is what the window commands take.
+    pub id: String,
+    pub app_id: String,
+    pub resource_class: String,
+    pub caption: String,
+    pub pid: u32,
+    pub active: bool,
+    pub minimized: bool,
+    pub fullscreen: bool,
+    pub demands_attention: bool,
+}

@@ -337,6 +337,7 @@ impl Running {
             }),
             demand: demand_rx,
             config: config_rx,
+            calls: tokio::sync::broadcast::channel(64).1,
         };
         let wall_clock = Arc::clone(&clock);
         let weather = feed_with_clock(open_meteo.clone(), Arc::new(move || wall_clock.now_s()));

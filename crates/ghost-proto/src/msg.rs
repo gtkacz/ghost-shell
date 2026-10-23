@@ -27,6 +27,11 @@ pub enum ClientMsg {
         topic: String,
         data: serde_json::Value,
     },
+    /// A UI client asking the daemon to act; one of [`crate::calls::ALL`].
+    Call {
+        method: String,
+        args: serde_json::Value,
+    },
 }
 
 // Config is sent only when the file changes, so a larger enum on the stack costs less than
@@ -66,6 +71,11 @@ pub enum ServerMsg {
         data: ResolvedLayout,
     },
     ConfigError {
+        message: String,
+    },
+    /// Why a UI client's call was not passed on.
+    CallError {
+        method: String,
         message: String,
     },
 }

@@ -87,6 +87,7 @@ impl Running {
             }),
             demand: demand_rx,
             config: config_rx,
+            calls: tokio::sync::broadcast::channel(64).1,
         };
         let wall_clock = Arc::clone(&clock);
         let sky = feed_with_clock(Arc::new(move || wall_clock.now_s()));

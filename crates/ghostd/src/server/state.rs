@@ -5,11 +5,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ghost_proto::{PROTO_VERSION, ServerMsg, data_msg, is_valid_topic, topics};
 use serde_json::Value;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, warn};
 
+use super::publish::CALL_BACKLOG;
 use super::sampling::Tick;
-use super::{Demand, invalid_topic, line};
+use super::{Call, Demand, invalid_topic, line};
 use crate::history::{has_history, history_topic};
 
 /// The output a UI client may leave unread before it is disconnected.
@@ -83,6 +84,7 @@ pub(super) struct State {
     clients: BTreeMap<u64, UiClient>,
     next_id: u64,
     demand: watch::Sender<BTreeSet<String>>,
+    calls: broadcast::Sender<Call>,
 }
 
 impl State {
@@ -101,6 +103,7 @@ impl State {
             clients: BTreeMap::new(),
             next_id: 0,
             demand: watch::Sender::new(BTreeSet::new()),
+            calls: broadcast::Sender::new(CALL_BACKLOG),
         }
     }
 
@@ -141,6 +144,15 @@ impl State {
     pub(super) fn remove_ui(&mut self, id: u64) {
         self.clients.remove(&id);
         self.update_demand();
+    }
+
+    pub(super) fn calls(&self) -> broadcast::Receiver<Call> {
+        self.calls.subscribe()
+    }
+
+    /// Hands a call to the feeds. Nobody listening is no error: the call has nothing to act on.
+    pub(super) fn call(&self, call: Call) {
+        let _no_feed_listens = self.calls.send(call);
     }
 
     /// A receiver of the union of every UI client's subscriptions.
@@ -342,7 +354,7 @@ impl State {
         self.config_error = Some(line);
     }
 
-    fn send(&mut self, id: u64, line: &Arc<str>) {
+    pub(super) fn send(&mut self, id: u64, line: &Arc<str>) {
         self.send_by(id, |outbox| outbox.push(line));
     }
 

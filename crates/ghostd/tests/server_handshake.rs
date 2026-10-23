@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use common::server::*;
-use ghostd::server::{self, BindError};
+use ghostd::server::{self, BindError, Feed, FeedContext};
 use nix::fcntl::{Flock, FlockArg};
 use nix::sys::stat::{Mode, SFlag, mknod};
 use serde_json::{Value, json};
@@ -346,4 +346,53 @@ async fn invalid_subscription_closes_the_ui_client() {
         .await;
 
     ui.expect_error("invalid topic name \"Bad Topic\"").await;
+}
+
+#[tokio::test]
+async fn unknown_call_gets_call_error() {
+    let daemon = Daemon::start().await;
+    let mut ui = daemon.ui().await;
+
+    ui.send(json!({"t": "call", "method": "nope", "args": {}}))
+        .await;
+
+    assert_eq!(
+        ui.recv().await,
+        json!({"t": "call_error", "method": "nope", "message": "unknown method"})
+    );
+}
+
+#[tokio::test]
+async fn provider_cannot_call() {
+    let daemon = Daemon::start().await;
+    let mut provider = daemon.provider("caller", &["caller.data"]).await;
+
+    provider
+        .send(json!({"t": "call", "method": "windows.close", "args": {"id": "x"}}))
+        .await;
+
+    assert_eq!(
+        provider.recv().await,
+        json!({"t": "call_error", "method": "windows.close", "message": "providers cannot call"})
+    );
+}
+
+#[tokio::test]
+async fn known_call_reaches_the_feeds() {
+    let (seen, mut calls) = tokio::sync::mpsc::unbounded_channel();
+    let listener = Feed::new("call listener", |mut context: FeedContext| async move {
+        while let Ok(call) = context.calls.recv().await {
+            seen.send(call).unwrap();
+        }
+        std::future::pending::<()>().await;
+    });
+    let daemon = Daemon::start_with_feeds(vec![listener]).await;
+    let mut ui = daemon.ui().await;
+
+    ui.send(json!({"t": "call", "method": "windows.close", "args": {"id": "w1"}}))
+        .await;
+
+    let call = timeout(WAIT, calls.recv()).await.unwrap().unwrap();
+    assert_eq!(call.method, "windows.close");
+    assert_eq!(call.args, json!({"id": "w1"}));
 }

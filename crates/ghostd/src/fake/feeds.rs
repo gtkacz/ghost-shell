@@ -5,7 +5,7 @@ use ghost_proto::{
     AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, Endpoint, HostSnapshot,
     LanLink, LinkState, LinksSnapshot, RainPeak, SessionSnapshot, SkySnapshot, SpectrumSnapshot,
     TailscaleLink, UplinkSnapshot, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour,
-    WeatherSnapshot, topics,
+    WeatherSnapshot, WindowInfo, WindowsSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -29,6 +29,7 @@ pub fn feeds() -> Vec<Feed> {
         batteries(),
         uplink(),
         session(),
+        windows(),
     ]
 }
 
@@ -393,6 +394,40 @@ fn session() -> Feed {
                 ..SessionSnapshot::default()
             },
         );
+        pending::<()>().await;
+    })
+}
+
+/// Generic captions, app by app, as `(app id, caption, active, minimized)`.
+const WINDOWS: [(&str, &str, bool, bool); 4] = [
+    ("org.kde.konsole", "Terminal", true, false),
+    ("org.kde.dolphin", "Files \u{2014} Home", false, false),
+    ("org.mozilla.firefox", "Web Browser", false, false),
+    ("org.kde.kate", "Text Editor", false, true),
+];
+
+/// A fixed window list, published once; the window calls have nothing to act on in fake mode.
+fn windows() -> Feed {
+    Feed::new(topics::WINDOWS, |context| async move {
+        let windows = WINDOWS
+            .iter()
+            .zip(1_u32..)
+            .map(
+                |(&(app_id, caption, active, minimized), number)| WindowInfo {
+                    id: format!("{{fake-window-{number}}}"),
+                    app_id: app_id.to_owned(),
+                    resource_class: app_id.to_owned(),
+                    caption: caption.to_owned(),
+                    pid: number,
+                    active,
+                    minimized,
+                    ..WindowInfo::default()
+                },
+            )
+            .collect();
+        context
+            .publisher
+            .publish(topics::WINDOWS, &WindowsSnapshot { windows });
         pending::<()>().await;
     })
 }

@@ -199,6 +199,7 @@ mod tests {
             }),
             demand: receiver,
             config,
+            calls: tokio::sync::broadcast::channel(64).1,
         };
         (context, demand, published)
     }

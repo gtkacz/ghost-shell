@@ -13,6 +13,13 @@ const COVER_CHANGES = [
     "activitiesChanged",
     "fullScreenChanged",
 ];
+const TASK_CHANGES = [
+    "captionChanged",
+    "minimizedChanged",
+    "fullScreenChanged",
+    "demandsAttentionChanged",
+    "skipTaskbarChanged",
+];
 const WORKSPACE_CHANGES = [
     "windowRemoved",
     "windowActivated",
@@ -24,6 +31,10 @@ const WORKSPACE_CHANGES = [
 let kwin = null;
 let showingDesktop = false;
 let lastReport = null;
+let lastWindows = null;
+// Every normal window and dialog, most recently activated first. Windows that skip the taskbar stay
+// in it so that a later skipTaskbarChanged can bring them into the report.
+let mru = [];
 
 // KWin's logical coordinates are fractional under fractional scaling; rounding each edge rather than
 // each size keeps edges that meet meeting.
@@ -159,9 +170,112 @@ function watch(window) {
     }
 }
 
+function isTask(window) {
+    return (window.normalWindow || window.dialog) && !window.deleted;
+}
+
+function idOf(window) {
+    return window.internalId.toString();
+}
+
+function describe(window) {
+    return {
+        id: idOf(window),
+        app_id: window.desktopFileName || window.resourceClass,
+        resource_class: window.resourceClass,
+        caption: window.caption,
+        pid: window.pid,
+        active: window === kwin.workspace.activeWindow,
+        minimized: window.minimized,
+        fullscreen: window.fullScreen,
+        demands_attention: window.demandsAttention,
+    };
+}
+
+function reportWindows() {
+    const json = JSON.stringify(mru.filter((window) => !window.skipTaskbar).map(describe));
+    if (json === lastWindows) {
+        return;
+    }
+    lastWindows = json;
+    kwin.sendWindows(json);
+}
+
+// A restarted ghostd has no list until a window changes, so the poll's retry offers it again.
+function resendWindows() {
+    lastWindows = null;
+    reportWindows();
+}
+
+function watchTask(window) {
+    for (const change of TASK_CHANGES) {
+        connect(window[change], reportWindows);
+    }
+}
+
+function onTaskAdded(window) {
+    // KWin activates a new window before it emits windowAdded, so the window may already be listed.
+    if (!mru.includes(window)) {
+        mru.push(window);
+    }
+    watchTask(window);
+    reportWindows();
+}
+
+function onWindowActivated(window) {
+    if (window !== null && isTask(window)) {
+        mru = [window].concat(mru.filter((other) => other !== window));
+    }
+    reportWindows();
+}
+
+function onWindowRemoved(window) {
+    mru = mru.filter((other) => other !== window);
+    reportWindows();
+}
+
+const COMMANDS = {
+    activate: (window) => {
+        window.minimized = false;
+        kwin.workspace.activeWindow = window;
+    },
+    minimize: (window) => {
+        window.minimized = true;
+    },
+    close: (window) => window.closeWindow(),
+};
+
+function handleCommand(json) {
+    let command;
+    try {
+        command = JSON.parse(json);
+    } catch (error) {
+        return;
+    }
+    const act = Object.prototype.hasOwnProperty.call(COMMANDS, command?.action) ? COMMANDS[command.action] : undefined;
+    const window = mru.find((candidate) => idOf(candidate) === command?.id);
+    if (act !== undefined && window !== undefined) {
+        act(window);
+    }
+}
+
 function start(host) {
     kwin = host;
+    const active = kwin.workspace.activeWindow;
+    const tasks = kwin.workspace.stackingOrder.filter(isTask).reverse();
+    mru = tasks.filter((window) => window === active).concat(tasks.filter((window) => window !== active));
+    mru.forEach(watchTask);
+    connect(kwin.workspace.windowActivated, onWindowActivated);
+    connect(kwin.workspace.windowRemoved, onWindowRemoved);
+    // Asks for the next command before acting on this one, so a command that throws cannot end the poll.
+    kwin.onCommand = (json) => {
+        kwin.nextCommand();
+        handleCommand(json);
+    };
     connect(kwin.workspace.windowAdded, (window) => {
+        if (isTask(window)) {
+            onTaskAdded(window);
+        }
         watch(window);
         // KWin leaves show desktop when a window opens, and no window says so if none was hidden.
         kwin.queryShowingDesktop();
@@ -173,6 +287,8 @@ function start(host) {
     kwin.workspace.stackingOrder.forEach(watch);
     kwin.queryShowingDesktop();
     report();
+    reportWindows();
+    kwin.nextCommand();
 }
 
 // An unloaded script can't correct its last report, and ghostd hears from it over KWin's own bus

@@ -8,6 +8,10 @@ import "../code/main.js" as Desktop
 Item {
     id: script
 
+    readonly property int retryMs: 1000
+    // Filled by Desktop.start, which is what answers each polled command.
+    property var host: ({})
+
     DBusCall {
         id: reportCall
 
@@ -15,6 +19,40 @@ Item {
         path: "/org/ghostshell/Desktop"
         dbusInterface: "org.ghostshell.Desktop1"
         method: "Report"
+    }
+
+    DBusCall {
+        id: windowsCall
+
+        service: "org.ghostshell.Ghostd"
+        path: "/org/ghostshell/Windows"
+        dbusInterface: "org.ghostshell.Windows1"
+        method: "Report"
+    }
+
+    // ghostd holds each Next call open until it has a command or its timeout ends, so exactly one
+    // call is in flight while the bridge is up.
+    DBusCall {
+        id: nextCall
+
+        service: "org.ghostshell.Ghostd"
+        path: "/org/ghostshell/Windows"
+        dbusInterface: "org.ghostshell.WindowCommands1"
+        method: "Next"
+
+        onFinished: returnValue => script.host.onCommand(returnValue[0])
+        onFailed: retryTimer.start()
+    }
+
+    Timer {
+        id: retryTimer
+
+        interval: script.retryMs
+        // A restarted ghostd has no list until a window changes, so each retry offers it again.
+        onTriggered: {
+            Desktop.resendWindows();
+            nextCall.call();
+        }
     }
 
     // KWin's scripting API has no show-desktop state, but KWin's own D-Bus interface has.
@@ -30,15 +68,23 @@ Item {
         onFinished: returnValue => Desktop.setShowingDesktop(returnValue[0])
     }
 
-    Component.onCompleted: Desktop.start({
-        owner: script,
-        workspace: Workspace,
-        maximizeArea: Workspace.MaximizeArea,
-        sendReport: (covered, active) => {
-            reportCall.arguments = [covered, active];
-            reportCall.call();
-        },
-        queryShowingDesktop: () => showingDesktopQuery.call(),
-    })
+    Component.onCompleted: {
+        script.host = {
+            owner: script,
+            workspace: Workspace,
+            maximizeArea: Workspace.MaximizeArea,
+            sendReport: (covered, active) => {
+                reportCall.arguments = [covered, active];
+                reportCall.call();
+            },
+            sendWindows: json => {
+                windowsCall.arguments = [json];
+                windowsCall.call();
+            },
+            nextCommand: () => nextCall.call(),
+            queryShowingDesktop: () => showingDesktopQuery.call(),
+        };
+        Desktop.start(script.host);
+    }
     Component.onDestruction: Desktop.stop()
 }

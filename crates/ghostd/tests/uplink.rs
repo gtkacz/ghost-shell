@@ -354,6 +354,7 @@ impl RunningUplink {
             }),
             demand: demand_receiver,
             config: config_receiver,
+            calls: tokio::sync::broadcast::channel(64).1,
         };
         let feed = uplink::feed_on(sockets, geo, owners, tailscale);
         Self {

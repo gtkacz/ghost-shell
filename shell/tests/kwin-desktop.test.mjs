@@ -19,7 +19,8 @@ const DP1 = { name: 'DP-1', area: { x: 0, y: 0, width: DP1_WIDTH, height: DP1_HE
 const HDMI = { name: 'HDMI-A-1', area: { x: DP1_WIDTH, y: 0, width: 1920, height: 1080 } };
 const WORKSPACE_SIGNALS = ['windowAdded', 'windowRemoved', 'windowActivated', 'currentDesktopChanged', 'currentActivityChanged', 'screensChanged'];
 const COVER_SIGNALS = ['frameGeometryChanged', 'minimizedChanged', 'opacityChanged', 'desktopsChanged', 'activitiesChanged', 'fullScreenChanged'];
-const WINDOW_SIGNALS = [...COVER_SIGNALS, 'hiddenByShowDesktopChanged', 'stackingOrderChanged'];
+const TASK_SIGNALS = ['captionChanged', 'minimizedChanged', 'fullScreenChanged', 'demandsAttentionChanged', 'skipTaskbarChanged'];
+const WINDOW_SIGNALS = [...new Set([...COVER_SIGNALS, ...TASK_SIGNALS]), 'hiddenByShowDesktopChanged', 'stackingOrderChanged'];
 
 // QML binds a connection to the object passed before the handler and drops it when that object is destroyed.
 function makeSignal() {
@@ -34,8 +35,19 @@ function makeSignal() {
   };
 }
 
+let windowCount = 0;
+
 function makeWindow(fields = {}) {
   const window = {
+    internalId: `{window-${++windowCount}}`,
+    caption: 'Terminal',
+    pid: 100,
+    skipTaskbar: false,
+    demandsAttention: false,
+    closed: false,
+    closeWindow() {
+      this.closed = true;
+    },
     normalWindow: true,
     dialog: false,
     desktopWindow: false,
@@ -61,7 +73,7 @@ const desktopWindow = (resourceClass, fields = {}) =>
   makeWindow({ normalWindow: false, desktopWindow: true, onAllDesktops: true, desktops: [], resourceClass, frameGeometry: DP1_SCREEN, ...fields });
 
 function makeKWin({ windows = [], screens = [DP1], activeWindow = null } = {}) {
-  const kwin = { owner: { destroyed: false }, maximizeArea: MAXIMIZE_AREA, reports: [], raised: [], showingDesktopQueries: 0 };
+  const kwin = { owner: { destroyed: false }, maximizeArea: MAXIMIZE_AREA, reports: [], windowLists: [], commandPolls: 0, raised: [], showingDesktopQueries: 0 };
   kwin.workspace = {
     currentDesktop: DESKTOP_1,
     currentActivity: ACTIVITY,
@@ -82,6 +94,10 @@ function makeKWin({ windows = [], screens = [DP1], activeWindow = null } = {}) {
     kwin.workspace[name] = makeSignal();
   }
   kwin.sendReport = (covered, active) => kwin.reports.push({ covered, active });
+  kwin.sendWindows = (json) => kwin.windowLists.push(JSON.parse(json));
+  kwin.nextCommand = () => {
+    kwin.commandPolls += 1;
+  };
   kwin.queryShowingDesktop = () => {
     kwin.showingDesktopQueries += 1;
   };
@@ -330,4 +346,137 @@ test('unloading reports nothing covered and off the desktop, then stays quiet', 
   assert.equal(kwin.reports.length, reportsBefore + 1);
   assert.deepEqual(kwin.raised, []);
   assert.equal(kwin.showingDesktopQueries, 1);
+});
+
+const idsOf = (list) => list.map(({ id }) => id);
+const lastWindows = (kwin) => kwin.windowLists.at(-1);
+const activate = (kwin, window) => {
+  kwin.workspace.activeWindow = window;
+  kwin.workspace.windowActivated.emit(window);
+};
+
+test('reports windows most recently activated first', () => {
+  const [a, b, c] = [makeWindow(), makeWindow(), makeWindow()];
+  const kwin = makeKWin({ windows: [c, b, a] });
+  loadScript(kwin);
+
+  activate(kwin, b);
+  activate(kwin, a);
+
+  assert.deepEqual(idsOf(lastWindows(kwin)), [a, b, c].map((window) => window.internalId));
+  assert.equal(lastWindows(kwin)[0].active, true);
+});
+
+test('leaves skip-taskbar and non-normal windows out', () => {
+  const shown = makeWindow();
+  const hidden = makeWindow({ skipTaskbar: true });
+  const kwin = makeKWin({
+    windows: [desktopWindow('plasmashell'), makeWindow({ normalWindow: false, dock: true }), hidden, shown],
+  });
+  loadScript(kwin);
+  assert.deepEqual(idsOf(lastWindows(kwin)), [shown.internalId]);
+
+  hidden.skipTaskbar = false;
+  hidden.skipTaskbarChanged.emit();
+  assert.deepEqual(idsOf(lastWindows(kwin)), [shown.internalId, hidden.internalId]);
+});
+
+test('reports only when the list changes', () => {
+  const window = makeWindow();
+  const kwin = makeKWin({ windows: [window] });
+  loadScript(kwin);
+  assert.equal(kwin.windowLists.length, 1);
+
+  window.minimizedChanged.emit();
+  window.fullScreenChanged.emit();
+  assert.equal(kwin.windowLists.length, 1);
+});
+
+test('a caption change is reported', () => {
+  const window = makeWindow();
+  const kwin = makeKWin({ windows: [window] });
+  loadScript(kwin);
+
+  window.caption = 'Files';
+  window.captionChanged.emit();
+
+  assert.equal(lastWindows(kwin)[0].caption, 'Files');
+});
+
+test('a window that opens or closes changes the list', () => {
+  const first = makeWindow();
+  const kwin = makeKWin({ windows: [first] });
+  loadScript(kwin);
+
+  const opened = makeWindow();
+  kwin.workspace.stackingOrder.push(opened);
+  activate(kwin, opened);
+  kwin.workspace.windowAdded.emit(opened);
+  assert.deepEqual(idsOf(lastWindows(kwin)), [opened.internalId, first.internalId]);
+
+  kwin.workspace.windowRemoved.emit(opened);
+  assert.deepEqual(idsOf(lastWindows(kwin)), [first.internalId]);
+});
+
+test('activate unminimizes and focuses the window', () => {
+  const target = makeWindow({ minimized: true });
+  const kwin = makeKWin({ windows: [target, makeWindow()] });
+  const script = loadScript(kwin);
+
+  script.handleCommand(JSON.stringify({ action: 'activate', id: target.internalId }));
+
+  assert.equal(target.minimized, false);
+  assert.equal(kwin.workspace.activeWindow, target);
+});
+
+test('minimize and close act on that window only', () => {
+  const [target, other] = [makeWindow(), makeWindow()];
+  const kwin = makeKWin({ windows: [target, other] });
+  const script = loadScript(kwin);
+
+  script.handleCommand(JSON.stringify({ action: 'minimize', id: target.internalId }));
+  assert.deepEqual([target.minimized, other.minimized], [true, false]);
+
+  script.handleCommand(JSON.stringify({ action: 'close', id: target.internalId }));
+  assert.deepEqual([target.closed, other.closed], [true, false]);
+});
+
+test('unknown window command is ignored', () => {
+  const window = makeWindow();
+  const kwin = makeKWin({ windows: [window] });
+  const script = loadScript(kwin);
+
+  script.handleCommand(JSON.stringify({ action: 'close', id: '{missing}' }));
+  script.handleCommand(JSON.stringify({ action: 'explode', id: window.internalId }));
+  script.handleCommand(JSON.stringify({ action: 'constructor', id: window.internalId }));
+
+  assert.equal(window.closed, false);
+  assert.equal(window.minimized, false);
+});
+
+test('a malformed command is ignored', () => {
+  const window = makeWindow();
+  const kwin = makeKWin({ windows: [window] });
+  const script = loadScript(kwin);
+
+  for (const garbage of ['', '{', 'null', '7']) {
+    script.handleCommand(garbage);
+  }
+
+  assert.equal(window.closed, false);
+});
+
+test('kwin_restart_keeps_the_poll_alive', () => {
+  const window = makeWindow();
+  const kwin = makeKWin({ windows: [window] });
+  loadScript(kwin);
+  assert.equal(kwin.commandPolls, 1);
+
+  kwin.onCommand('');
+  assert.equal(kwin.commandPolls, 2);
+
+  kwin.onCommand('{');
+  kwin.onCommand(JSON.stringify({ action: 'close', id: window.internalId }));
+  assert.equal(kwin.commandPolls, 4);
+  assert.equal(window.closed, true);
 });

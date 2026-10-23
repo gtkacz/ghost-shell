@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use ghost_proto::{
-    ClientMsg, PROTO_VERSION, ServerMsg, decode_client_line, encode_line, is_valid_topic,
+    ClientMsg, PROTO_VERSION, ServerMsg, calls, decode_client_line, encode_line, is_valid_topic,
 };
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
@@ -15,7 +15,7 @@ use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 
 use super::state::Outbox;
-use super::{Shared, invalid_topic, line};
+use super::{Call, Shared, invalid_topic, line};
 
 /// The longest line a client may send, which also caps a provider's published value.
 const MAX_LINE_BYTES: usize = 64 * 1024;
@@ -28,6 +28,8 @@ const ERROR_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
 const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
 const EXPECTED_SUBSCRIBE: &str = "expected subscribe";
 const EXPECTED_PUBLISH: &str = "expected publish";
+const UNKNOWN_METHOD: &str = "unknown method";
+const PROVIDERS_CANNOT_CALL: &str = "providers cannot call";
 
 fn too_long() -> String {
     format!("line exceeds {MAX_LINE_BYTES} bytes")
@@ -212,11 +214,29 @@ async fn read_subscriptions(
         };
         let handled = message.and_then(|message| match message {
             ClientMsg::Subscribe { topics } => subscribe(shared, id, topics),
+            ClientMsg::Call { method, args } => {
+                forward_call(shared, id, method, args);
+                Ok(())
+            }
             _ => Err(EXPECTED_SUBSCRIBE.to_owned()),
         });
         if let Err(problem) = handled {
             return Ending::Refused(problem);
         }
+    }
+}
+
+/// Passes a known method on to the feeds, and answers an unknown one with a `CallError`.
+fn forward_call(shared: &Shared, id: u64, method: String, args: serde_json::Value) {
+    let mut state = shared.lock();
+    if calls::ALL.contains(&method.as_str()) {
+        state.call(Call { method, args });
+    } else {
+        let refusal = line(&ServerMsg::CallError {
+            method,
+            message: UNKNOWN_METHOD.to_owned(),
+        });
+        state.send(id, &refusal);
     }
 }
 
@@ -241,7 +261,7 @@ async fn serve_provider(
         Err(problem) => return reject(&mut writer, &problem).await,
     };
     info!(provider = %name, ?topics, "provider connected");
-    let problem = relay_publishes(shared, &mut reader, &name, &topics).await;
+    let problem = relay_publishes(shared, &mut reader, &mut writer, &name, &topics).await;
     shared.lock().release(id, &topics);
     info!(provider = %name, "provider disconnected");
     if let Some(problem) = problem {
@@ -250,10 +270,21 @@ async fn serve_provider(
     }
 }
 
+/// Providers only publish, so a call is answered with an error but does not end the session.
+async fn refuse_call(writer: &mut OwnedWriteHalf, method: String) {
+    let refusal = encode_line(&ServerMsg::CallError {
+        method,
+        message: PROVIDERS_CANNOT_CALL.to_owned(),
+    });
+    // A provider that never reads must not hold its session open past the flush limit.
+    let _ = timeout(ERROR_FLUSH_TIMEOUT, writer.write_all(refusal.as_bytes())).await;
+}
+
 /// Relays the provider's publishes until it hangs up (`None`) or breaks a rule (the error).
 async fn relay_publishes(
     shared: &Shared,
     reader: &mut LineReader,
+    writer: &mut OwnedWriteHalf,
     name: &str,
     declared: &[String],
 ) -> Option<String> {
@@ -263,6 +294,10 @@ async fn relay_publishes(
             Inbound::TooLong => Err(too_long()),
             Inbound::Closed => return None,
         };
+        if let Ok(ClientMsg::Call { method, .. }) = message {
+            refuse_call(writer, method).await;
+            continue;
+        }
         let handled = message.and_then(|message| match message {
             ClientMsg::Publish { topic, data } => {
                 if !is_valid_topic(&topic) {

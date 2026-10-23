@@ -35,11 +35,12 @@ pub mod topics {
     pub const BATTERIES: &str = "batteries";
     pub const UPLINK: &str = "uplink";
     pub const SESSION: &str = "session";
+    pub const WINDOWS: &str = "windows";
     /// Published by an alerts provider, so it is well known without being built in.
     pub const WEATHER_ALERTS: &str = "weather.alerts";
 
     // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
-    pub const BUILTIN: [&str; 19] = [
+    pub const BUILTIN: [&str; 20] = [
         CPU,
         MEM,
         SENSORS,
@@ -59,6 +60,7 @@ pub mod topics {
         BATTERIES,
         UPLINK,
         SESSION,
+        WINDOWS,
     ];
 }
 
@@ -71,4 +73,40 @@ fn is_valid_topic_segment(segment: &str) -> bool {
     let mut chars = segment.chars();
     matches!(chars.next(), Some('a'..='z'))
         && chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '_'))
+}
+
+/// The methods a UI client may `call`, and the arguments each takes.
+pub mod calls {
+    /// `{"id": "<internalId>"}`
+    pub const WINDOWS_ACTIVATE: &str = "windows.activate";
+    pub const WINDOWS_MINIMIZE: &str = "windows.minimize";
+    pub const WINDOWS_CLOSE: &str = "windows.close";
+    /// `{}`
+    pub const SESSION_LOCK: &str = "session.lock";
+    pub const SESSION_LOGOUT: &str = "session.logout";
+    pub const SESSION_REBOOT: &str = "session.reboot";
+    pub const SESSION_SHUTDOWN: &str = "session.shutdown";
+    pub const SESSION_SUSPEND: &str = "session.suspend";
+    /// `{"text": "<query>"}`
+    pub const KRUNNER_QUERY: &str = "krunner.query";
+    /// `{"applet": "<name>"}`
+    pub const PLASMA_POPUP: &str = "plasma.popup";
+    /// `{"app": "<desktop id>"}`
+    pub const BAR_PIN: &str = "bar.pin";
+    pub const BAR_UNPIN: &str = "bar.unpin";
+
+    pub const ALL: [&str; 12] = [
+        WINDOWS_ACTIVATE,
+        WINDOWS_MINIMIZE,
+        WINDOWS_CLOSE,
+        SESSION_LOCK,
+        SESSION_LOGOUT,
+        SESSION_REBOOT,
+        SESSION_SHUTDOWN,
+        SESSION_SUSPEND,
+        KRUNNER_QUERY,
+        PLASMA_POPUP,
+        BAR_PIN,
+        BAR_UNPIN,
+    ];
 }

@@ -5,13 +5,14 @@ use std::collections::BTreeSet;
 use std::future::pending;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use ghost_proto::{DesktopSnapshot, ViewAction, topics};
+use ghost_proto::{DesktopSnapshot, ViewAction, WindowsSnapshot, topics};
 use tracing::warn;
 use zbus::fdo::{NameOwnerChangedStream, RequestNameFlags};
 use zbus::proxy::CacheProperties;
 use zbus::{Connection, connection, fdo, interface};
 
 use super::shortcuts::{self, Registration};
+use super::windows::{Bridge, Timings};
 use super::{kwin_script, next};
 use crate::server::{Feed, Publisher};
 
@@ -151,9 +152,13 @@ pub fn feed_on(
         context
             .publisher
             .publish(topics::DESKTOP, &DesktopSnapshot::default());
+        context
+            .publisher
+            .publish(topics::WINDOWS, &WindowsSnapshot::default());
+        let bridge = Bridge::new(context.publisher.clone(), Timings::default());
         let desktop = DesktopService::new(context.publisher);
         // Kept until the daemon stops, since the service is served only while its connection lives.
-        let mut served = serve(bus, desktop.clone()).await;
+        let mut served = serve(bus, desktop.clone(), &bridge).await;
         match &mut served {
             Ok((connection, kwin_owners)) => {
                 tokio::join!(
@@ -164,6 +169,7 @@ pub fn feed_on(
                         registration
                     ),
                     reset_when_kwin_leaves(kwin_owners, &desktop),
+                    bridge.forward(context.calls),
                     async {
                         // Only now, and not when KWin appears later: a KWin that starts loads
                         // its enabled scripts itself, and they report as they load.
@@ -186,8 +192,12 @@ pub fn feed_on(
 async fn serve(
     bus: connection::Builder<'static>,
     desktop: DesktopService,
+    bridge: &Bridge,
 ) -> zbus::Result<(Connection, NameOwnerChangedStream)> {
-    let connection = bus.serve_at(OBJECT_PATH, desktop).build().await?;
+    let connection = bridge
+        .serve(bus.serve_at(OBJECT_PATH, desktop))
+        .build()
+        .await?;
     // Watched before the name is taken, since no report can arrive before that, so no KWin exit
     // after a report can be missed.
     let kwin_owners = fdo::DBusProxy::builder(&connection)

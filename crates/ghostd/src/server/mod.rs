@@ -29,7 +29,7 @@ use tokio::task::{self, JoinError, JoinSet};
 
 pub use feed::ConfigFeed;
 use feed::{ProblemReporter, Reloader, follow_config};
-pub use publish::{Demand, Feed, FeedContext, Publisher};
+pub use publish::{Call, Demand, Feed, FeedContext, Publisher};
 use sampling::{Collectors, sample_forever};
 use session::accept_forever;
 use state::State;
@@ -228,10 +228,15 @@ impl RunningFeeds {
         let mut names = HashMap::new();
         for feed in feeds {
             let name = feed.name();
+            let (demand, calls) = {
+                let state = shared.lock();
+                (state.demand(), state.calls())
+            };
             let running = tasks.spawn(feed.run(FeedContext {
                 publisher: publisher.clone(),
-                demand: shared.lock().demand(),
+                demand,
                 config: config.subscribe(),
+                calls,
             }));
             names.insert(running.id(), name);
         }

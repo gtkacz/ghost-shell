@@ -8,7 +8,7 @@ use std::sync::Arc;
 use ghost_proto::ResolvedConfig;
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 type PublishFn = dyn Fn(&str, Value) + Send + Sync;
 
@@ -34,12 +34,25 @@ impl Publisher {
 ///
 /// Never hold a `borrow()` of it across [`Publisher::publish`]: the hub updates the demand while
 /// holding the lock that publishing takes, so the two would deadlock.
+/// A client's request, already checked to name a method in [`ghost_proto::calls::ALL`]; its
+/// arguments are for the feed that handles it to check.
+#[derive(Debug, Clone)]
+pub struct Call {
+    pub method: String,
+    pub args: Value,
+}
+
+/// How many calls a feed may leave unread before it loses the oldest.
+pub(super) const CALL_BACKLOG: usize = 64;
+
 pub type Demand = watch::Receiver<BTreeSet<String>>;
 
 pub struct FeedContext {
     pub publisher: Publisher,
     pub demand: Demand,
     pub config: watch::Receiver<ResolvedConfig>,
+    /// What UI clients ask the daemon to do. A feed that lags behind loses the oldest calls.
+    pub calls: broadcast::Receiver<Call>,
 }
 
 type FeedTask = Pin<Box<dyn Future<Output = ()> + Send>>;

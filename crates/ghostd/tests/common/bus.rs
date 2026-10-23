@@ -132,6 +132,7 @@ impl RunningDesktop {
             }),
             demand: demand_receiver,
             config: config_receiver,
+            calls: tokio::sync::broadcast::channel(64).1,
         };
         let feed = tokio::spawn(desktop::feed_on(bus.builder(), registration, reload).run(context));
         timeout(BUS_WAIT, next(&mut owners))
@@ -145,6 +146,12 @@ impl RunningDesktop {
             _feed: feed,
         };
         assert_eq!(running.next_snapshot().await, DesktopSnapshot::default());
+        let (topic, _) = running.published.recv().await.unwrap();
+        assert_eq!(
+            topic,
+            topics::WINDOWS,
+            "the windows default follows the desktop one"
+        );
         running
     }
 

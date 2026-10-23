@@ -48,6 +48,19 @@ Singleton {
         }
     }
 
+    // Asks ghostd to act. Fire and forget: a refusal comes back as a call_error message.
+    function call(method, args) {
+        if (!link.connected) {
+            console.warn("ghostd not connected; dropped call " + method);
+            return;
+        }
+        link.send({
+            t: "call",
+            method: method,
+            args: args
+        });
+    }
+
     onCoveredChanged: link.subscribeLater()
     Component.onCompleted: {
         // A shell whose widgets never want a topic still logs its counts once, so the harness has a baseline.
@@ -213,6 +226,9 @@ Singleton {
             case "config_error":
                 console.warn("ghostd config problem: " + message.message);
                 root.configError(message.message);
+                break;
+            case "call_error":
+                console.warn("ghostd refused call " + message.method + ": " + message.message);
                 break;
             case "error":
                 console.error("ghostd refused the shell: " + message.message);

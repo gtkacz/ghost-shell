@@ -14,6 +14,7 @@ pub mod spectrum;
 pub mod tailscale;
 pub mod uplink;
 pub mod weather;
+pub mod windows;
 
 use std::future::{pending, poll_fn};
 use std::pin::Pin;

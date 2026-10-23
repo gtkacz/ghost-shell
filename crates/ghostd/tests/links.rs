@@ -74,6 +74,7 @@ impl RunningLinks {
             }),
             demand: demand_receiver,
             config: config_receiver,
+            calls: tokio::sync::broadcast::channel(64).1,
         };
         let feed = links::feed_on(bus.connect().await, tailscale, pinger);
         Self {
