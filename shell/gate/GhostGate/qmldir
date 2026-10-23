@@ -1,0 +1,8 @@
+module GhostGate
+singleton Theme 1.0 Theme.qml
+Dots 1.0 Dots.qml
+Scanlines 1.0 Scanlines.qml
+ScrambleText 1.0 ScrambleText.qml
+Panel 1.0 Panel.qml
+Chip 1.0 Chip.qml
+Glyph 1.0 Glyph.qml
