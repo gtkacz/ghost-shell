@@ -1,6 +1,7 @@
 //! A fake KWin ScreenSaver on a private bus that stands in for the session bus, and a fake logind
 //! on another that stands in for the system bus, each shaped as the live one: `GetActive` and
-//! `ActiveChanged` at `/ScreenSaver`, and `GetUser`, `PrepareForSleep` and `User.Display`.
+//! `ActiveChanged` at `/ScreenSaver`, and `GetUser`, `PrepareForSleep`, `PreparingForSleep` and
+//! `User.Display`.
 
 use nix::unistd::getuid;
 use zbus::message::Header;
@@ -86,6 +87,7 @@ impl FakeScreenSaver {
 }
 
 struct FakeManager {
+    preparing_for_sleep: bool,
     calls: Calls,
 }
 
@@ -102,6 +104,12 @@ impl FakeManager {
             return Err(fdo::Error::Failed(format!("no user {uid}")));
         }
         Ok(OwnedObjectPath::try_from(USER_PATH).unwrap())
+    }
+
+    #[zbus(property)]
+    fn preparing_for_sleep(&self, #[zbus(header)] header: Option<Header<'_>>) -> bool {
+        self.calls.property(header.as_ref(), "PreparingForSleep");
+        self.preparing_for_sleep
     }
 
     #[zbus(signal)]
@@ -138,6 +146,7 @@ impl FakeLogin1 {
         let connection = bus.connect().await;
         let server = connection.object_server();
         let manager = FakeManager {
+            preparing_for_sleep: false,
             calls: calls.clone(),
         };
         server.at(LOGIN1_PATH, manager).await.unwrap();
@@ -153,13 +162,17 @@ impl FakeLogin1 {
         self.connection.request_name(LOGIN1).await.unwrap();
     }
 
+    pub async fn release(&self) {
+        self.connection.release_name(LOGIN1).await.unwrap();
+    }
+
     pub async fn start(bus: &PrivateBus, display_id: &'static str) -> Self {
         let login = Self::serve(bus, display_id).await;
         login.claim().await;
         login
     }
 
-    /// Says the machine is about to sleep, or has resumed, as logind does.
+    /// Says the machine is about to sleep, or has resumed, as logind does, property first.
     pub async fn prepare_for_sleep(&self, going: bool) {
         let manager = self
             .connection
@@ -167,6 +180,7 @@ impl FakeLogin1 {
             .interface::<_, FakeManager>(LOGIN1_PATH)
             .await
             .unwrap();
+        manager.get_mut().await.preparing_for_sleep = going;
         FakeManager::prepare_for_sleep(manager.signal_emitter(), going)
             .await
             .unwrap();

@@ -20,6 +20,7 @@ use std::time::Duration;
 use ghost_proto::{GreetingKind, SessionSnapshot, topics};
 use nix::unistd::getuid;
 use serde::Serialize;
+use tokio::time::error::Elapsed;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 use zbus::fdo::NameOwnerChangedStream;
@@ -40,6 +41,7 @@ const LOGIN1_PATH: &str = "/org/freedesktop/login1";
 const LOGIN1_MANAGER: &str = "org.freedesktop.login1.Manager";
 const LOGIN1_USER: &str = "org.freedesktop.login1.User";
 const PREPARE_FOR_SLEEP: &str = "PrepareForSleep";
+const PREPARING_FOR_SLEEP: &str = "PreparingForSleep";
 const GET_USER: &str = "GetUser";
 const DISPLAY: &str = "Display";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
@@ -243,8 +245,9 @@ async fn watch_screen_saver(bus: Option<&Connection>, session: &Session) {
     }
 }
 
-/// Follows sleep by logind's `PrepareForSleep`, and reads the session id again whenever logind
-/// gains or loses an owner.
+/// Follows sleep by logind's `PrepareForSleep`, and reads the session id and whether the machine is
+/// going to sleep again whenever logind gains or loses an owner, so a resume missed while it had
+/// none cannot leave the session asleep.
 async fn watch_login(bus: Option<&Connection>, session: &Session) {
     let Some(bus) = bus else {
         session.update(Lane::Login, |_| false);
@@ -258,22 +261,40 @@ async fn watch_login(bus: Option<&Connection>, session: &Session) {
         .ok();
     loop {
         if let Some(changes) = &mut changes {
+            // A read covers every change queued before it starts.
             changes.drain();
         }
-        match timeout(READ_TIMEOUT, read_session_id(bus)).await {
-            Ok(Ok(id)) => session.update(Lane::Login, |state| state.set_id(id)),
-            Ok(Err(error)) => {
-                debug!(%error, "logind is not answering; the session has no id yet");
-                session.update(Lane::Login, |_| false);
-            }
-            Err(_) => {
-                warn!("logind did not answer within {READ_TIMEOUT:?}; keeping the session id");
-                session.update(Lane::Login, |_| false);
-            }
-        }
+        let id = answered(
+            timeout(READ_TIMEOUT, read_session_id(bus)).await,
+            "the session id",
+        );
+        let going = answered(
+            timeout(READ_TIMEOUT, read_preparing_for_sleep(bus)).await,
+            "the sleep state",
+        );
+        session.update(Lane::Login, |state| {
+            let id_changed = id.is_some_and(|id| state.set_id(id));
+            let sleep_changed = going.is_some_and(|going| state.sleep(going));
+            id_changed || sleep_changed
+        });
         match &mut changes {
             Some(changes) => changes.next(session).await,
             None => return pending().await,
+        }
+    }
+}
+
+/// What logind answered, or `None` when it did not, which keeps `what` as it was.
+fn answered<T>(read: Result<zbus::Result<T>, Elapsed>, what: &str) -> Option<T> {
+    match read {
+        Ok(Ok(value)) => Some(value),
+        Ok(Err(error)) => {
+            debug!(%error, "logind is not answering; keeping {what}");
+            None
+        }
+        Err(_) => {
+            warn!("logind did not answer within {READ_TIMEOUT:?}; keeping {what}");
+            None
         }
     }
 }
@@ -380,6 +401,7 @@ impl LoginChanges {
 
     fn drain(&mut self) {
         drain(&mut self.owners);
+        drain(&mut self.sleep);
     }
 
     /// As [`ScreenSaverChanges::next`], for sleep.
@@ -461,6 +483,19 @@ async fn read_session_id(bus: &Connection) -> zbus::Result<String> {
     Ok(id)
 }
 
+async fn read_preparing_for_sleep(bus: &Connection) -> zbus::Result<bool> {
+    let going: OwnedVariant = call(
+        bus,
+        LOGIN1,
+        LOGIN1_PATH,
+        PROPERTIES,
+        GET,
+        &(LOGIN1_MANAGER, PREPARING_FOR_SLEEP),
+    )
+    .await?;
+    bool::try_from(going)
+}
+
 #[cfg(test)]
 mod tests {
     use ghost_proto::GreetingKind;
@@ -534,6 +569,19 @@ mod tests {
         assert!(!state.snapshot().locked);
         assert_eq!(state.snapshot().greeting_seq, 0);
         assert!(!state.owner_lost());
+    }
+
+    #[test]
+    fn lost_screensaver_owner_forgets_the_wake() {
+        let mut state = SessionState::default();
+        state.lock(true);
+        state.sleep(true);
+        state.sleep(false);
+        state.owner_lost();
+        state.lock(true);
+        state.lock(false);
+        assert_eq!(state.snapshot().greeting, Some(GreetingKind::Unlock));
+        assert_eq!(state.snapshot().greeting_seq, 1);
     }
 
     #[test]

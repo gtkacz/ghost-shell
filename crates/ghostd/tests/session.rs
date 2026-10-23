@@ -146,6 +146,45 @@ async fn prepare_for_sleep_marks_sleeping_and_wake() {
 }
 
 #[tokio::test]
+async fn resume_while_locked_greets_once_at_the_unlock() {
+    let (session_bus, system_bus) = (PrivateBus::start(), PrivateBus::start());
+    let saver = FakeScreenSaver::start(&session_bus, true).await;
+    let login = FakeLogin1::start(&system_bus, SESSION_ID).await;
+    let mut running = RunningSession::start(&session_bus, Some(&system_bus)).await;
+    assert!(running.next_snapshot().await.locked);
+
+    login.prepare_for_sleep(true).await;
+    running.snapshot_where(|snapshot| snapshot.sleeping).await;
+    login.prepare_for_sleep(false).await;
+    let resumed = running.snapshot_where(|snapshot| !snapshot.sleeping).await;
+    saver.set_active(false).await;
+    let unlocked = running.next_snapshot().await;
+
+    assert_eq!(resumed.greeting_seq, 0);
+    assert_eq!(unlocked.greeting, Some(GreetingKind::Wake));
+    assert_eq!(unlocked.greeting_seq, 1);
+    running.assert_quiet().await;
+}
+
+#[tokio::test]
+async fn a_new_logind_owner_ends_a_sleep_whose_resume_was_missed() {
+    let (session_bus, system_bus) = (PrivateBus::start(), PrivateBus::start());
+    let _saver = FakeScreenSaver::start(&session_bus, false).await;
+    let login = FakeLogin1::start(&system_bus, SESSION_ID).await;
+    let mut running = RunningSession::start(&session_bus, Some(&system_bus)).await;
+    running.next_snapshot().await;
+    login.prepare_for_sleep(true).await;
+    running.snapshot_where(|snapshot| snapshot.sleeping).await;
+
+    login.release().await;
+    let restarted = FakeLogin1::start(&system_bus, SESSION_ID).await;
+    let snapshot = running.snapshot_where(|snapshot| !snapshot.sleeping).await;
+
+    assert_eq!(snapshot.greeting, Some(GreetingKind::Wake));
+    restarted.calls.assert_none_could_start_the_service();
+}
+
+#[tokio::test]
 async fn reads_session_id_from_user_display() {
     let (session_bus, system_bus) = (PrivateBus::start(), PrivateBus::start());
     let _saver = FakeScreenSaver::start(&session_bus, false).await;
