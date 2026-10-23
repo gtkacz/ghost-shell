@@ -1,0 +1,6 @@
+[SddmGreeterTheme]
+Name=ghost-shell login spike
+Type=sddm-theme
+MainScript=Main.qml
+ConfigFile=theme.conf
+QtVersion=6
