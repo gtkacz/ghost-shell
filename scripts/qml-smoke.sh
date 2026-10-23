@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GHOST_SMOKE_BUS=private runs the daemon and the shell on a bus made for this run; otherwise the
-# daemon gets a bus that cannot exist and the shell keeps the session's.
-bus=${GHOST_SMOKE_BUS:-}
+# By default the daemon and the shell run on a bus made for this run, so the shell's widgets never
+# reach the user's media player or notifications. GHOST_SMOKE_BUS=session gives the daemon a bus that
+# cannot exist and lets the shell keep the session's.
+bus=${GHOST_SMOKE_BUS:-private}
 # View actions sent to the daemon over that bus once the shell has reconnected, in order, for example
 # "monitor monitor swap". Each one must change the view, so pass only actions the config can take.
 read -ra actions <<< "${GHOST_SMOKE_ACTIONS:-}"
 
-if [[ -n $bus && $bus != private ]]; then
-    echo "smoke: FAIL (GHOST_SMOKE_BUS must be empty or \"private\", got \"$bus\")" >&2
+if [[ $bus != private && $bus != session ]]; then
+    echo "smoke: FAIL (GHOST_SMOKE_BUS must be \"private\" or \"session\", got \"$bus\")" >&2
     exit 1
 fi
 if (( ${#actions[@]} > 0 )) && [[ $bus != private ]]; then
-    echo "smoke: FAIL (GHOST_SMOKE_ACTIONS needs GHOST_SMOKE_BUS=private, or they would reach the session's own ghostd)" >&2
+    echo "smoke: FAIL (GHOST_SMOKE_ACTIONS need the private bus, or they would reach the session's own ghostd)" >&2
     exit 1
 fi
 # One dbus-run-session around both processes: the script runs again inside it, told which bus it
