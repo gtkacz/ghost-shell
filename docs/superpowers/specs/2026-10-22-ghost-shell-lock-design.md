@@ -292,6 +292,12 @@ The idle lock screen animates only:
 
 ## 10. Installation and migration [call]
 
+- **Optional for other ghost-shell users (user decision, 2026-10-23).** Lock and login are two separate **opt-in** parts of the install, for example `install.sh --lock --login`.
+  - A plain install of ghost-shell leaves the user's lock screen, SDDM theme, system fonts and keymap untouched.
+  - Either part can be installed or removed without the other, and without affecting the desktop shell.
+  - Removing a part restores what was there before it.
+  - This machine's install opts into both.
+
 - Install Kode Mono, and Chakra Petch Slashed if it's configured, **system-wide** so the `sddm` user can use them (e.g. `/usr/local/share/fonts/ghost-shell/`).
 - **SDDM:**
   - install the theme to `/usr/share/sddm/themes/ghost-shell/` with the Qt 6 greeter declared in its metadata;
