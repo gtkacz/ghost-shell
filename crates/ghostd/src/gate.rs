@@ -93,8 +93,15 @@ pub fn snapshot_ini(config: &ResolvedConfig, host: &str) -> String {
     }
     let _ = write!(
         ini,
-        "[dots]\nspacing={}\nopacity={}\n[scanlines]\nopacity={}\n",
-        look.dots.spacing, look.dots.opacity, look.scanlines.opacity,
+        "[dots]\nspacing={}\nopacity={}\nsize_range={}\nbrightness={}\ncover={}\nscale={}\n\
+         [scanlines]\nopacity={}\n",
+        look.dots.spacing,
+        look.dots.opacity,
+        look.dots.size_range,
+        look.dots.brightness,
+        look.dots.cover,
+        look.dots.scale,
+        look.scanlines.opacity,
     );
     ini
 }
@@ -201,6 +208,10 @@ mod tests {
         "[dots]",
         "spacing=",
         "opacity=",
+        "size_range=",
+        "brightness=",
+        "cover=",
+        "scale=",
         "[scanlines]",
     ];
 
@@ -219,6 +230,7 @@ mod tests {
         }
         assert!(ini.contains("\nground=\"#0a0f11\"\n"));
         assert!(ini.contains("\nhost=\"ghost\"\n"));
+        assert!(ini.contains("\nsize_range=2.5\nbrightness=1.6\ncover=0.4\nscale=1\n[scanlines]\nopacity=15\n"));
     }
 
     #[test]

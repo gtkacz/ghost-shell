@@ -40,7 +40,7 @@ const DEFAULTS = {
     dot: '#a3d4cc',
     burn: '#ffffff',
   },
-  dots: { spacing: 24, opacity: 16 },
+  dots: { spacing: 24, opacity: 16, size_range: 2.5, brightness: 1.6, scale: 1, cover: 0.4 },
   scanlines: { opacity: 15 },
 };
 

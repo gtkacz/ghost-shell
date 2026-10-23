@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   CELLS,
   actionsFor,
@@ -115,4 +116,26 @@ test('scanStep maps the sweep time onto 0 to 30', () => {
 test('pickScreen returns the only screen when its model matches', () => {
   const screens = [{ model: 'X' }];
   assert.equal(pickScreen(screens, 'M27Q'), screens[0]);
+});
+
+test('the gate defaults for dots and scanlines equal GhostKit Theme.qml defaultAppearance', () => {
+  const source = readFileSync(new URL('../kit/GhostKit/Theme.qml', import.meta.url), 'utf8');
+  const block = (name) => {
+    const body = source.match(new RegExp(`\\b${name}: \\{([^}]*)\\}`))[1];
+    return Object.fromEntries([...body.matchAll(/(\w+): ([\d.]+)\b/g)].map(([, key, value]) => [key, Number(value)]));
+  };
+  const { appearance } = parseSnapshot({});
+  for (const name of ['dots', 'scanlines']) {
+    const kit = block(name);
+    // speed only drives motion, which the resting frame never has.
+    for (const [key, value] of Object.entries(kit).filter(([key]) => key in appearance[name])) {
+      assert.equal(appearance[name][key], value, `${name}.${key}`);
+    }
+  }
+  assert.equal(appearance.dots.scale, 1);
+});
+
+test('parseSnapshot reads the dot strengths', () => {
+  const { dots } = parseSnapshot({ dots: { size_range: '3', brightness: '2.2', cover: '0.7', scale: '1.5' } }).appearance;
+  assert.deepEqual([dots.size_range, dots.brightness, dots.cover, dots.scale], [3, 2.2, 0.7, 1.5]);
 });

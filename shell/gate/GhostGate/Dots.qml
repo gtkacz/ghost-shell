@@ -1,7 +1,7 @@
 import QtQuick
 import "lib/theme.mjs" as ThemeLib
 
-// The dot grid at rest, as the greeting leaves it: the shader's still mode, with the strengths GhostKit's defaults give.
+// The dot grid at rest, as the greeting leaves it: the shader's still mode, with the strengths the snapshot gives.
 ShaderEffect {
     // Design pixels, from the reference mockup's radial-gradient dots.
     readonly property real dotRadiusPx: 1
@@ -16,10 +16,10 @@ ShaderEffect {
     property size resolution: Qt.size(width * pixelRatio, height * pixelRatio)
     property int mode: 0
     property real time: 0
-    property real sizeRange: 2.5
-    property real brightness: 1.6
-    property real featureUnit: Theme.d(1) * pixelRatio
-    property real cover: 0.4
+    property real sizeRange: Theme.dotSizeRange
+    property real brightness: Theme.dotBrightness
+    property real featureUnit: Theme.d(1) * pixelRatio * Theme.dotScale
+    property real cover: Theme.dotCover
     property point pointer: offItem
 
     fragmentShader: Qt.resolvedUrl("shaders/dotgrid.frag.qsb")

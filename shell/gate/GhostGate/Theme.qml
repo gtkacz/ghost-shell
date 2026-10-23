@@ -40,6 +40,10 @@ QtObject {
     readonly property real panelFill: appearance.panel_fill
     readonly property real dotOpacity: appearance.dots.opacity
     readonly property real dotSpacing: appearance.dots.spacing
+    readonly property real dotSizeRange: appearance.dots.size_range
+    readonly property real dotBrightness: appearance.dots.brightness
+    readonly property real dotScale: appearance.dots.scale
+    readonly property real dotCover: appearance.dots.cover
     readonly property real scanlineOpacity: appearance.scanlines.opacity
 
     readonly property string font: appearance.font
