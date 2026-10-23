@@ -1,0 +1,11 @@
+{
+    "KPlugin": {
+        "Id": "bar-bridge-spike",
+        "Name": "ghost-shell bar bridge spike",
+        "Description": "A spike copy of ghost-shell-desktop that also reports the window list and long-polls window commands.",
+        "License": "GPL-3.0-or-later"
+    },
+    "X-Plasma-API": "declarativescript",
+    "X-Plasma-MainScript": "ui/main.qml",
+    "KPackageStructure": "KWin/Script"
+}
