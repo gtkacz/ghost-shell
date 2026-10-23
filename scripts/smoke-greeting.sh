@@ -5,7 +5,8 @@ set -euo pipefail
 # 500 ms (§15), it reveals the dashboard, whose texts scramble only after the reveal, and it ends in time. A second
 # run with the login marker in place must not greet at all. A third, also with the marker, feeds session values
 # through the shell's debug IPC and checks that a lock arms the overlay, an unlock with a new greeting_seq plays it, an
-# unlock without one disarms it, a lock mid-greeting re-arms it, and a skip ends it. The shell renders in a headless
+# unlock without one disarms it, a lock or a sleep mid-greeting re-arms it on new surfaces, a wake plays it, and a
+# skip ends it. The shell renders in a headless
 # KWin of its own whose runtime directory it uses, so its marker never lands in the user's, and it and a fake ghostd
 # reach no session bus.
 
@@ -33,9 +34,12 @@ scramble_line='qml: scramble '
 started_line='qml: desktop on '
 connected_line='qml: ghostd connected'
 skipped_line='qml: greeting skipped'
-greeting_lines='qml: greeting (armed|disarmed|playing [a-z]+|revealed|skipped|done)$'
-# The greeting lines the third run's session values and skip must produce, in this order.
-session_expected='armed|playing unlock|revealed|done|armed|disarmed|armed|playing unlock|armed|playing unlock|revealed|skipped'
+greeting_lines='qml: greeting (armed|disarmed|playing [a-z]+|revealed|skipped|done|first frame at)'
+# The greeting lines the third run's session values and skip must produce, in this order. Each `first frame at` is a
+# new overlay, so every arm, the first included, must be followed by one before the next value takes effect.
+session_expected='armed|first frame at|playing unlock|revealed|done|armed|first frame at|disarmed|armed|first frame at'\
+'|playing unlock|armed|first frame at|playing unlock|revealed|skipped|playing unlock|first frame at|armed'\
+'|first frame at|playing wake|revealed|done'
 
 first_frame_budget_ms=500
 done_budget_ms=12000
@@ -149,9 +153,10 @@ greeting_call() {
         || fail "qs ipc call greeting $* failed; see $session_log"
 }
 
-# A session value in ghostd's wire form: locked $1, greeting_seq $2, greeting $3 (a JSON string or null).
+# A session value in ghostd's wire form: locked $1, sleeping $2, greeting_seq $3, greeting $4 (a JSON string or
+# null).
 send_session() {
-    greeting_call session "{\"id\":\"0412\",\"locked\":$1,\"sleeping\":false,\"greeting\":$3,\"greeting_seq\":$2}"
+    greeting_call session "{\"id\":\"0412\",\"locked\":$1,\"sleeping\":$2,\"greeting\":$4,\"greeting_seq\":$3}"
 }
 
 check_errors() {
@@ -257,29 +262,43 @@ wait_for_count "$session_log" "$started_line" 1 "$start_budget_s"
 wait_for_count "$session_log" "$connected_line" 1 "$start_budget_s"
 # The daemon's own first session value must land first, or it would disarm the lock sent below.
 sleep "$settle_s"
-send_session false 0 null
-send_session true 0 null
+send_session false false 0 null
+send_session true false 0 null
 wait_for_count "$session_log" "qml: greeting armed" 1 "$step_budget_s"
+wait_for_count "$session_log" "$first_frame_line" 1 "$step_budget_s"
 sleep "$armed_watch_s"
-send_session false 1 '"unlock"'
+send_session false false 1 '"unlock"'
 wait_for_count "$session_log" "$done_line" 1 "$((done_budget_ms / 1000))"
-send_session true 1 '"unlock"'
+send_session true false 1 '"unlock"'
 wait_for_count "$session_log" "qml: greeting armed" 2 "$step_budget_s"
-send_session false 1 '"unlock"'
+wait_for_count "$session_log" "$first_frame_line" 2 "$step_budget_s"
+send_session false false 1 '"unlock"'
 wait_for_count "$session_log" "qml: greeting disarmed" 1 "$step_budget_s"
-send_session true 1 '"unlock"'
+send_session true false 1 '"unlock"'
 wait_for_count "$session_log" "qml: greeting armed" 3 "$step_budget_s"
-send_session false 2 '"unlock"'
+wait_for_count "$session_log" "$first_frame_line" 3 "$step_budget_s"
+send_session false false 2 '"unlock"'
 wait_for_count "$session_log" "qml: greeting playing unlock" 2 "$step_budget_s"
 sleep "$cut_after_s"
-send_session true 2 '"unlock"'
+send_session true false 2 '"unlock"'
 wait_for_count "$session_log" "qml: greeting armed" 4 "$step_budget_s"
-send_session false 3 '"unlock"'
+wait_for_count "$session_log" "$first_frame_line" 4 "$step_budget_s"
+send_session false false 3 '"unlock"'
 wait_for_count "$session_log" "qml: greeting playing unlock" 3 "$step_budget_s"
 sleep "$skip_after_s"
 greeting_call skip
 wait_for_count "$session_log" "$skipped_line" 1 "$step_budget_s"
 sleep "$after_skip_s"
+# A sleep with no lock reported yet cuts a greeting as a lock does, and the resume plays the wake greeting.
+send_session false false 4 '"unlock"'
+wait_for_count "$session_log" "qml: greeting playing unlock" 4 "$step_budget_s"
+wait_for_count "$session_log" "$first_frame_line" 5 "$step_budget_s"
+sleep "$cut_after_s"
+send_session false true 4 '"unlock"'
+wait_for_count "$session_log" "qml: greeting armed" 5 "$step_budget_s"
+wait_for_count "$session_log" "$first_frame_line" 6 "$step_budget_s"
+send_session false false 5 '"wake"'
+wait_for_count "$session_log" "$done_line" 2 "$((done_budget_ms / 1000))"
 stop shell_pid
 check_errors "$session_log"
 

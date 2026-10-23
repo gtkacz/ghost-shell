@@ -92,12 +92,13 @@ Scope {
     }
 
     // KWin hides the overlay as soon as the lock starts, before ghostd says so, and keeps the buffer it drew last: a
-    // frame of the cut greeting, which the unlock would show. New surfaces mapped under the lock draw the resting
-    // frame as their one frame. A sleep without a lock leaves the screen painted, so the same windows draw it.
+    // frame of the cut greeting, which the unlock would show. A sleep locks first too (kscreenlocker's LockOnResume
+    // locks at once on PrepareForSleep), so it cuts the same way. New surfaces mapped under the lock draw the resting
+    // frame as their one frame.
     function takeSession(session) {
-        const cutByLock = playing && session.locked;
+        const cut = playing && (session.locked || session.sleeping);
         follow(GreetingLib.withSession(state, session, connection));
-        if (cutByLock) {
+        if (cut) {
             remapping = true;
             remapping = false;
         }
