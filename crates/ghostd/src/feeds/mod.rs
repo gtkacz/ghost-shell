@@ -6,6 +6,7 @@ pub mod health;
 pub mod host;
 pub mod http;
 mod kwin_script;
+pub mod launcher_entries;
 pub mod links;
 pub mod session;
 pub mod shortcuts;

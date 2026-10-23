@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -451,4 +453,19 @@ pub struct WindowInfo {
     pub minimized: bool,
     pub fullscreen: bool,
     pub demands_attention: bool,
+}
+
+/// What apps ask the launcher to show on their icons, keyed by desktop id (`org.kde.dolphin`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct LauncherEntries {
+    pub entries: BTreeMap<String, LauncherEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct LauncherEntry {
+    /// The badge number, or `None` while the app hides it.
+    pub count: Option<i64>,
+    /// 0 to 1, or `None` while the app hides it.
+    pub progress: Option<f64>,
+    pub urgent: bool,
 }

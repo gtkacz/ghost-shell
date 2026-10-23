@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use ghost_proto::{
     AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, Endpoint, HostSnapshot,
-    LanLink, LinkState, LinksSnapshot, RainPeak, SessionSnapshot, SkySnapshot, SpectrumSnapshot,
-    TailscaleLink, UplinkSnapshot, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour,
-    WeatherSnapshot, WindowInfo, WindowsSnapshot, topics,
+    LanLink, LauncherEntries, LauncherEntry, LinkState, LinksSnapshot, RainPeak, SessionSnapshot,
+    SkySnapshot, SpectrumSnapshot, TailscaleLink, UplinkSnapshot, VpnLink, WeatherAlert,
+    WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo, WindowsSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -30,6 +30,7 @@ pub fn feeds() -> Vec<Feed> {
         uplink(),
         session(),
         windows(),
+        launcher_entries(),
     ]
 }
 
@@ -428,6 +429,45 @@ fn windows() -> Feed {
         context
             .publisher
             .publish(topics::WINDOWS, &WindowsSnapshot { windows });
+        pending::<()>().await;
+    })
+}
+
+/// Generic apps with a badge, a download and an attention request, as `(desktop id, entry)`.
+fn launcher_entries() -> Feed {
+    Feed::new(topics::LAUNCHER_ENTRIES, |context| async move {
+        let entries = [
+            (
+                "org.kde.dolphin",
+                LauncherEntry {
+                    count: None,
+                    progress: Some(0.42),
+                    urgent: false,
+                },
+            ),
+            (
+                "firefox",
+                LauncherEntry {
+                    count: Some(3),
+                    progress: None,
+                    urgent: false,
+                },
+            ),
+            (
+                "org.kde.kate",
+                LauncherEntry {
+                    count: None,
+                    progress: None,
+                    urgent: true,
+                },
+            ),
+        ]
+        .into_iter()
+        .map(|(id, entry)| (id.to_owned(), entry))
+        .collect();
+        context
+            .publisher
+            .publish(topics::LAUNCHER_ENTRIES, &LauncherEntries { entries });
         pending::<()>().await;
     })
 }
