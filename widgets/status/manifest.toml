@@ -1,0 +1,12 @@
+id = "status"
+name = "Status"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+# The topics follow the parts setting, which a manifest's list cannot, so the widget wants them itself and layout A
+# never samples the GPU for the bar.
+requires = []
+
+[settings.parts]
+type = "list"
+default = ["cpu", "gpu", "mem", "net", "vpn", "weather"]

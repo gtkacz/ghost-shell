@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  pct, tempC, tempShort, gib, rate, rateShort, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow, clockParts, uptimeSince,
+  memShort, pct, tempC, tempShort, gib, rate, rateShort, ghz, rpm, watts, ddmmyy, countdown, uptime, ago, utcOffset, dow, clockParts, uptimeSince,
 } from '../kit/GhostKit/lib/format.mjs';
 
 test('pct rounds', () => assert.equal(pct(22.6), '23%'));
@@ -166,3 +166,6 @@ test('uptime is missing before the host arrives and when the boot time could not
 test('an uptime behind the boot time reads as zero', () => assert.equal(uptime(uptimeSince(9047, 1000)), '00:00:00'));
 
 test('a missing uptime reads as dashes', () => assert.equal(uptime(uptimeSince(null, 9047)), '--'));
+
+test('memory reads used over total', () => assert.equal(memShort(24536678, 96366592), '23.4/92G'));
+test('memory short is missing without a reading', () => assert.equal(memShort(null, 96366592), '--'));
