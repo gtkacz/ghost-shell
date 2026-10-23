@@ -8,7 +8,7 @@ use ghost_proto::calls;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
-use crate::config::edit::{PinChange, import_plasma_launchers, set_pinned};
+use crate::config::edit::{PinChange, import_plasma_launchers, set_pinned, system_mimeapps_dirs};
 use crate::server::{Call, Feed};
 
 const APPLETSRC_FILE: &str = "plasma-org.kde.plasma.desktop-appletsrc";
@@ -22,6 +22,7 @@ pub fn feed(config_path: PathBuf, plasma_dir: PathBuf) -> Feed {
             &config_path,
             &plasma_dir.join(APPLETSRC_FILE),
             &plasma_dir.join(MIMEAPPS_FILE),
+            &system_mimeapps_dirs(),
         ) {
             Ok(Some(imported)) => info!(count = imported.len(), "imported the Plasma launchers"),
             Ok(None) => {}
