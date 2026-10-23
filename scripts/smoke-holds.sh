@@ -640,6 +640,14 @@ else
     check style "$moved styles in $style_view changed, then back" must_log
 fi
 
+# The launcher holds the frame clock and wants the recent files while it is open, and gives both back on close. It
+# opens only the panel, so no program starts and nothing reaches the session.
+begin_phase
+ipc call launcher toggle
+sleep "$action_gap_s"
+ipc call launcher toggle
+check launcher "opened, then closed" must_log
+
 stop shell_pid
 stop daemon_pid
 # The shell's last lines, such as its teardown's, reach the log only once it has stopped.

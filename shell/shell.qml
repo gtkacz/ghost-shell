@@ -22,4 +22,12 @@ ShellRoot {
             screen: desktop.mainScreen
         }
     }
+
+    LazyLoader {
+        active: barEnabled && desktop.mainScreen !== null
+
+        LauncherPanel {
+            screen: desktop.mainScreen
+        }
+    }
 }

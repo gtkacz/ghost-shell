@@ -126,6 +126,6 @@ Item {
     MouseArea {
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
-        onClicked: console.info("launcher not built yet")
+        onClicked: Launcher.toggle()
     }
 }

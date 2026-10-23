@@ -17,6 +17,10 @@ if (( ${#actions[@]} > 0 )) && [[ $bus != private ]]; then
     echo "smoke: FAIL (GHOST_SMOKE_ACTIONS need the private bus, or they would reach the session's own ghostd)" >&2
     exit 1
 fi
+if [[ -n ${GHOST_SMOKE_LAUNCHER:-} && $bus != private ]]; then
+    echo "smoke: FAIL (GHOST_SMOKE_LAUNCHER needs the private bus, or its power calls could reach the session's own ghostd)" >&2
+    exit 1
+fi
 # One dbus-run-session around both processes: the script runs again inside it, told which bus it
 # left behind and where to write its pid, and this one waits for it. Stopping dbus-run-session would
 # leave the shell, the daemon and the bus running, so a stop of this script goes to the inner one,
@@ -206,6 +210,106 @@ wait_for_connects() {
     done
 }
 
+# GHOST_SMOKE_LAUNCHER=1 drives the launcher through its debug IPC. It launches programs, so the shell sees only fake
+# desktop entries whose Exec writes a line to a file, and runs with the runtime and system bus of a sandbox, so no
+# launch route (systemd, KIO, a service on the bus) can reach the user's session.
+launcher=${GHOST_SMOKE_LAUNCHER:-}
+launcher_env=()
+launcher_launches=
+# Gap between two presses of one power button, longer than the launcher's key-repeat guard.
+launcher_press_gap_s=0.5
+launcher_ipc_s=1
+
+# name, id, generic name, categories, keywords
+write_launcher_entry() {
+    local dir=$1 id=$2 name=$3 generic=$4 categories=$5 keywords=$6
+    cat > "$dir/$id.desktop" << ENTRY
+[Desktop Entry]
+Type=Application
+Name=$name
+GenericName=$generic
+Categories=$categories
+Keywords=$keywords
+Exec=sh -c "echo launched-$id >> $launcher_launches"
+ENTRY
+}
+
+make_launcher_fixture() {
+    local root=$state_dir/launcher
+    launcher_launches=$root/launches
+    mkdir -p -- "$root/data/applications" "$root/sys/applications" "$root/bin" "$state_dir/run"
+    chmod 700 "$state_dir/run"
+    : > "$launcher_launches"
+    write_launcher_entry "$root/data/applications" firefox Firefox "Web Browser" "Network;WebBrowser;" "browser;"
+    write_launcher_entry "$root/data/applications" firewall-config Firewall "Firewall Configuration" "System;Settings;" "security;"
+    write_launcher_entry "$root/data/applications" thorium Thorium "Web Browser" "Network;" "browser;"
+    write_launcher_entry "$root/data/applications" dolphin Dolphin "File Manager" "System;" "files;"
+    write_launcher_entry "$root/data/applications" kate Kate "Text Editor" "Utility;" ""
+    printf 'NoDisplay=true\n' >> "$root/data/applications/kate.desktop"
+    # The same Dolphin as a system entry, which the launcher must merge into the user's.
+    cp -- "$root/data/applications/dolphin.desktop" "$root/sys/applications/org.kde.dolphin.desktop"
+    # Files are opened through xdg-open, which here only records the call.
+    printf '#!/bin/sh\necho "xdg-open $*" >> "%s"\n' "$launcher_launches" > "$root/bin/xdg-open"
+    chmod +x "$root/bin/xdg-open"
+    launcher_env=(
+        "XDG_RUNTIME_DIR=$state_dir/run"
+        "XDG_DATA_HOME=$root/data"
+        "XDG_DATA_DIRS=$root/sys"
+        "PATH=$root/bin:$PATH"
+        "DBUS_SYSTEM_BUS_ADDRESS=$no_session_bus"
+        "GHOST_DEBUG=1"
+    )
+}
+
+launcher_ipc() {
+    env "XDG_RUNTIME_DIR=$state_dir/run" qs ipc --pid "$shell_pid" call launcher "$@" > /dev/null \
+        || { echo "smoke: FAIL (qs ipc launcher $* failed; see $shell_log)" >&2; exit 1; }
+    sleep "$launcher_ipc_s"
+}
+
+launcher_count() {
+    grep -c -- "$1" "$shell_log" || true
+}
+
+launcher_expect() {
+    if [[ $2 != "$3" ]]; then
+        echo "smoke: FAIL (launcher: $1: expected $3, got $2; see $shell_log)" >&2
+        exit 1
+    fi
+}
+
+run_launcher_phase() {
+    launcher_ipc toggle
+    launcher_ipc type fire
+    launcher_ipc key Down
+    launcher_ipc key Return
+    launcher_expect "launched firewall-config logged" "$(launcher_count 'launched firewall-config')" 1
+    launcher_expect "the fake entry's Exec ran" "$(grep -c '^launched-firewall-config$' "$launcher_launches" || true)" 1
+    # The panel closes 140 ms after a launch.
+    launcher_expect "closed after a launch" "$(launcher_count 'launcher closed')" 1
+
+    launcher_ipc toggle
+    launcher_ipc power shutdown
+    sleep "$launcher_press_gap_s"
+    launcher_ipc power shutdown
+    launcher_expect "one shutdown fired" "$(launcher_count 'launcher power shutdown')" 1
+    launcher_expect "closed after a power action" "$(launcher_count 'launcher closed')" 2
+
+    # Two presses with no gap are a key repeat, which must not confirm.
+    launcher_ipc toggle
+    launcher_ipc_s=0 launcher_ipc power restart
+    launcher_ipc power restart
+    launcher_expect "key repeat did not fire" "$(launcher_count 'launcher power restart')" 0
+    launcher_ipc key Escape
+    launcher_expect "Escape closed" "$(launcher_count 'launcher closed')" 3
+    launcher_expect "nothing was dropped or refused" "$(grep -cE 'dropped call|ghostd refused call' "$shell_log" || true)" 0
+    # No want for the recent files outlives the panel.
+    if grep -F 'qml: wants' "$shell_log" | tail -n 1 | grep -q '"recent"'; then
+        echo "smoke: FAIL (launcher: the recent topic is still wanted after close)" >&2
+        exit 1
+    fi
+}
+
 trap cleanup EXIT
 # Turning signals into a plain exit makes bash run the EXIT trap for them too.
 trap 'exit 130' INT
@@ -227,6 +331,9 @@ elif [[ ! -r $config ]]; then
 fi
 
 state_dir=$(mktemp -d -t ghost-smoke-state.XXXXXX)
+if [[ -n $launcher ]]; then
+    make_launcher_fixture
+fi
 # The shell's audio rows and the daemon's spectrum would otherwise read the user's own PipeWire graph,
 # and a held MIC LIVE alert from their record streams would change what the run sees.
 mkdir -- "$state_dir/pipewire"
@@ -240,7 +347,7 @@ owns_socket=1
 : > "$daemon_log"
 start_daemon
 # The greeting would hide the dashboard for its first seconds; GHOST_GREETING=login or auto plays it.
-GHOST_GREETING=${GHOST_GREETING:-off} GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
+env ${launcher_env[@]+"${launcher_env[@]}"} GHOST_GREETING=${GHOST_GREETING:-off} GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
 shell_pid=$!
 
 sleep "$startup_s"
@@ -251,6 +358,10 @@ wait_for_connects "$required_connects"
 sleep "$settle_s"
 if (( ${#actions[@]} > 0 )); then
     send_actions
+fi
+
+if [[ -n $launcher ]]; then
+    run_launcher_phase
 fi
 
 stop shell_pid
