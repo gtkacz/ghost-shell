@@ -89,8 +89,13 @@ Scope {
             WlrLayershell.namespace: root.surfaceNamespace
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
             // The input region is the view's claiming ClickAreas, its tab strips among them, and nothing
-            // else, so every other click passes through to the desktop. This is the one place it is built.
-            mask: Region {
+            // else, so every other click passes through to the desktop. When the cursor motion is
+            // enabled, the window leaves its input region unmasked so it can follow the pointer.
+            mask: Theme.dotMotion.pointer ? null : interactiveMask
+
+            Region {
+                id: interactiveMask
+
                 regions: inputRegions.instances
             }
 
