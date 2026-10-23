@@ -1016,6 +1016,13 @@ The installed `ghostd` and shell (installed at 14:36 from HEAD `a907735`), each 
 - **Covered:** both the installed-build runs and `scripts/measure-covered.sh 60` (three kept runs, repo build) read 0.04–0.05 % at 0 frames. The daemon's GeoIP mappings went from 2 before the cover to 0. Its read syscalls fell to exactly 240 a minute, the 1 Hz topics the covered shell keeps, against about 490 a second with V1 visible. This suggests no system-bus traffic for `uplink`, `net.links`, `disks.health` or `batteries`, but it is not proof: the bus itself was not captured.
 - Shell Rss here (171–210 MB) is below the live service's, which holds more NVIDIA chunks; the live figure is not part of this reading.
 
+### Plan 2c: the greeting (login, unlock, wake)
+
+- **First frame**, from the shell's start to the overlay's first swapped frame, headless KWin at 2560×1440 (`make smoke-greeting`): 226–287 ms with a real `ghostd`, once 469 ms at load average ≈ 10; 175 ms with no daemon.
+- **Idle CPU:** 1.00–1.05 %, unchanged from before the plan.
+- **Shell Rss:** +0.5–1.1 MiB with the greeting off (`GHOST_GREETING=off`); 10 s after a greeting has played, +1.3 MiB, within the run-to-run spread.
+- **Locked session** (installed build, HEAD `f5ad921`, live desktop, 2026-10-23 10:51, `measure-cpu.sh` on both processes for 60 s from 5 s after the lock): shell **0.02 %**, `ghostd` **0.03 %**; Rss 149 092 + 34 556 KiB. The overlay rests under the lock and nothing ticks, well inside the covered budget (≤ 0.50 %). 15 s after the unlock: shell 0.02 %, `ghostd` 0.00 %; what covered the screen then was not recorded.
+
 ## License
 
 Copyright (C) 2026 Gabriel Mitelman Tkacz

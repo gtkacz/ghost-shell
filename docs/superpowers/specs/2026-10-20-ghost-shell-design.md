@@ -252,7 +252,8 @@ The greeting plays on **login, unlock, and wake from sleep**. Timings are from t
    - a block cursor in the signal colour;
    - each character **burns in** bright white and settles over 0.55 s;
    - the name is in the signal colour.
-4. The subtitle types: `おかえりなさい · SESSION nnnn · N NEW SIGNALS`.
+4. The subtitle types: `おかえりなさい · SESSION nnnn`. Only the kana are drawn in the CJK face; the rest is in the UI font. With Japanese off, the kana and their separator are left out.
+   - **[call, plan 2c]** `· N NEW SIGNALS` is left out until notifications exist (Plan 3).
 5. While it holds (~1.5 s), a faint refresh band rolls down the screen.
 6. **One downward scan pass** (~0.8 s, 30 steps) erases the greeting and prints the bar and desktop behind the line.
 
@@ -263,6 +264,9 @@ Rules:
 - **Over windows:** on unlock and after a login that restores windows, the greeting plays **full-screen over the open windows**, and the final scan pass **reveals them as they were**. It doesn't clear them away. If no windows are open, the pass reveals the dashboard. It has to be on screen before the lock screen goes away, so the windows never flash in first.
 - **[call]** The name is configurable and defaults to the login name.
 - The cursor's blink defines the alert blink in §5.4.
+- **[call, plan 2c]** The login greeting plays once per login: a marker in `$XDG_RUNTIME_DIR` stops a restart of the shell from playing it again.
+- **[call, plan 2c]** When the session locks, the overlay is mapped at once and rests on the ground and the dots under the lock screen, taking no keyboard. The unlock starts the greeting from that frame, so no window is ever shown first. If a lock or sleep cuts a greeting short, the overlay is created again in its resting frame.
+- **[call, plan 2c]** The overlay's layer namespace is `utility`: KWin fades other layer types in on their first paint after the unlock, which would show the windows (`docs/superpowers/notes/2026-10-22-greeting-handoff-spike.md`).
 
 ## 8. Top bar and optional dock
 
