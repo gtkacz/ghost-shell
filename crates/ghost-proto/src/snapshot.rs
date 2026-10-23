@@ -167,6 +167,12 @@ pub struct DesktopSnapshot {
     pub action: Option<ViewAction>,
     /// Counts accepted actions, so pressing the same shortcut twice is two changes.
     pub action_seq: u64,
+    /// Counts launcher toggles, which happen whatever has focus.
+    pub launcher_seq: u64,
+    /// The pinned app (0-based) that the latest task shortcut asked for.
+    pub task: Option<u8>,
+    /// Counts task presses, so pressing the same one twice is two changes.
+    pub task_seq: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

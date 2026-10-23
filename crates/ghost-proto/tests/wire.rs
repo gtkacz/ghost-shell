@@ -93,11 +93,14 @@ fn desktop_snapshot_wire_form() {
         active: true,
         action: Some(ViewAction::Monitor),
         action_seq: 1,
+        launcher_seq: 2,
+        task: Some(0),
+        task_seq: 3,
     };
 
     assert_eq!(
         serde_json::to_string(&snapshot).unwrap(),
-        r#"{"covered_outputs":["DP-1"],"active":true,"action":"monitor","action_seq":1}"#
+        r#"{"covered_outputs":["DP-1"],"active":true,"action":"monitor","action_seq":1,"launcher_seq":2,"task":0,"task_seq":3}"#
     );
     assert_eq!(
         serde_json::to_value(DesktopSnapshot::default()).unwrap()["action"],

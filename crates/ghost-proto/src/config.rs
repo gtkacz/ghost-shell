@@ -337,6 +337,8 @@ pub struct I18n {
 pub struct Shortcuts {
     pub monitor: String,
     pub swap: String,
+    /// Open the launcher.
+    pub launcher: String,
     /// Focus the nth running app, counted from 1.
     pub tasks: Vec<String>,
 }
@@ -349,6 +351,7 @@ impl Default for Shortcuts {
         Self {
             monitor: "Meta+M".into(),
             swap: "Meta+Shift+M".into(),
+            launcher: "Meta".into(),
             tasks: (1..=DEFAULT_TASK_SHORTCUTS)
                 .map(|digit| format!("Meta+{digit}"))
                 .collect(),

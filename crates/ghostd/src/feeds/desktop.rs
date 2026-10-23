@@ -24,6 +24,7 @@ const OUTPUT_SEPARATOR: char = ',';
 /// pressed shortcut can be passed on as it is.
 pub(crate) const MONITOR: &str = "monitor";
 pub(crate) const SWAP: &str = "swap";
+pub(crate) const LAUNCHER: &str = "launcher";
 
 #[derive(Debug, Default)]
 pub struct DesktopState {
@@ -60,6 +61,19 @@ impl DesktopState {
         true
     }
 
+    /// Counts a launcher toggle, which needs no focus: the bar's launcher button works over windows.
+    pub fn toggle_launcher(&mut self) -> bool {
+        self.snapshot.launcher_seq += 1;
+        true
+    }
+
+    /// Passes on a task shortcut whatever has focus, since the bar shows over windows too.
+    pub fn press_task(&mut self, index: u8) -> bool {
+        self.snapshot.task = Some(index);
+        self.snapshot.task_seq += 1;
+        true
+    }
+
     pub fn snapshot(&self) -> DesktopSnapshot {
         self.snapshot.clone()
     }
@@ -88,7 +102,11 @@ impl DesktopService {
         }
     }
 
-    /// Goes back to no covered outputs and no focus. The action count stays, since clients compare
+    pub fn press_task(&self, index: u8) {
+        self.update(|state| state.press_task(index));
+    }
+
+    /// Goes back to no covered outputs and no focus. The counts stay, since clients compare
     /// against it.
     fn reset(&self) {
         self.update(|state| state.report(Vec::new(), false));
@@ -107,6 +125,11 @@ impl DesktopService {
             .map(str::to_owned)
             .collect();
         self.update(|state| state.report(covered_outputs, active));
+    }
+
+    /// Opens or closes the launcher, whatever has focus.
+    pub fn toggle_launcher(&self) {
+        self.update(DesktopState::toggle_launcher);
     }
 
     /// Asks for the `monitor` or `swap` view, which happens only while the desktop has focus.

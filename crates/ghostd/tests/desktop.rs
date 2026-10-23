@@ -192,6 +192,7 @@ async fn the_desktop_resets_when_kwin_leaves_the_bus() {
             active: false,
             action: Some(ViewAction::Monitor),
             action_seq: 1,
+            ..DesktopSnapshot::default()
         }
     );
 }
@@ -261,6 +262,7 @@ async fn kwin_replaced_in_place_is_not_a_departure() {
             active: true,
             action: Some(ViewAction::Monitor),
             action_seq: 1,
+            ..DesktopSnapshot::default()
         }
     );
 }
@@ -285,6 +287,7 @@ async fn a_one_shot_reporter_leaving_does_not_reset_the_desktop() {
             active: true,
             action: Some(ViewAction::Monitor),
             action_seq: 1,
+            ..DesktopSnapshot::default()
         }
     );
 }
@@ -464,4 +467,31 @@ async fn fake_mode_never_reloads() {
         RunningDesktop::start_with(&bus, Registration::default(), ScriptReload::Skip).await;
 
     assert_no_more_calls(&mut calls).await;
+}
+
+#[test]
+fn task_presses_count_over_a_window() {
+    let mut state = DesktopState::default();
+    state.report(outputs(&["DP-1"]), false);
+
+    assert!(state.press_task(4));
+    assert!(state.press_task(4));
+    let snapshot = state.snapshot();
+    assert_eq!(snapshot.task, Some(4));
+    assert_eq!(snapshot.task_seq, 2);
+}
+
+#[tokio::test]
+async fn toggle_launcher_counts_even_over_a_window() {
+    let bus = PrivateBus::start();
+    let mut desktop = RunningDesktop::start(&bus, Registration::default()).await;
+    let caller = bus.connect().await;
+
+    call_desktop(&caller, "ToggleLauncher", &()).await;
+    call_desktop(&caller, "ToggleLauncher", &()).await;
+
+    let snapshot = desktop.next_snapshot().await;
+    assert!(!snapshot.active);
+    assert_eq!(snapshot.launcher_seq, 1);
+    assert_eq!(desktop.next_snapshot().await.launcher_seq, 2);
 }

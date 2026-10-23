@@ -473,6 +473,22 @@ fn the_two_shortcuts_must_differ() {
 }
 
 #[test]
+fn the_launcher_key_must_not_be_shared() {
+    assert_eq!(
+        load_str_with_user("[shortcuts]\nlauncher = \"Meta+M\"\n", "u")
+            .unwrap_err()
+            .message,
+        "shortcuts.launcher: \"Meta+M\" is the same key as shortcuts.monitor"
+    );
+    assert_eq!(
+        load_str_with_user("[shortcuts]\ntasks = [\"Meta\"]\n", "u")
+            .unwrap_err()
+            .message,
+        "shortcuts.tasks[0]: \"Meta\" is the same key as shortcuts.launcher"
+    );
+}
+
+#[test]
 fn default_shortcuts_parse() {
     assert!(load_str_with_user("", "u").is_ok());
 }

@@ -15,8 +15,9 @@ use zbus::fdo::{self, NameOwnerChanged};
 use zbus::proxy::CacheProperties;
 use zbus::{Connection, MatchRule, Message, MessageStream, message, proxy};
 
-use super::desktop::{DesktopService, MONITOR, SWAP};
+use super::desktop::{DesktopService, LAUNCHER, MONITOR, SWAP};
 use super::next;
+use crate::config::MAX_TASK_SHORTCUTS;
 use crate::keyseq;
 
 const KGLOBALACCEL: &str = "org.kde.kglobalaccel";
@@ -27,6 +28,8 @@ const COMPONENT_INTERFACE: &str = "org.kde.kglobalaccel.Component";
 const PRESSED_SIGNAL: &str = "globalShortcutPressed";
 const MONITOR_ID: [&str; 4] = [COMPONENT, MONITOR, COMPONENT, "Toggle the monitor view"];
 const SWAP_ID: [&str; 4] = [COMPONENT, SWAP, COMPONENT, "Next main view"];
+const LAUNCHER_ID: [&str; 4] = [COMPONENT, LAUNCHER, COMPONENT, "Open the launcher"];
+const TASK_PREFIX: &str = "task-";
 // `SetShortcutFlag` in kglobalaccel 6.31's src/kglobalaccel_p.h.
 const SET_PRESENT: u32 = 2;
 const NO_AUTOLOADING: u32 = 4;
@@ -35,6 +38,29 @@ const MATCH_EQUAL: i32 = 0;
 // A Qt key sequence holds four keys, and KGlobalAccel's own client always sends all four.
 const NO_KEY: i32 = 0;
 const RELEASE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// The id of the shortcut that focuses the nth pinned app, counted from 1.
+struct TaskId {
+    action: String,
+    label: String,
+}
+
+impl TaskId {
+    fn new(number: usize) -> Self {
+        Self {
+            action: format!("{TASK_PREFIX}{number}"),
+            label: format!("Activate pinned app {number}"),
+        }
+    }
+
+    fn all() -> impl Iterator<Item = Self> {
+        (1..=MAX_TASK_SHORTCUTS).map(Self::new)
+    }
+
+    fn as_ids(&self) -> [&str; 4] {
+        [COMPONENT, &self.action, COMPONENT, &self.label]
+    }
+}
 
 /// An action that holds a key: its id and name, its component's, its context's, then its keys and
 /// default keys.
@@ -128,7 +154,12 @@ impl Registration {
                 return;
             }
         };
-        for action_id in [MONITOR_ID, SWAP_ID] {
+        let tasks: Vec<TaskId> = TaskId::all().collect();
+        let task_ids = tasks.iter().map(TaskId::as_ids);
+        for action_id in [MONITOR_ID, SWAP_ID, LAUNCHER_ID]
+            .into_iter()
+            .chain(task_ids)
+        {
             if let Err(error) = kglobalaccel.set_inactive(&action_id).await {
                 warn!(%error, "cannot release the {} shortcut", action_id[1]);
             }
@@ -242,7 +273,16 @@ async fn register(
     shortcuts: &Shortcuts,
     registration: &Registration,
 ) -> zbus::Result<()> {
-    for (action_id, sequence) in [(MONITOR_ID, &shortcuts.monitor), (SWAP_ID, &shortcuts.swap)] {
+    let tasks: Vec<TaskId> = TaskId::all().collect();
+    let configured_tasks = shortcuts.tasks.iter().zip(&tasks);
+    let held = [
+        (MONITOR_ID, &shortcuts.monitor),
+        (SWAP_ID, &shortcuts.swap),
+        (LAUNCHER_ID, &shortcuts.launcher),
+    ]
+    .into_iter()
+    .chain(configured_tasks.map(|(sequence, task)| (task.as_ids(), sequence)));
+    for (action_id, sequence) in held {
         // Loading the config already rejected sequences that do not parse.
         let key = match keyseq::parse(sequence) {
             Ok(key) => key,
@@ -259,6 +299,12 @@ async fn register(
         registration.mark();
         warn_if_shared(kglobalaccel, sequence, keys).await;
     }
+    // A shortened list must give the keys of its dropped entries back.
+    for task in tasks.iter().skip(shortcuts.tasks.len()) {
+        if let Err(error) = kglobalaccel.set_inactive(&task.as_ids()).await {
+            warn!(%error, "cannot free the {} shortcut", task.action);
+        }
+    }
     Ok(())
 }
 
@@ -274,9 +320,10 @@ async fn warn_if_shared(kglobalaccel: &KGlobalAccelProxy<'_>, sequence: &str, ke
                 .iter()
                 .filter(|(_, _, component, ..)| component != COMPONENT)
             {
+                // Until the Plasma panel is retired, plasmashell holds a lone Meta for its launcher.
                 warn!(
                     "{sequence} is also bound to {component}'s {action:?}; pressing it may run \
-                     that instead of the ghost-shell view"
+                     that instead of the ghost-shell action"
                 );
             }
         }
@@ -284,11 +331,24 @@ async fn warn_if_shared(kglobalaccel: &KGlobalAccelProxy<'_>, sequence: &str, ke
     }
 }
 
+/// The 0-based index of the pinned app that a `task-N` shortcut stands for.
+fn task_index(shortcut: &str) -> Option<u8> {
+    let number: u8 = shortcut.strip_prefix(TASK_PREFIX)?.parse().ok()?;
+    number.checked_sub(1)
+}
+
 fn activate(desktop: &DesktopService, press: zbus::Result<Message>) {
     let activated = press.and_then(|press| {
         let body = press.body();
         let (_component, shortcut, _timestamp): (&str, &str, i64) = body.deserialize()?;
-        Ok(desktop.activate(shortcut)?)
+        match shortcut {
+            LAUNCHER => desktop.toggle_launcher(),
+            _ => match task_index(shortcut) {
+                Some(index) => desktop.press_task(index),
+                None => desktop.activate(shortcut)?,
+            },
+        }
+        Ok(())
     });
     if let Err(error) = activated {
         warn!(%error, "cannot act on a pressed shortcut");

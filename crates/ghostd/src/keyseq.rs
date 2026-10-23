@@ -17,6 +17,8 @@ const NAMED_KEYS: [(&str, i32); 4] = [
     ("return", 0x0100_0004),
     ("escape", 0x0100_0000),
 ];
+// Qt::Key_Meta, which is what KGlobalAccel stores for a bare Meta press.
+const KEY_META: i32 = 0x0100_0022;
 const FUNCTION_KEY_PREFIX: [char; 2] = ['f', 'F'];
 const LEADING_ZERO: char = '0';
 const FUNCTION_KEY_COUNT: i32 = 24;
@@ -32,8 +34,12 @@ pub enum KeySeqError {
 }
 
 /// Parses one combination such as `Meta+Shift+M`: modifiers joined by `+`, then exactly one key.
-/// Names may be in any case, and only F1 to F24 may go without Meta, Ctrl or Alt.
+/// Names may be in any case, and only F1 to F24 and a lone Meta may go without Meta, Ctrl or Alt.
 pub fn parse(s: &str) -> Result<i32, KeySeqError> {
+    // The one key that works on its own: it is a modifier no app types with.
+    if s.eq_ignore_ascii_case("meta") {
+        return Ok(KEY_META);
+    }
     let mut names = s.split(SEPARATOR).rev();
     let key = names.next().and_then(key_code);
     let modifiers = names.try_fold(NO_MODIFIERS, |all, name| Some(all | modifier_bit(name)?));
@@ -89,6 +95,14 @@ mod tests {
         assert_eq!(parse("ctrl+alt+f12").unwrap(), 0x0D00_003B);
         assert_eq!(parse("F5").unwrap(), 0x0100_0034);
         assert_eq!(parse("Meta+Space").unwrap(), 0x1000_0020);
+    }
+
+    #[test]
+    fn bare_meta_parses_as_the_meta_key() {
+        assert_eq!(parse("Meta").unwrap(), 0x0100_0022);
+        assert_eq!(parse("meta").unwrap(), 0x0100_0022);
+        assert!(parse("Meta+").is_err());
+        assert!(parse("Meta+Meta").is_err());
     }
 
     #[test]
