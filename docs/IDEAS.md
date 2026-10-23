@@ -9,3 +9,4 @@
 - Volume controller on the media widget's OUT/IN meters (drag or scroll to set the level) instead of the whole row toggling mute
 - Network speed test
 - Trash icon/Clear trash
+- Launcher styles `panes` (two panes, Kickoff-like) and `console` (centred prompt over a dimmed backdrop) as other values of `launcher.style`, directions B and C in `docs/superpowers/specs/mockups/2026-10-22-ghost-shell-launcher-directions.html`
