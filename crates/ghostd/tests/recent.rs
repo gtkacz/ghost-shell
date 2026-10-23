@@ -315,3 +315,26 @@ async fn no_watch_while_unwanted() {
         }]
     );
 }
+
+#[tokio::test]
+async fn an_oversize_xbel_publishes_an_empty_list() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("docs/a.txt");
+    sandbox.write_xbel(&[url(&file)]);
+    let oversize = fs::OpenOptions::new()
+        .write(true)
+        .open(sandbox.xbel())
+        .unwrap();
+    oversize.set_len(17 * 1024 * 1024).unwrap();
+
+    assert_eq!(listed(&sandbox).await, RecentFiles::default());
+}
+
+#[tokio::test]
+async fn urls_naming_a_host_are_skipped() {
+    let sandbox = Sandbox::new();
+    let kept = sandbox.file("docs/kept.txt");
+    sandbox.write_xbel(&[("file://host/docs/kept.txt".to_owned(), 30), at(&kept, 1)]);
+
+    assert_eq!(names(&listed(&sandbox).await), ["kept.txt"]);
+}

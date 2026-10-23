@@ -4,8 +4,9 @@
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
-use std::fs;
+use std::fs::File;
 use std::future::pending;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -25,6 +26,8 @@ use crate::server::{Feed, FeedContext, Publisher};
 /// How long the file must stay quiet before it is read again; GLib writes it in several steps.
 const DEBOUNCE: Duration = Duration::from_millis(250);
 const SHOWN: usize = 5;
+// A real list is a few hundred KiB; the cap only stops a runaway file from filling memory.
+const MAX_XBEL_BYTES: u64 = 16 * 1024 * 1024;
 const XBEL_FILE: &str = "recently-used.xbel";
 const DATA_HOME_SUBDIR: &str = ".local/share";
 const XDG_DATA_HOME_ENV: &str = "XDG_DATA_HOME";
@@ -116,7 +119,7 @@ async fn watch(xbel: &Path, home: &Path, publisher: Publisher) {
 
 /// The newest existing files of the xbel; an unreadable or malformed file lists none.
 fn read(xbel: &Path, home: &Path) -> RecentFiles {
-    let Ok(text) = fs::read_to_string(xbel) else {
+    let Some(text) = read_capped(xbel) else {
         return RecentFiles::default();
     };
     let bookmarks = parse(&text).unwrap_or_else(|error| {
@@ -155,7 +158,9 @@ fn parse(text: &str) -> quick_xml::Result<Vec<(PathBuf, u64)>> {
 fn file_path(href: &str) -> Option<PathBuf> {
     let encoded = href.strip_prefix(FILE_URL_PREFIX)?;
     let decoded = percent_decode_str(encoded).decode_utf8().ok()?;
-    Some(PathBuf::from(decoded.into_owned()))
+    // `file://host/path` decodes to a relative path, which would resolve against the daemon's cwd.
+    let path = PathBuf::from(decoded.into_owned());
+    path.is_absolute().then_some(path)
 }
 
 fn seconds(timestamp: &str) -> u64 {
@@ -201,4 +206,24 @@ fn shorten(dir: &Path, home: &Path) -> String {
         Ok(rest) => format!("{HOME_SHORTHAND}/{}", rest.display()),
         Err(_) => dir.to_string_lossy().into_owned(),
     }
+}
+
+/// The xbel's text, or `None` when it is unreadable or larger than [`MAX_XBEL_BYTES`].
+fn read_capped(xbel: &Path) -> Option<String> {
+    let file = File::open(xbel).ok()?;
+    let size = file.metadata().ok()?.len();
+    if size > MAX_XBEL_BYTES {
+        warn!(size, "the recent files list is too large; showing none");
+        return None;
+    }
+    // Bounded again because the file may grow between the stat and the read.
+    let mut text = String::new();
+    file.take(MAX_XBEL_BYTES + 1)
+        .read_to_string(&mut text)
+        .ok()?;
+    if u64::try_from(text.len()).ok()? > MAX_XBEL_BYTES {
+        warn!("the recent files list grew past the limit; showing none");
+        return None;
+    }
+    Some(text)
 }
