@@ -7,6 +7,7 @@ singleton FirstWrite 1.0 FirstWrite.qml
 singleton AlertAttention 1.0 AlertAttention.qml
 singleton Views 1.0 Views.qml
 singleton Tasks 1.0 Tasks.qml
+singleton TrayRules 1.0 TrayRules.qml
 DotGrid 1.0 DotGrid.qml
 Scanlines 1.0 Scanlines.qml
 Panel 1.0 Panel.qml

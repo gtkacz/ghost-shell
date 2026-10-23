@@ -13,11 +13,6 @@ shell_error_pattern='ReferenceError|TypeError|is not defined|Cannot assign|Error
 # context it cannot connect, and a run without a desktop portal logs a host-portal line from Qt.
 benign_lines='ERROR quickshell\.service\.pipewire\.loop: Failed to connect pipewire context|qt\.qpa\.services.*host portal'
 
-# The bar presets name widgets that later tasks add; until the last of them lands, the daemon reports each as missing and
-# the shell shows a mark for it.
-pending_bar_widgets='ghostd config problem: layout\.(bar\.[a-z]+\[[0-9]+\]|dock\[[0-9]+\]): no widget named "(status|tray|ticker)" is installed'
-benign_lines+="|$pending_bar_widgets"
-
 # The two test fixtures exist to show that a broken widget and a missing one are reported, so their
 # lines never count as errors, and a layout that names a fixture must produce its line.
 declare -A fixture_lines=(
