@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::{BarLayoutSpec, BarSlotSpec};
+
 /// Every section merges field by field, so a user file only names what it changes.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -19,6 +21,7 @@ pub struct ResolvedConfig {
     pub location: Location,
     pub i18n: I18n,
     pub shortcuts: Shortcuts,
+    pub launcher: Launcher,
     pub notifications: Notifications,
     pub network: Network,
     pub uplink: Uplink,
@@ -334,15 +337,50 @@ pub struct I18n {
 pub struct Shortcuts {
     pub monitor: String,
     pub swap: String,
+    /// Focus the nth running app, counted from 1.
+    pub tasks: Vec<String>,
 }
+
+// Meta+0 is KWin's view_actual_size, so the defaults stop at 9.
+const DEFAULT_TASK_SHORTCUTS: u32 = 9;
 
 impl Default for Shortcuts {
     fn default() -> Self {
         Self {
             monitor: "Meta+M".into(),
             swap: "Meta+Shift+M".into(),
+            tasks: (1..=DEFAULT_TASK_SHORTCUTS)
+                .map(|digit| format!("Meta+{digit}"))
+                .collect(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(try_from = "String", rename_all = "lowercase")]
+pub enum LauncherStyle {
+    #[default]
+    Drop,
+}
+
+// Names its path, which the derived unknown-variant error does not.
+impl TryFrom<String> for LauncherStyle {
+    type Error = String;
+
+    fn try_from(style: String) -> Result<Self, String> {
+        match style.as_str() {
+            "drop" => Ok(Self::Drop),
+            _ => Err(format!(
+                "launcher.style: {style:?} is not built; only \"drop\" is"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Launcher {
+    pub style: LauncherStyle,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -394,6 +432,10 @@ pub struct LayoutConfig {
     pub margin: f32,
     #[serde(deserialize_with = "crate::node_de::views")]
     pub views: BTreeMap<String, LayoutNode>,
+    /// Replaces the preset the bar layout names.
+    pub bar: Option<BarLayoutSpec>,
+    /// Replaces the dock preset; shown only in bar layout `b`.
+    pub dock: Option<Vec<BarSlotSpec>>,
 }
 
 impl Default for LayoutConfig {
@@ -406,6 +448,8 @@ impl Default for LayoutConfig {
                 ("v2".to_owned(), default_v2()),
                 ("monitor".to_owned(), default_monitor()),
             ]),
+            bar: None,
+            dock: None,
         }
     }
 }

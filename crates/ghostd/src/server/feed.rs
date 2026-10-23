@@ -4,7 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ghost_proto::{LayoutConfig, ResolvedConfig, ResolvedLayout, ServerMsg};
+use ghost_proto::{
+    BarConfig, LayoutConfig, ResolvedBar, ResolvedConfig, ResolvedLayout, ServerMsg,
+};
 use tokio::sync::{mpsc, watch};
 use tokio::task::spawn_blocking;
 use tracing::{error, info, warn};
@@ -126,7 +128,7 @@ impl Reloader {
         // and rescanned instead of falling between the two. A dir that does not exist yet is the
         // exception: it is only picked up by the next config reload.
         widgets.watch(dirs.clone()).await;
-        let layout = resolve_layout(dirs.clone(), &config.layout).await;
+        let layout = resolve_layout(dirs.clone(), &config.layout, &config.bar).await;
         let layout_errors = layout.errors.clone();
         let shared = Shared::new(State::new(
             host,
@@ -161,7 +163,7 @@ impl Reloader {
         // Rebuilt on every reload, because the dir list may have changed or a missing dir may have
         // been created since, and before discovery for the same reason as at start.
         self.widgets.watch(self.dirs.clone()).await;
-        let layout = resolve_layout(self.dirs.clone(), &config.layout).await;
+        let layout = resolve_layout(self.dirs.clone(), &config.layout, &config.bar).await;
         self.config_error = None;
         self.layout_errors = layout.errors.clone();
         self.shared
@@ -174,7 +176,7 @@ impl Reloader {
     }
 
     async fn rescan_widgets(&mut self) {
-        let layout = resolve_layout(self.dirs.clone(), &self.config.layout).await;
+        let layout = resolve_layout(self.dirs.clone(), &self.config.layout, &self.config.bar).await;
         self.layout_errors = layout.errors.clone();
         self.shared.lock().set_layout(layout_lines(layout));
     }
@@ -247,11 +249,16 @@ fn layout_lines(layout: ResolvedLayout) -> LayoutLines {
 
 /// Discovers the widgets in `dirs` anew and checks `layout` against them, on a blocking thread
 /// because the dirs are user-configured and may sit on a slow mount.
-async fn resolve_layout(dirs: Vec<PathBuf>, layout: &LayoutConfig) -> ResolvedLayout {
+async fn resolve_layout(
+    dirs: Vec<PathBuf>,
+    layout: &LayoutConfig,
+    bar: &BarConfig,
+) -> ResolvedLayout {
     let wanted = layout.clone();
+    let wanted_bar = bar.clone();
     let resolved = spawn_blocking(move || {
         let (manifests, problems) = discover(&dirs);
-        let mut resolved = resolve(&wanted, &manifests);
+        let mut resolved = resolve(&wanted, &wanted_bar, &manifests);
         resolved.errors.extend(problems);
         resolved
     })
@@ -262,6 +269,7 @@ async fn resolve_layout(dirs: Vec<PathBuf>, layout: &LayoutConfig) -> ResolvedLa
             gutter: layout.gutter,
             margin: layout.margin,
             views: BTreeMap::new(),
+            bar: ResolvedBar::default(),
             errors: vec![format!("widget discovery failed: {error}")],
         }
     })

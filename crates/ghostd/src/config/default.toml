@@ -160,6 +160,13 @@ to = ""
 # Toggle the monitor view, and move to the next main view.
 monitor = "Meta+M"
 swap = "Meta+Shift+M"
+# Focus the nth running app in the bar. At most 10 entries, none
+# sharing a key with another shortcut. Meta+0 belongs to KWin, so the default stops at 9.
+tasks = ["Meta+1", "Meta+2", "Meta+3", "Meta+4", "Meta+5", "Meta+6", "Meta+7", "Meta+8", "Meta+9"]
+
+[launcher]
+# How the launcher opens; only "drop" is built so far.
+style = "drop"
 
 [notifications]
 # How many past notifications are kept, and how long a popup stays up in seconds.
@@ -195,6 +202,19 @@ geoip_dir = ""
 [layout]
 gutter = 12
 margin = 12
+
+# The bar's widgets, left to right in three groups. Without [layout.bar] the preset for
+# bar.layout is used (this is preset "a"); `layout.dock`, an array of the same tables, replaces
+# the dock that layout "b" shows. Only widgets that declare the "bar" kind fit here.
+# [layout.bar]
+# left = [{ widget = "brand" }, { widget = "tasks", settings = { style = "icons" } }]
+# centre = []
+# right = [
+#     { widget = "status", settings = { parts = ["cpu", "net", "vpn", "weather"] } },
+#     { widget = "tray" },
+#     { widget = "view-chip" },
+#     { widget = "bar-clock" },
+# ]
 
 # The view the dashboard starts on: a large clock over the media player and the notifications,
 # between a column of processor, graphics and memory and one of tabs (uplink and silicon) over the

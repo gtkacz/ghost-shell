@@ -6,8 +6,8 @@ use std::path::Path;
 use std::{env, fs};
 
 use ghost_proto::{
-    Direction, LayoutConfig, LayoutNode, ResolvedLayout, ResolvedNode, ResolvedSlot, ServerMsg,
-    TabSpec,
+    BarConfig, BarLayoutSpec, Direction, LayoutConfig, LayoutNode, ResolvedLayout, ResolvedNode,
+    ResolvedSlot, ServerMsg, TabSpec,
 };
 use ghostd::config::default_path;
 use ghostd::widgets::{default_dirs, discover, resolve};
@@ -57,6 +57,7 @@ fn install(dir: &Path, folder: &str, manifest: &str) {
 fn named_view(name: &str, node: LayoutNode) -> LayoutConfig {
     LayoutConfig {
         views: BTreeMap::from([(name.to_owned(), node)]),
+        bar: Some(BarLayoutSpec::default()),
         ..LayoutConfig::default()
     }
 }
@@ -68,7 +69,7 @@ fn resolve_named(specs: &[Spec], name: &str, node: LayoutNode) -> ResolvedLayout
     }
     let (manifests, problems) = discover(&[dir.path().to_path_buf()]);
     assert!(problems.is_empty(), "{problems:?}");
-    resolve(&named_view(name, node), &manifests)
+    resolve(&named_view(name, node), &BarConfig::default(), &manifests)
 }
 
 fn resolve_with(specs: &[Spec], node: LayoutNode) -> ResolvedLayout {
@@ -282,7 +283,11 @@ fn user_dir_overrides_builtin() {
     install(&user, "graphics", &graphics);
 
     let (manifests, problems) = discover(&[builtin, user.clone()]);
-    let layout = resolve(&named_view(VIEW, slot("graphics")), &manifests);
+    let layout = resolve(
+        &named_view(VIEW, slot("graphics")),
+        &BarConfig::default(),
+        &manifests,
+    );
 
     assert!(problems.is_empty(), "{problems:?}");
     assert_eq!(

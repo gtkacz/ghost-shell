@@ -1,9 +1,11 @@
+mod bar;
 mod config;
 mod layout;
 mod msg;
 mod node_de;
 mod snapshot;
 
+pub use bar::*;
 pub use config::*;
 pub use layout::*;
 pub use msg::*;

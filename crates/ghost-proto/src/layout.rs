@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::Direction;
+use crate::{Direction, ResolvedBar};
 
 /// The configured layout trees checked against the installed widgets.
 ///
@@ -14,6 +14,7 @@ pub struct ResolvedLayout {
     pub gutter: f32,
     pub margin: f32,
     pub views: BTreeMap<String, ResolvedNode>,
+    pub bar: ResolvedBar,
     pub errors: Vec<String>,
 }
 

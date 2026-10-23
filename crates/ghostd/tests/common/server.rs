@@ -28,7 +28,8 @@ pub fn single_widget_config(widget: &str, panel_fill: u32) -> String {
         .iter()
         .map(|view| format!("\n[layout.views.{view}]\nwidget = {widget:?}\n"))
         .collect();
-    format!("[appearance]\npanel_fill = {panel_fill}\n{views}")
+    // An empty bar, so the preset's widgets, which these tests never install, raise no problems.
+    format!("[appearance]\npanel_fill = {panel_fill}\n[layout.bar]\n{views}")
 }
 
 /// Only the providers the config lists, without the one `location.alerts` would add, so that no

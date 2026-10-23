@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use ghost_proto::{
-    LayoutConfig, LayoutNode, ResolvedLayout, ResolvedNode, ResolvedSlot, ResolvedTab, TabSpec,
+    BarConfig, BarLayout, BarSlotSpec, LayoutConfig, LayoutNode, ResolvedBar, ResolvedLayout,
+    ResolvedNode, ResolvedSlot, ResolvedTab, TabSpec, bar_preset, dock_preset,
 };
 use serde_json::{Map, Value};
 
@@ -12,7 +13,11 @@ use crate::config::is_hex_colour;
 ///
 /// Never fails: each problem lands on the slot that caused it and in [`ResolvedLayout::errors`],
 /// so one bad slot does not stop the rest of the dashboard from loading.
-pub fn resolve(layout: &LayoutConfig, manifests: &BTreeMap<String, Manifest>) -> ResolvedLayout {
+pub fn resolve(
+    layout: &LayoutConfig,
+    bar: &BarConfig,
+    manifests: &BTreeMap<String, Manifest>,
+) -> ResolvedLayout {
     let mut resolver = Resolver {
         manifests,
         errors: Vec::new(),
@@ -22,10 +27,22 @@ pub fn resolve(layout: &LayoutConfig, manifests: &BTreeMap<String, Manifest>) ->
         .iter()
         .map(|(name, node)| (name.clone(), resolver.node(&format!("layout.{name}"), node)))
         .collect();
+    let spec = layout.bar.clone().unwrap_or_else(|| bar_preset(bar.layout));
+    let dock = match bar.layout {
+        BarLayout::B => layout.dock.clone().unwrap_or_else(dock_preset),
+        BarLayout::A | BarLayout::C => Vec::new(),
+    };
+    let bar = ResolvedBar {
+        left: resolver.bar_slots("layout.bar.left", &spec.left),
+        centre: resolver.bar_slots("layout.bar.centre", &spec.centre),
+        right: resolver.bar_slots("layout.bar.right", &spec.right),
+        dock: resolver.bar_slots("layout.dock", &dock),
+    };
     ResolvedLayout {
         gutter: layout.gutter,
         margin: layout.margin,
         views,
+        bar,
         errors: resolver.errors,
     }
 }
@@ -42,7 +59,7 @@ impl Resolver<'_> {
                 widget,
                 size,
                 settings,
-            } => ResolvedNode::Slot(self.slot(path, widget, *size, settings)),
+            } => ResolvedNode::Slot(self.slot(path, Kind::Panel, widget, *size, settings)),
             LayoutNode::Split {
                 direction,
                 size,
@@ -74,8 +91,24 @@ impl Resolver<'_> {
         }
     }
 
+    fn bar_slots(&mut self, path: &str, slots: &[BarSlotSpec]) -> Vec<ResolvedSlot> {
+        slots
+            .iter()
+            .enumerate()
+            .map(|(index, spec)| {
+                self.slot(
+                    &format!("{path}[{index}]"),
+                    Kind::Bar,
+                    &spec.widget,
+                    None,
+                    &spec.settings,
+                )
+            })
+            .collect()
+    }
+
     fn tab(&mut self, path: &str, tab: &TabSpec) -> ResolvedTab {
-        let slot = self.slot(path, &tab.widget, None, &tab.settings);
+        let slot = self.slot(path, Kind::Panel, &tab.widget, None, &tab.settings);
         let title = tab
             .title
             .clone()
@@ -93,12 +126,13 @@ impl Resolver<'_> {
     fn slot(
         &mut self,
         path: &str,
+        kind: Kind,
         widget: &str,
         size: Option<f32>,
         overrides: &Map<String, Value>,
     ) -> ResolvedSlot {
         let slot = match self.manifests.get(widget) {
-            Some(manifest) => installed_slot(manifest, size, overrides),
+            Some(manifest) => installed_slot(manifest, kind, size, overrides),
             None => ResolvedSlot {
                 widget: widget.to_owned(),
                 source: None,
@@ -118,6 +152,7 @@ impl Resolver<'_> {
 
 fn installed_slot(
     manifest: &Manifest,
+    kind: Kind,
     size: Option<f32>,
     overrides: &Map<String, Value>,
 ) -> ResolvedSlot {
@@ -126,7 +161,7 @@ fn installed_slot(
         .iter()
         .map(|(key, setting)| (key.clone(), setting.default.clone()))
         .collect();
-    let error = check(manifest, overrides).err();
+    let error = check(manifest, kind, overrides).err();
     // Overrides that failed the check stay out, so the slot never carries a value of the wrong type.
     if error.is_none() {
         settings.extend(overrides.clone());
@@ -143,7 +178,7 @@ fn installed_slot(
 }
 
 /// Reports only the first failure, so a slot never shows more than one error card message.
-fn check(manifest: &Manifest, overrides: &Map<String, Value>) -> Result<(), String> {
+fn check(manifest: &Manifest, kind: Kind, overrides: &Map<String, Value>) -> Result<(), String> {
     let id = &manifest.id;
     if manifest.api != WIDGET_API {
         return Err(format!(
@@ -151,9 +186,12 @@ fn check(manifest: &Manifest, overrides: &Map<String, Value>) -> Result<(), Stri
             manifest.api
         ));
     }
-    // Every slot in a layout view is a panel slot.
-    if !manifest.kinds.contains(&Kind::Panel) {
-        return Err(format!("widget {id:?} can't be placed in a panel slot"));
+    if !manifest.kinds.contains(&kind) {
+        let place = match kind {
+            Kind::Panel => "a panel slot",
+            Kind::Bar => "the bar",
+        };
+        return Err(format!("widget {id:?} can't be placed in {place}"));
     }
     overrides
         .iter()

@@ -19,6 +19,8 @@ const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
 const LATITUDE: RangeInclusive<f64> = -90.0..=90.0;
 const LONGITUDE: RangeInclusive<f64> = -180.0..=180.0;
 const MIN_DOT_SPACING: u32 = 1;
+// One per digit key; Meta+0 is KWin's, so the defaults use nine but a user may rebind ten.
+const MAX_TASK_SHORTCUTS: usize = 10;
 // The shell's two frame clock rates.
 const SPECTRUM_FPS_CHOICES: [u32; 2] = [15, 30];
 const COLOUR_HEX_DIGITS: usize = 6;
@@ -492,6 +494,27 @@ fn validate_shortcuts(shortcuts: &Shortcuts) -> Result<(), ConfigError> {
             "shortcuts.swap",
             format!("{:?} is the same key as shortcuts.monitor", shortcuts.swap),
         ));
+    }
+    if shortcuts.tasks.len() > MAX_TASK_SHORTCUTS {
+        return Err(invalid(
+            "shortcuts.tasks",
+            format!(
+                "at most {MAX_TASK_SHORTCUTS} shortcuts, got {}",
+                shortcuts.tasks.len()
+            ),
+        ));
+    }
+    let mut taken = vec![("monitor".to_owned(), monitor), ("swap".to_owned(), swap)];
+    for (index, sequence) in shortcuts.tasks.iter().enumerate() {
+        let name = format!("tasks[{index}]");
+        let key = parse(&name, sequence)?;
+        if let Some((owner, _)) = taken.iter().find(|(_, other)| *other == key) {
+            return Err(invalid(
+                format!("shortcuts.{name}"),
+                format!("{sequence:?} is the same key as shortcuts.{owner}"),
+            ));
+        }
+        taken.push((name, key));
     }
     Ok(())
 }
