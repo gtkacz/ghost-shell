@@ -122,8 +122,9 @@ layout = "a"
 position = "top"
 # App icon style: "mono" tints icons in the accent colour; "colour" keeps the original icons.
 icons = "mono"
-# Pinned apps, in order, shown in the bar or dock.
-pinned = []
+# Pinned apps, in order, shown in the bar or dock. Leave unset to import the Plasma panel's
+# pinned launchers on first run.
+# pinned = []
 
 [bar.brand]
 # The brand block at the bar's left edge; turn it off to give the space to the next item.

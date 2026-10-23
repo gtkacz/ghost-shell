@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use toml_edit::{Array, DocumentMut, Item, Table, value};
@@ -185,7 +185,8 @@ fn write_atomically(path: &Path, contents: &str) -> Result<(), EditError> {
     let mut temporary = OsString::from(path);
     temporary.push(TEMP_SUFFIX);
     let temporary = PathBuf::from(temporary);
-    let written = fs::write(&temporary, contents).and_then(|()| fs::rename(&temporary, path));
+    let written =
+        write_synced(&temporary, path, contents).and_then(|()| fs::rename(&temporary, path));
     if written.is_err() {
         let _ = fs::remove_file(&temporary);
     }
@@ -254,4 +255,15 @@ fn file_manager(mimeapps: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Synced before the rename, so a power loss cannot leave the new name pointing at empty data.
+/// The original's permissions carry over, since a rename would otherwise reset them.
+fn write_synced(temporary: &Path, original: &Path, contents: &str) -> io::Result<()> {
+    let mut file = fs::File::create(temporary)?;
+    file.write_all(contents.as_bytes())?;
+    if let Ok(metadata) = fs::metadata(original) {
+        file.set_permissions(metadata.permissions())?;
+    }
+    file.sync_all()
 }

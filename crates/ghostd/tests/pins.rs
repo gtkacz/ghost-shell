@@ -276,3 +276,15 @@ async fn feed_imports_at_start_then_serves_pin_calls() {
     assert_eq!(pinned, ["org.kde.dolphin", "firefox", "kate"]);
     task.abort();
 }
+
+#[test]
+fn default_config_leaves_pinned_unset_so_the_import_runs() {
+    let sandbox = Sandbox::new();
+    let config = sandbox.file("config.toml", ghostd::config::DEFAULT_TOML);
+    let (appletsrc, mimeapps) = plasma(&sandbox, APPLETSRC, MIMEAPPS);
+
+    let loaded = ghostd::config::load_str(ghostd::config::DEFAULT_TOML).unwrap();
+    assert!(loaded.bar.pinned.is_empty());
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps).unwrap();
+    assert_eq!(imported.unwrap().len(), 3);
+}
