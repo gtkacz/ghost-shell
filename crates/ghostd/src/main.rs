@@ -307,6 +307,7 @@ fn host_feeds() -> Vec<Feed> {
         feeds::uplink::feed(),
         feeds::session::feed(),
         feeds::launcher_entries::feed(),
+        feeds::actions::feed(),
     ]
 }
 

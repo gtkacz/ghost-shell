@@ -71,6 +71,10 @@ impl PrivateBus {
         }
     }
 
+    pub fn address(&self) -> &str {
+        &self.address
+    }
+
     pub fn builder(&self) -> connection::Builder<'static> {
         connection::Builder::address(self.address.as_str())
     }
