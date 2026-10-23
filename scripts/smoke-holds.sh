@@ -221,17 +221,41 @@ ipc() {
     qs ipc --pid "$shell_pid" "$@" || fail "qs ipc $* failed; see $shell_log"
 }
 
-# GHOST_SMOKE_BAR picks the bar a run shows, as words separated by commas or spaces: top or bottom, and a, b or c. They
+# GHOST_SMOKE_BAR picks the bar a run shows, as words separated by commas or spaces: top or bottom, a, b or c, and
+# always, which keeps the bar clock's seconds on while the dashboard is up. They
 # edit the run's own copy of the defaults, so a given GHOST_CONFIG, which the run leaves as it is, can't be combined with them.
+# Whether the bar clock holds its seconds while the dashboard is up: with always, yes.
+clock_mode=covered
 apply_smoke_bar() {
     local word words=${GHOST_SMOKE_BAR:-}
     for word in ${words//,/ }; do
         case $word in
             top | bottom) sed -i "s/^position = .*/position = \"$word\"/" "$1" ;;
             a | b | c) sed -i "s/^layout = \"[abc]\"/layout = \"$word\"/" "$1" ;;
-            *) fail "GHOST_SMOKE_BAR takes top, bottom, a, b or c, got \"$word\"" ;;
+            always)
+                clock_mode=always
+                sed -i 's/^seconds = "covered"/seconds = "always"/' "$1"
+                ;;
+            *) fail "GHOST_SMOKE_BAR takes top, bottom, a, b, c or always, got \"$word\"" ;;
         esac
     done
+}
+
+# The bar clock's seconds holds in force, from the lines it logs under GHOST_DEBUG=1: a hold less the releases.
+bar_clock_holds() {
+    local taken released
+    taken=$(line_count "$shell_log" 'qml: bar-clock seconds hold true')
+    released=$(line_count "$shell_log" 'qml: bar-clock seconds hold false')
+    echo $((taken - released))
+}
+
+# Fails unless the bar clock holds $2 seconds, named by phase $1. Only the default config has a known bar.
+expect_bar_clock_holds() {
+    local held
+    held=$(bar_clock_holds)
+    if [[ -z ${GHOST_CONFIG:-} ]] && (( held != $2 )); then
+        fail "$1: the bar clock holds $held seconds, expected $2 ($clock_mode mode)"
+    fi
 }
 
 # The log's last counts outlive the shell, so a shell that crashed would otherwise go on reporting the
@@ -523,6 +547,12 @@ fi
 if [[ -z $baseline_wants ]]; then
     fail "no wants line was ever logged; see $shell_log"
 fi
+# With covered, the bar clock holds nothing while the dashboard is up, and with always its one.
+uncovered_bar_holds=0
+if [[ $clock_mode == always ]]; then
+    uncovered_bar_holds=1
+fi
+expect_bar_clock_holds baseline "$uncovered_bar_holds"
 rows+=("$(printf '%-9s %-34s %-6s %-30s %s' baseline "start, uncovered" "" "$baseline_holds" "$baseline_wants")")
 check_log baseline
 
@@ -535,6 +565,7 @@ sleep "$settle_s"
 # While covered the dashboard's widgets are gone, so the only claims left are the bar's: no frame-clock holds but the
 # seconds hold of each bar-clock. This proves both that the dashboard released its holds and that the bar kept its own.
 # Only the default config has a known bar (every preset ends in one bar-clock).
+expect_bar_clock_holds cover 1
 covered_holds=$(latest "$holds_prefix")
 if [[ -z ${GHOST_CONFIG:-} && $covered_holds != "normal=0 fast=0 seconds=1" ]]; then
     fail "cover: holds $covered_holds while covered, expected normal=0 fast=0 seconds=1 (the bar clock's own)"
@@ -544,6 +575,7 @@ desktop_call Report sb "" true
 wait_for_more "$shell_log" "$visible_line" "$visible_before" "$change_within_s" \
     || fail "cover: the shell never logged \"${visible_line#qml: }\" after the uncover"
 sleep "$action_gap_s"
+expect_bar_clock_holds uncover "$uncovered_bar_holds"
 # Covering destroys every widget, so a shell with any claim logs a change here.
 check cover "$output covered, then uncovered" must_log
 

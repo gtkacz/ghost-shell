@@ -282,6 +282,7 @@ pub struct BarConfig {
     pub icons: IconStyle,
     pub pinned: Vec<String>,
     pub brand: Brand,
+    pub clock: Clock,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -302,6 +303,36 @@ impl Default for Brand {
     }
 }
 
+/// When the bar clock shows its seconds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(try_from = "String", rename_all = "lowercase")]
+pub enum ClockSeconds {
+    /// Only while windows cover the dashboard, whose own clock shows them otherwise.
+    #[default]
+    Covered,
+    Always,
+}
+
+// Names its path, which the derived unknown-variant error does not.
+impl TryFrom<String> for ClockSeconds {
+    type Error = String;
+
+    fn try_from(seconds: String) -> Result<Self, String> {
+        match seconds.as_str() {
+            "covered" => Ok(Self::Covered),
+            "always" => Ok(Self::Always),
+            _ => Err(format!(
+                "bar.clock.seconds: {seconds:?} is not \"covered\" or \"always\""
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Clock {
+    pub seconds: ClockSeconds,
+}
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Greeting {

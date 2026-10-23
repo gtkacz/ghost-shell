@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use ghost_proto::{BarConfig, BarLayout, LayoutConfig, LayoutNode, ResolvedLayout};
+use ghost_proto::{BarConfig, BarLayout, ClockSeconds, LayoutConfig, LayoutNode, ResolvedLayout};
 use ghostd::config::load_str_with_user;
 use ghostd::widgets::{discover, resolve};
 use serde_json::json;
@@ -180,4 +180,25 @@ fn default_layout_has_no_bar_override() {
 
     assert!(layout.bar.is_none() && layout.dock.is_none());
     assert!(matches!(layout.views["v1"], LayoutNode::Split { .. }));
+}
+
+#[test]
+fn bar_clock_shows_seconds_only_when_covered_by_default() {
+    let config = load_str_with_user("", "u").unwrap();
+
+    assert_eq!(config.bar.clock.seconds, ClockSeconds::Covered);
+}
+
+#[test]
+fn bar_clock_seconds_always_is_accepted() {
+    let config = load_str_with_user("[bar.clock]\nseconds = \"always\"\n", "u").unwrap();
+
+    assert_eq!(config.bar.clock.seconds, ClockSeconds::Always);
+}
+
+#[test]
+fn bar_clock_seconds_other_than_covered_or_always_names_its_path() {
+    let error = load_str_with_user("[bar.clock]\nseconds = \"sometimes\"\n", "u").unwrap_err();
+
+    assert!(error.message.contains("bar.clock.seconds"), "{error}");
 }

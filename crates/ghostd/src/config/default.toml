@@ -132,6 +132,12 @@ enabled = true
 text = "GS//01"
 subtitle = "攻殻"
 
+[bar.clock]
+# When the bar clock shows its seconds: "covered" (only while windows cover the dashboard, whose own clock
+# shows them otherwise) or "always". Each bar repaint costs about 4 ms of CPU whatever it draws, so "always"
+# adds roughly 0.3 to 0.5 % CPU while the dashboard is up.
+seconds = "covered"
+
 [greeting]
 # Name used in the greeting. Empty means your login name.
 name = ""

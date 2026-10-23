@@ -14,19 +14,27 @@ Item {
     readonly property real gapPx: 3
     readonly property real dateGapPx: 8
     readonly property real millisPerSecond: 1000
+    readonly property real millisPerMinute: 60000
+    readonly property string alwaysSeconds: "always"
     readonly property string calendarApplet: "org.kde.plasma.digitalclock"
 
     property var settings
 
-    readonly property var now: new Date(FrameClock.epochSecond * millisPerSecond)
+    // Each bar repaint costs a fixed few milliseconds, so by default the seconds tick only while the dashboard,
+    // whose own clock shows them, is covered.
+    readonly property bool showsSeconds: Data.covered || (Data.config?.bar?.clock?.seconds ?? "covered") === alwaysSeconds
+    // The time as of the last minute boundary, for as long as no seconds hold keeps the frame clock's epoch moving.
+    property double minuteMs: Date.now()
+
+    readonly property var now: new Date(showsSeconds ? FrameClock.epochSecond * millisPerSecond : minuteMs)
     readonly property var parts: Fmt.clockParts(now)
 
-    implicitWidth: hm.implicitWidth + Theme.d(gapPx) + seconds.implicitWidth + Theme.d(dateGapPx) + date.implicitWidth
+    implicitWidth: hm.implicitWidth + seconds.implicitWidth + seconds.anchors.leftMargin + Theme.d(dateGapPx) + date.implicitWidth
 
     property bool holdsSeconds: false
 
-    // Held while the bar shows, as the seconds are the only thing that moves while the dashboard is covered. A flag
-    // rather than paired calls, since visibleChanged fires once before completion, with nothing yet to release.
+    // Held while the bar shows them. A flag rather than paired calls, since visibleChanged fires once before
+    // completion, with nothing yet to release.
     function holdSeconds(wanted) {
         if (wanted === holdsSeconds) {
             return;
@@ -37,11 +45,43 @@ Item {
             FrameClock.releaseSeconds();
         }
         holdsSeconds = wanted;
+        if (FrameClock.logsHolds) {
+            console.info("bar-clock seconds hold " + wanted);
+        }
     }
 
-    Component.onCompleted: holdSeconds(visible)
+    function syncHold() {
+        holdSeconds(visible && showsSeconds);
+    }
+
+    Component.onCompleted: syncHold()
     Component.onDestruction: holdSeconds(false)
-    onVisibleChanged: holdSeconds(visible)
+    onVisibleChanged: syncHold()
+    onShowsSecondsChanged: {
+        minuteMs = Date.now();
+        syncHold();
+    }
+
+    // Wakes at each minute boundary, which a fixed interval would drift away from.
+    Timer {
+        id: minute
+
+        function untilBoundary() {
+            return root.millisPerMinute - Date.now() % root.millisPerMinute;
+        }
+
+        running: root.visible && !root.showsSeconds
+        repeat: true
+        onRunningChanged: {
+            if (running) {
+                interval = untilBoundary();
+            }
+        }
+        onTriggered: {
+            root.minuteMs = Date.now();
+            interval = untilBoundary();
+        }
+    }
 
     Text {
         id: hm
@@ -61,10 +101,10 @@ Item {
 
         anchors {
             left: hm.right
-            leftMargin: Theme.d(root.gapPx)
+            leftMargin: root.showsSeconds ? Theme.d(root.gapPx) : 0
             baseline: hm.baseline
         }
-        text: root.parts.seconds
+        text: root.showsSeconds ? root.parts.seconds : ""
         color: Theme.signal
         font {
             family: Theme.font
