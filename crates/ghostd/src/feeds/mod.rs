@@ -14,6 +14,7 @@ pub mod shortcuts;
 pub mod sky;
 pub mod spectrum;
 pub mod tailscale;
+pub mod ticker;
 pub mod uplink;
 pub mod weather;
 pub mod windows;

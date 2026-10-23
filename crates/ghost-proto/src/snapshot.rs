@@ -469,3 +469,15 @@ pub struct LauncherEntry {
     pub progress: Option<f64>,
     pub urgent: bool,
 }
+
+/// What the bar's ticker shows beyond the other topics. `None` means unknown, and the shell leaves
+/// that segment out.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct TickerSnapshot {
+    /// Failed units of the system manager and the user manager together.
+    pub failed_units: Option<u32>,
+    pub firewalld: Option<bool>,
+    /// Updates PackageKit has cached; it is never asked to refresh.
+    pub updates: Option<u32>,
+    pub nvidia_driver: Option<String>,
+}

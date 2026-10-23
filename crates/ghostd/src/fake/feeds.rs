@@ -4,8 +4,8 @@ use std::time::Duration;
 use ghost_proto::{
     AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, Endpoint, HostSnapshot,
     LanLink, LauncherEntries, LauncherEntry, LinkState, LinksSnapshot, RainPeak, SessionSnapshot,
-    SkySnapshot, SpectrumSnapshot, TailscaleLink, UplinkSnapshot, VpnLink, WeatherAlert,
-    WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo, WindowsSnapshot, topics,
+    SkySnapshot, SpectrumSnapshot, TailscaleLink, TickerSnapshot, UplinkSnapshot, VpnLink,
+    WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo, WindowsSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval};
 
@@ -31,6 +31,7 @@ pub fn feeds() -> Vec<Feed> {
         session(),
         windows(),
         launcher_entries(),
+        ticker(),
     ]
 }
 
@@ -468,6 +469,26 @@ fn launcher_entries() -> Feed {
         context
             .publisher
             .publish(topics::LAUNCHER_ENTRIES, &LauncherEntries { entries });
+        pending::<()>().await;
+    })
+}
+
+const TICKER_FAILED_UNITS: u32 = 1;
+const TICKER_UPDATES: u32 = 12;
+const TICKER_NVIDIA_DRIVER: &str = "580.95.05";
+
+/// The mockup's ticker values, published once.
+fn ticker() -> Feed {
+    Feed::new(topics::TICKER, |context| async move {
+        context.publisher.publish(
+            topics::TICKER,
+            &TickerSnapshot {
+                failed_units: Some(TICKER_FAILED_UNITS),
+                firewalld: Some(true),
+                updates: Some(TICKER_UPDATES),
+                nvidia_driver: Some(TICKER_NVIDIA_DRIVER.to_owned()),
+            },
+        );
         pending::<()>().await;
     })
 }
