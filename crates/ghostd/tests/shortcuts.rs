@@ -22,7 +22,7 @@ const META_N: i32 = 0x1000_004E;
 const META_SHIFT_M: i32 = 0x1200_004D;
 const META: i32 = 0x0100_0022;
 const META_DIGIT_1: i32 = 0x1000_0031;
-const META_F1: i32 = 0x0100_0030;
+const META_F1: i32 = 0x1000_0000 | 0x0100_0030;
 const DEFAULT_TASKS: i32 = 9;
 const TASK_SLOTS: usize = 10;
 // Three actions with three calls each, the default tasks with three each, then task-10 inactive.
