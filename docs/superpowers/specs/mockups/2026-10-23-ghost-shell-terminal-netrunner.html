@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ghost-shell · terminal schemes, usage-bar check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kode+Mono:wght@400..700&family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #040506; }
+body { color: #b7d1cd; font-family: 'Kode Mono', 'Noto Sans JP', monospace; padding: 24px 36px 80px; }
+.wrap { max-width: 1240px; margin: 0 auto; }
+.kick { font-size: 11px; letter-spacing: .3em; color: #587170; }
+h1 { font-size: 24px; font-weight: 700; letter-spacing: .04em; color: #e4f1ef; margin-top: 6px; }
+.lede { color: #8a9e9c; font-size: 13px; line-height: 1.65; margin-top: 8px; max-width: 1100px; }
+.lede strong { color: #e4f1ef; font-weight: 500; }
+.scheme { margin-top: 26px; border: 1px solid #161b1e; padding: 14px; }
+.scheme header { display: flex; gap: 14px; align-items: baseline; margin-bottom: 10px; flex-wrap: wrap; }
+.scheme header .lt { font-size: 22px; font-weight: 700; color: #a3d4cc; }
+.scheme header h3 { font-size: 15px; font-weight: 700; letter-spacing: .12em; color: #e4f1ef; }
+.scheme header p { font-size: 12px; color: #8a9e9c; line-height: 1.5; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 1100px) { .pair { grid-template-columns: 1fr; } }
+.lbl { font-size: 10px; letter-spacing: .2em; color: #587170; margin-bottom: 4px; }
+.term { font-size: 12.5px; line-height: 1.55; background: #070a0b; border: 1px solid #2a3a3d; border-left: 3px solid #a3d4cc; padding: 12px 16px; white-space: pre; overflow: hidden; }
+.sw { display: grid; grid-template-columns: repeat(8, 1fr); margin-bottom: 10px; }
+.sw div { height: 22px; font-size: 8px; padding: 2px 4px; display: flex; align-items: flex-end; color: #071012; letter-spacing: .05em; }
+.chip { background: #2a3a3d; color: #e4f1ef; font-weight: 700; padding: 1px 8px; }
+.u { text-decoration: underline; } .B { font-weight: 700; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <filter id="protan" color-interpolation-filters="sRGB"><feColorMatrix type="matrix"
+    values="0.152 1.053 -0.205 0 0  0.115 0.786 0.099 0 0  -0.004 -0.048 1.052 0 0  0 0 0 1 0"/></filter>
+</svg>
+<div class="wrap">
+  <div class="kick">GHOST-SHELL // TERMINAL</div>
+  <h1>Why the usage limit stopped looking red</h1>
+  <p class="lede">Your usage plugin draws the quota bar with three ANSI colours: <strong>blue</strong> under 75 %, <strong>bright magenta</strong> from 75 %, and plain <strong>red</strong> from 90 %.
+    Plain red is slot 1 of the terminal palette. I had lightened slot 1 to a rose (#ff6b81) so red text stays readable on black, but for a protan eye that rose turns into a light grey-tan,
+    close to the greens and cyans, so the danger colour lost its darkness. A pure red (#ff3b45) looks like a dark olive instead, which is what stands out. Each scheme below shows the bar at 25 %, 80 % and 95 %,
+    normal vision on the left and a protan simulation (an approximation) on the right.</p>
+  <div id="root"></div>
+</div>
+<script>
+const S = [
+  { id: 'A', name: 'CURRENT', note: 'The rose red from the last palette. In the right-hand view, compare the 95 % bar with the lines above it.',
+    c: { red:'#ff6b81', green:'#86d19a', yellow:'#e9a84c', blue:'#8fb8f5', magenta:'#a574e8', cyan:'#a3d4cc', orange:'#e0875a',
+         bblue:'#a3c1f5', bmag:'#d0b0f0', sig:'#a3d4cc' } },
+  { id: 'B', name: 'CURRENT, RED RESTORED', note: 'Only slot 1 changes, back to the desktop crit red #ff3b45. The smallest fix.',
+    c: { red:'#ff3b45', green:'#86d19a', yellow:'#e9a84c', blue:'#8fb8f5', magenta:'#a574e8', cyan:'#a3d4cc', orange:'#e0875a',
+         bblue:'#a3c1f5', bmag:'#d0b0f0', sig:'#a3d4cc' } },
+  { id: 'C', name: 'NETRUNNER', note: 'Your red, cyan and yellow as the anchors, plus neon green, blue and pink for variety. Cursor in Netrunner yellow. Red stays the darkest hue on purpose.',
+    c: { red:'#ff3b45', green:'#35e07a', yellow:'#fcee0a', blue:'#4d8dff', magenta:'#ff3fd0', cyan:'#3ee0e6', orange:'#ff9a1f',
+         bblue:'#8ab8ff', bmag:'#c58cff', sig:'#fcee0a' } },
+];
+const bar = (n, col) => `<span style="color:${col}">${'█'.repeat(Math.round(n/10))}</span><span style="color:#587170">${'░'.repeat(10-Math.round(n/10))}</span>`;
+function term(c) {
+  const s = (col, t) => `<span style="color:${col}">${t}</span>`;
+  return `${s('#587170','Usage')} ${bar(25, c.bblue)} 25%   ${s('#587170','resets 4h 36m')}
+${s('#587170','Usage')} ${bar(80, c.bmag)} 80%   ${s('#587170','resets 1h 02m')}
+${s('#587170','Usage')} ${bar(95, c.red)} 95%   ${s('#587170','resets 0h 11m')}
+
+<span class="chip">~/Codes/ghost-shell</span> ${s(c.yellow,'main*2')} ${s(c.cyan,'⇡1')} ${s(c.sig,'❯')} la
+${s('#e4f1ef','<span class="u">Permissions</span> <span class="u">Size</span> <span class="u">User</span>   <span class="u">Date Modified</span> <span class="u">Name</span>')}
+${s(c.blue,'d')}${s(c.yellow,'r')}${s(c.orange,'w')}${s(c.green,'x')}${s(c.yellow,'r')}${s('#587170','-')}${s(c.green,'x')} ${s('#587170','-')} ${s(c.yellow,'gtkacz')} ${s(c.blue,'22 Oct 07:34')} <span class="B u" style="color:${c.blue}">▪ crates</span>
+${s('#587170','.')}${s(c.yellow,'r')}${s(c.orange,'w')}${s('#587170','-')}${s(c.yellow,'r')}${s('#587170','--')}${s(c.yellow,'r')}${s('#587170','--')} ${s(c.green,'788')} ${s(c.yellow,'gtkacz')} ${s(c.blue,'22 Oct 12:53')} <span class="B u" style="color:${c.yellow}">▫ Cargo.toml</span>
+<span class="chip">~/Codes/ghost-shell</span> ${s(c.yellow,'main*2')} ${s(c.cyan,'⇡1')} <span class="B" style="color:${c.red}">✗</span> cargo test   ${s(c.red,'<b>101</b>')} ${s('#587170','3s')}
+${s(c.red,'<b>error</b>')}: test failed   ${s(c.green,'ok')} ${s(c.red,'FAILED')}`;
+}
+const sw = c => `<div class="sw">${['#0a0f11',c.red,c.green,c.yellow,c.blue,c.magenta,c.cyan,'#b7d1cd'].map((x,i)=>`<div style="background:${x};${i?'':'color:#587170'}">${['0 blk','1 red','2 grn','3 yel','4 blu','5 mag','6 cyn','7 wht'][i]}</div>`).join('')}</div>
+<div class="sw">${['#587170',c.red,c.green,c.yellow,c.bblue,c.bmag,c.cyan,'#e4f1ef'].map((x,i)=>`<div style="background:${x}">${['8','9','10','11','12 bblu','13 bmag','14','15'][i]}</div>`).join('')}</div>`;
+document.getElementById('root').innerHTML = S.map(s => `
+  <section class="scheme"><header><span class="lt">${s.id}</span><h3>${s.name}</h3><p>${s.note}</p></header>
+    <div class="pair"><div><div class="lbl">NORMAL VISION</div>${sw(s.c)}<div class="term">${term(s.c)}</div></div>
+    <div style="filter:url(#protan)"><div class="lbl">PROTAN (APPROXIMATE)</div>${sw(s.c)}<div class="term">${term(s.c)}</div></div></div>
+  </section>`).join('');
+</script>
+</body>
+</html>

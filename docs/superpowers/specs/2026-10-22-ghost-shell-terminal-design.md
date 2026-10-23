@@ -46,7 +46,7 @@ Prompt (mockups: `...a-edge-v3.html`, `...prompt-contrast.html`):
 - No language or toolchain segment. `user@host` is dropped.
 
 Colour (palette strip in `...a-edge-v4.html`):
-- The values below are **provisional**: they are the colours shown in the mockups and must pass the colour-vision check in "Accessibility" before they are final. Expected change: the terminal's red becomes lighter and bluer (about `#ff6b81`, a rose) so it stays visible to a protan eye; the desktop's `crit` is unchanged.
+- The values below are **provisional** until they pass the colour-vision check in "Accessibility". Red stays the desktop's `crit` `#ff3b45`: a lightened rose (`#ff6b81`) was tried first, but a protan eye sees it as a light grey-tan close to green and cyan, which hid the danger colour in the user's usage plugin (it draws a near-limit bar in ANSI red). Red must be recognisable by being dark.
 - The desktop palette is unchanged. The terminal uses a full eight-hue ANSI set at similar lightness: red `#ff3b45` (the desktop's `crit`, reserved for failure; see the expected change above), green `#86d19a`, yellow `#e9a84c` (`warn`), blue `#7fa6e8`, magenta `#b98ae0`, cyan `#a3d4cc` (`signal`), white `#b7d1cd` (`text`), black `#0a0f11`. Brights: `#587170`, `#ff6b73`, `#a6e3b4`, `#f3c274`, `#a3c1f5`, `#d0b0f0`, `#c4e8e1`, `#e4f1ef`.
 - Orange `#e0875a` is used for tokens that would otherwise tempt red (for example `eza`'s write permission bit), so a red element always means something went wrong.
 - Command output keeps its programs' own colours (colourful `eza`, `git`, `cargo` output), as in the user's current terminal. In `eza`, directories are bold, underlined and blue, so weight is not the only cue. Ghostty's `bold-color = bright` lightens bold text that uses palette colours.
@@ -58,7 +58,7 @@ Other:
 ## Accessibility
 
 - Red versus green must never be the only cue. Dirty state is carried by `*N`, failure by the code on the right and the words `FAILED` and `error`, path versus typing by the chip.
-- Red text must stay legible on the terminal ground under a protan simulation (a minimum lightness contrast against the ground).
+- Red must clear 3.0:1 against the ground (large text and UI floor) and, under protan, stay at least 2.5:1 darker than green and cyan. Making red brighter than that loses its recognisability, so it is not made legible by lightening it.
 - Green, yellow and orange may collapse into one another under a protan simulation, so nothing meaningful may depend on telling them apart without a text cue. Blue versus magenta must stay separable by lightness.
 - The generator must include a verification step that runs a colour-vision simulation (protanopia and protanomaly at minimum, deuteranopia as a second check) over the final palette and fails if those pairs fall below its thresholds. The thresholds are for the builder to choose.
 
