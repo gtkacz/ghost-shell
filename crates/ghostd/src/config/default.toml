@@ -142,6 +142,10 @@ seconds = "covered"
 # Name used in the greeting. Empty means your login name.
 name = ""
 
+[lock]
+# The lock screen's style: "prompt", "terminal" or "idcheck".
+style = "prompt"
+
 [location]
 # Used for the clock, weather and sun and moon times. lat and lon are left out by default:
 # lat = -23.55

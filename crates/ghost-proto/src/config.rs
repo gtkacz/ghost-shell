@@ -18,6 +18,7 @@ pub struct ResolvedConfig {
     pub dashboard: Dashboard,
     pub bar: BarConfig,
     pub greeting: Greeting,
+    pub lock: Lock,
     pub location: Location,
     pub i18n: I18n,
     pub shortcuts: Shortcuts,
@@ -337,6 +338,22 @@ pub struct Clock {
 #[serde(default, deny_unknown_fields)]
 pub struct Greeting {
     pub name: String,
+}
+
+/// What the lock screen asks for: a password prompt, a terminal login, or an identity check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LockStyle {
+    #[default]
+    Prompt,
+    Terminal,
+    Idcheck,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Lock {
+    pub style: LockStyle,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

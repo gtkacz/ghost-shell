@@ -2,6 +2,7 @@ pub mod collect;
 pub mod config;
 pub mod fake;
 pub mod feeds;
+pub mod gate;
 pub mod history;
 pub mod keyseq;
 pub mod notify;

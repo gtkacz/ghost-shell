@@ -594,7 +594,26 @@ fn validate_providers(providers: &[ProviderSpec]) -> Result<(), ConfigError> {
 
 #[cfg(test)]
 mod tests {
+    use ghost_proto::LockStyle;
+
     use super::*;
+
+    #[test]
+    fn lock_style_defaults_to_prompt() {
+        assert_eq!(load_str("").unwrap().lock.style, LockStyle::Prompt);
+    }
+
+    #[test]
+    fn lock_style_reads_terminal() {
+        let config = load_str("[lock]\nstyle = \"terminal\"").unwrap();
+        assert_eq!(config.lock.style, LockStyle::Terminal);
+    }
+
+    #[test]
+    fn unknown_lock_style_is_refused() {
+        let error = load_str("[lock]\nstyle = \"fancy\"").unwrap_err();
+        assert!(error.to_string().contains("fancy"), "{error}");
+    }
 
     fn dir_in(xdg_config_home: Option<&str>, home: Option<&str>) -> PathBuf {
         config_dir_in(
