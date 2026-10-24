@@ -356,8 +356,14 @@ stack_region_inset=48
 # Cards, borders and text change far more pixels than the dashboard's own motion does.
 stack_min_diff_px=3000
 
+# The lines that announce a toast; each toast also logs one saying how it ended.
 toast_count() {
-    grep -cE 'qml: toast [0-9]+ ' "$shell_log" || true
+    { grep -E 'qml: toast [0-9]+ ' "$shell_log" || true; } | { grep -vc ' ended ' || true; }
+}
+
+# The id the first announcement names, or nothing.
+first_toast_id() {
+    { grep -E 'qml: toast [0-9]+ ' "$shell_log" || true; } | { grep -v ' ended ' || true; } | head -n 1 | sed -n 's/^.*qml: toast \([0-9][0-9]*\) .*$/\1/p'
 }
 
 latest_holds() {
@@ -392,6 +398,22 @@ expect_stack_changed() {
     fi
 }
 
+# Fails unless the toast announced first logs that it ended by timeout within popup_timeout_s + 2 s of its announcement,
+# which $1 is the time of, in SECONDS. The pixels cannot show it: new toasts keep arriving and every life line moves.
+expect_first_toast_timed_out() {
+    local id life_s
+    id=$(first_toast_id)
+    life_s=$(sed -n 's/^popup_timeout_s *= *\([0-9][0-9]*\).*/\1/p' "$config" | head -n 1)
+    life_s=${life_s:-6}
+    until grep -qF "qml: toast $id ended timeout" "$shell_log"; do
+        if (( SECONDS - ${1:-$SECONDS} > life_s + 2 )); then
+            echo "smoke: FAIL (toasts: toast $id did not log 'ended timeout' within $((life_s + 2)) s of its announcement; see $shell_log)" >&2
+            exit 1
+        fi
+        sleep "$poll_s"
+    done
+}
+
 run_toasts_phase() {
     local before baseline deadline
     sleep $((attention_s + settle_s))
@@ -403,13 +425,18 @@ run_toasts_phase() {
     start_daemon
     wait_for_connects $((before + 1))
     deadline=$((SECONDS + toast_wait_s))
+    first_at=
     while (( $(toast_count) < 3 )); do
+        if [[ -z $first_at ]] && (( $(toast_count) > 0 )); then
+            first_at=$SECONDS
+        fi
         if (( SECONDS >= deadline )); then
             echo "smoke: FAIL (toasts: $(toast_count) toast lines within $toast_wait_s s, expected 3; see $shell_log)" >&2
             exit 1
         fi
         sleep "$poll_s"
     done
+    expect_first_toast_timed_out "$first_at"
     sleep "$settle_s"
     take_stack_shot "$state_dir/stack-1.png"
     expect_stack_changed "$state_dir/stack-empty.png" "$state_dir/stack-1.png" "three toasts look like none"

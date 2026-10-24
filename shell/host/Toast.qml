@@ -16,8 +16,6 @@ Item {
     readonly property real headerPx: 22
     readonly property real headerTopPx: 7
     readonly property real headerBottomPx: 4
-    readonly property real panelBodyTopPx: 4
-    readonly property real panelPaddingPx: 12
     readonly property real iconPx: 20
     readonly property real imagePx: 40
     readonly property real imageCutPx: 5
@@ -55,7 +53,8 @@ Item {
             urgency: "normal",
             level: "none",
             actions: [],
-            arrived_s: 0
+            arrived_s: 0,
+            revision: 0
         })
 
     property var record
@@ -82,9 +81,12 @@ Item {
         FrameClock.epochSecond;
         return Rules.rowText(rec, Math.floor(Date.now() / 1000)).age;
     }
-    // What a replacement changes, which gives the toast a fresh life line.
-    readonly property string signature: [rec.summary, rec.body, rec.level, rec.urgency, rec.actions.map(action => action.key).join(",")].join("\u001f")
+    // Counts the replacements of the record, which each give the toast a fresh life line, even one that changes nothing.
+    readonly property int revision: rec.revision ?? 0
 
+    // Only changes when the buttons do: every publish hands over a new array, and a Repeater on it would rebuild the
+    // buttons, losing a press in flight.
+    property var actions: []
     property bool holdsSeconds: false
     property bool timedOutOnce: false
     property real lastSecond: 0
@@ -106,12 +108,19 @@ Item {
         holdsSeconds = wanted;
     }
 
+    onRecChanged: actions = Rules.stableActions(actions, rec.actions)
     onTimedChanged: holdSeconds(timed)
-    onSignatureChanged: elapsedS = 0
-    Component.onCompleted: holdSeconds(timed)
+    onRevisionChanged: {
+        elapsedS = 0;
+        timedOutOnce = false;
+    }
+    Component.onCompleted: {
+        actions = rec.actions;
+        holdSeconds(timed);
+    }
     Component.onDestruction: holdSeconds(false)
 
-    implicitHeight: Theme.d(headerPx + panelBodyTopPx + panelPaddingPx) + content.implicitHeight
+    implicitHeight: Theme.d(headerPx + card.bodyTopPx + card.paddingPx) + content.implicitHeight
 
     // Under the card, so the buttons and the links above it take their own clicks; a click anywhere else on it opens.
     MouseArea {
@@ -152,6 +161,8 @@ Item {
     }
 
     Panel {
+        id: card
+
         anchors.fill: parent
         fill: ThemeLib.withAlpha(Theme.ground, root.fillPct)
         headerHeightPx: root.headerPx
@@ -321,7 +332,7 @@ Item {
             }
 
             Item {
-                visible: !root.boxed && root.rec.actions.length > 0
+                visible: !root.boxed && root.actions.length > 0
                 width: parent.width
                 height: visible ? Theme.d(root.chipsTopPx) + chips.height : 0
 
@@ -332,7 +343,7 @@ Item {
                     spacing: Theme.d(root.chipGapPx)
 
                     Repeater {
-                        model: root.rec.actions
+                        model: root.actions
 
                         Rectangle {
                             id: chip

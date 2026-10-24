@@ -9,6 +9,7 @@ import {
   greetingSignals,
   isCountdown,
   isOpenableLink,
+  stableActions,
   moveSelection,
   quietSince,
   rowText,
@@ -237,5 +238,18 @@ test('only web and mail links open', () => {
   }
   for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'ftp://a.b', 'a.b', '', 'xhttp://a.b', ' http://a.b', null]) {
     assert.equal(isOpenableLink(url), false, String(url));
+  }
+});
+
+test('actions keep their identity across a publish that changes none of them', () => {
+  const before = [{ key: 'open', label: 'Open' }, { key: 'read', label: 'Mark read' }];
+  const republished = [{ key: 'open', label: 'Open' }, { key: 'read', label: 'Mark read' }];
+  assert.equal(stableActions(before, republished), before);
+});
+
+test('actions take the new list when a key, a label or the count changes', () => {
+  const before = [{ key: 'open', label: 'Open' }];
+  for (const next of [[{ key: 'read', label: 'Open' }], [{ key: 'open', label: 'Show' }], [], [...before, { key: 'x', label: 'X' }]]) {
+    assert.equal(stableActions(before, next), next);
   }
 });

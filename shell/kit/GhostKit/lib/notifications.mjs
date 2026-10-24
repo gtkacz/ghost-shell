@@ -132,3 +132,10 @@ export function greetingSignals(topicValue) {
 export function isOpenableLink(url) {
   return typeof url === 'string' && OPENABLE_LINK.test(url);
 }
+
+// Each publish hands over new arrays, so a list a Repeater draws buttons from keeps its identity while its keys and
+// labels do not change; a new identity rebuilds every button, and a press in flight is lost.
+export function stableActions(previous, next) {
+  const same = previous.length === next.length && previous.every((action, i) => action.key === next[i].key && action.label === next[i].label);
+  return same ? previous : next;
+}

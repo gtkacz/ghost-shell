@@ -39,6 +39,8 @@ Scope {
 
     // Logged once per toast, however often it leaves and comes back for a free slot.
     readonly property var announced: new Set()
+    // The ids whose end is logged, so an end that two paths reach is logged once.
+    readonly property var endedIds: new Set()
 
     function sync() {
         const ids = queue.show;
@@ -51,26 +53,39 @@ Scope {
                 console.info("toast " + id + " " + items.find(item => item.id === id)?.app);
             }
         }
+        for (const id of visibleIds) {
+            if (!ids.includes(id) && !shownIds.has(id) && !items.some(item => item.id === id)) {
+                logEnd(id, "gone");
+            }
+        }
         visibleIds = ids;
     }
 
+    function logEnd(id, reason) {
+        if (!endedIds.has(id)) {
+            endedIds.add(id);
+            console.info("toast " + id + " ended " + reason);
+        }
+    }
+
     // The toast has had its time, whatever ended it: it never comes back, even if the history keeps the record.
-    function finish(id) {
+    function finish(id, reason) {
+        logEnd(id, reason);
         shownIds = new Set(shownIds).add(id);
     }
 
     function dismiss(id) {
-        finish(id);
+        finish(id, "dismissed");
         Notifications.dismiss(id);
     }
 
     function activate(id, key) {
-        finish(id);
+        finish(id, "invoked");
         Notifications.invoke(id, key);
     }
 
     function expire(id) {
-        finish(id);
+        finish(id, "timeout");
         if (Notifications.widgetVisible) {
             Data.call("notifications.read", {
                 ids: [id]
