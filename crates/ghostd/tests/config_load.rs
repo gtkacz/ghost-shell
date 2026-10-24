@@ -1,4 +1,4 @@
-use ghost_proto::{DotMotion, LayoutConfig, LayoutNode, ResolvedConfig};
+use ghost_proto::{AgentProvider, DotMotion, LayoutConfig, LayoutNode, ResolvedConfig};
 use ghostd::config::{DEFAULT_TOML, load_str_with_user};
 
 #[test]
@@ -81,7 +81,13 @@ fn dot_motion_defaults_to_none_with_the_previewed_tuning() {
     let dots = load_str_with_user("", "u").unwrap().appearance.dots;
     assert_eq!(dots.motion, DotMotion::None);
     assert_eq!(
-        (dots.size_range, dots.brightness, dots.speed, dots.scale, dots.cover),
+        (
+            dots.size_range,
+            dots.brightness,
+            dots.speed,
+            dots.scale,
+            dots.cover
+        ),
         (2.5, 1.6, 1.0, 1.0, 0.4)
     );
 }
@@ -899,4 +905,43 @@ fn uplink_labels_reject_empty_values() {
     .unwrap();
     assert_eq!(c.uplink.labels["AS16509"], "AWS");
     assert_eq!(c.uplink.geoip_dir, "");
+}
+
+#[test]
+fn agents_defaults_name_both_providers() {
+    let c = load_str_with_user("", "u").unwrap();
+    assert_eq!(
+        c.agents.providers,
+        [AgentProvider::Claude, AgentProvider::Codex]
+    );
+    assert_eq!(c.agents.claude_config_dirs, ["~/.claude"]);
+    assert_eq!(c.agents.codex_home, "~/.codex");
+    assert_eq!(
+        (c.thresholds.usage_warn, c.thresholds.usage_crit),
+        (60.0, 85.0)
+    );
+}
+
+#[test]
+fn an_unknown_agent_provider_is_rejected() {
+    assert_eq!(
+        rejected("[agents]\nproviders = [\"gemini\"]\n"),
+        "line 2, column 13: agents.providers: \"gemini\" is not a provider; \"claude\" and \"codex\" are"
+    );
+}
+
+#[test]
+fn a_duplicate_agent_provider_is_rejected() {
+    assert_eq!(
+        rejected("[agents]\nproviders = [\"claude\", \"claude\"]\n"),
+        "agents.providers[1]: duplicate provider \"claude\""
+    );
+}
+
+#[test]
+fn usage_thresholds_must_be_ordered() {
+    assert_eq!(
+        rejected("[thresholds]\nusage_warn = 90\nusage_crit = 85\n"),
+        "thresholds: usage_warn (90) must be below usage_crit (85)"
+    );
 }

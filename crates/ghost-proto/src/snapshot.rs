@@ -496,3 +496,54 @@ pub struct RecentFile {
     pub dir: String,
     pub modified_s: u64,
 }
+
+/// One entry per enabled provider, in config order.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AgentsUsage {
+    pub providers: Vec<ProviderUsage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderUsage {
+    pub id: String,
+    pub label: String,
+    pub plan: Option<String>,
+    pub available: bool,
+    /// Why the usage could not be read, when `available` is false.
+    pub reason: Option<String>,
+    pub read_at_s: u64,
+    pub windows: Vec<UsageWindow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageWindow {
+    pub length_s: u64,
+    pub used_pct: f64,
+    pub resets_at_s: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AgentsSessions {
+    pub sessions: Vec<AgentSession>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSession {
+    pub provider: String,
+    pub id: String,
+    pub name: String,
+    pub cwd: String,
+    pub state: AgentState,
+    pub waiting_for: Option<String>,
+    pub since_s: u64,
+    pub pid: Option<u32>,
+    pub tmux: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentState {
+    Busy,
+    Idle,
+    Waiting,
+}

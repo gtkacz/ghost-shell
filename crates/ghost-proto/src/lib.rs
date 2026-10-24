@@ -39,11 +39,13 @@ pub mod topics {
     pub const LAUNCHER_ENTRIES: &str = "launcher.entries";
     pub const TICKER: &str = "ticker";
     pub const RECENT: &str = "recent";
+    pub const AGENTS_USAGE: &str = "agents.usage";
+    pub const AGENTS_SESSIONS: &str = "agents.sessions";
     /// Published by an alerts provider, so it is well known without being built in.
     pub const WEATHER_ALERTS: &str = "weather.alerts";
 
     // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
-    pub const BUILTIN: [&str; 23] = [
+    pub const BUILTIN: [&str; 25] = [
         CPU,
         MEM,
         SENSORS,
@@ -67,6 +69,8 @@ pub mod topics {
         LAUNCHER_ENTRIES,
         TICKER,
         RECENT,
+        AGENTS_USAGE,
+        AGENTS_SESSIONS,
     ];
 }
 

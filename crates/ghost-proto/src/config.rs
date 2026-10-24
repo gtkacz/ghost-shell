@@ -27,6 +27,7 @@ pub struct ResolvedConfig {
     pub uplink: Uplink,
     pub layout: LayoutConfig,
     pub widgets: Widgets,
+    pub agents: Agents,
     pub providers: Vec<ProviderSpec>,
 }
 
@@ -190,6 +191,8 @@ pub struct Thresholds {
     pub battery_crit: f32,
     pub aqi_warn: f32,
     pub aqi_crit: f32,
+    pub usage_warn: f32,
+    pub usage_crit: f32,
     pub sensors: BTreeMap<String, SensorThreshold>,
 }
 
@@ -204,6 +207,8 @@ impl Default for Thresholds {
             battery_crit: 10.0,
             aqi_warn: 100.0,
             aqi_crit: 150.0,
+            usage_warn: 60.0,
+            usage_crit: 85.0,
             sensors: BTreeMap::new(),
         }
     }
@@ -397,6 +402,15 @@ pub enum LauncherStyle {
     Drop,
 }
 
+impl AgentProvider {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+}
+
 // Names its path, which the derived unknown-variant error does not.
 impl TryFrom<String> for LauncherStyle {
     type Error = String;
@@ -415,6 +429,46 @@ impl TryFrom<String> for LauncherStyle {
 #[serde(default, deny_unknown_fields)]
 pub struct Launcher {
     pub style: LauncherStyle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", rename_all = "lowercase")]
+pub enum AgentProvider {
+    Claude,
+    Codex,
+}
+
+// Names its path, which the derived unknown-variant error does not.
+impl TryFrom<String> for AgentProvider {
+    type Error = String;
+
+    fn try_from(name: String) -> Result<Self, String> {
+        match name.as_str() {
+            "claude" => Ok(Self::Claude),
+            "codex" => Ok(Self::Codex),
+            _ => Err(format!(
+                "agents.providers: {name:?} is not a provider; \"claude\" and \"codex\" are"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Agents {
+    pub providers: Vec<AgentProvider>,
+    pub claude_config_dirs: Vec<String>,
+    pub codex_home: String,
+}
+
+impl Default for Agents {
+    fn default() -> Self {
+        Self {
+            providers: vec![AgentProvider::Claude, AgentProvider::Codex],
+            claude_config_dirs: vec!["~/.claude".into()],
+            codex_home: "~/.codex".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

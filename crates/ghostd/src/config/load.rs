@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use ghost_proto::{
-    Alerts, Appearance, Dashboard, I18n, LayoutConfig, LayoutNode, Location, Network, ProviderSpec,
-    ResolvedConfig, Shortcuts, Thresholds, Uplink,
+    Agents, Alerts, Appearance, Dashboard, I18n, LayoutConfig, LayoutNode, Location, Network,
+    ProviderSpec, ResolvedConfig, Shortcuts, Thresholds, Uplink,
 };
 
 use crate::keyseq;
@@ -135,6 +135,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_shortcuts(&config.shortcuts)?;
     validate_network(&config.network)?;
     validate_uplink(&config.uplink)?;
+    validate_agents(&config.agents)?;
     validate_providers(&config.providers)
 }
 
@@ -269,6 +270,11 @@ fn validate_thresholds(thresholds: &Thresholds) -> Result<(), ConfigError> {
         "thresholds",
         ("aqi_warn", thresholds.aqi_warn),
         ("aqi_crit", thresholds.aqi_crit),
+    )?;
+    check_below(
+        "thresholds",
+        ("usage_warn", thresholds.usage_warn),
+        ("usage_crit", thresholds.usage_crit),
     )?;
     for (id, sensor) in &thresholds.sensors {
         check_below(
@@ -549,6 +555,19 @@ fn validate_uplink(uplink: &Uplink) -> Result<(), ConfigError> {
             return Err(invalid(
                 format!("uplink.labels.{key:?}"),
                 "must not be empty",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_agents(agents: &Agents) -> Result<(), ConfigError> {
+    let mut seen = BTreeSet::new();
+    for (index, provider) in agents.providers.iter().enumerate() {
+        if !seen.insert(provider.name()) {
+            return Err(invalid(
+                format!("agents.providers[{index}]"),
+                format!("duplicate provider {:?}", provider.name()),
             ));
         }
     }

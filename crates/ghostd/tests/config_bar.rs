@@ -6,7 +6,7 @@ use ghostd::config::load_str_with_user;
 use ghostd::widgets::{discover, resolve};
 use serde_json::json;
 
-const BAR_WIDGETS: [&str; 8] = [
+const BAR_WIDGETS: [&str; 9] = [
     "brand",
     "tasks",
     "ticker",
@@ -15,6 +15,7 @@ const BAR_WIDGETS: [&str; 8] = [
     "view-chip",
     "bar-clock",
     "launcher-tile",
+    "agents",
 ];
 
 fn install(dir: &Path, id: &str, kind: &str) {
@@ -201,4 +202,17 @@ fn bar_clock_seconds_other_than_covered_or_always_names_its_path() {
     let error = load_str_with_user("[bar.clock]\nseconds = \"sometimes\"\n", "u").unwrap_err();
 
     assert!(error.message.contains("bar.clock.seconds"), "{error}");
+}
+
+#[test]
+fn agents_is_in_no_preset_but_a_user_bar_can_place_it() {
+    for layout in [BarLayout::A, BarLayout::B, BarLayout::C] {
+        assert!(!widgets(&resolve_config("", layout).bar.right).contains(&"agents"));
+    }
+    let resolved = resolve_config(
+        "[layout.bar]\nright = [{ widget = \"status\" }, { widget = \"agents\" }, { widget = \"tray\" }]\n",
+        BarLayout::A,
+    );
+    assert_eq!(widgets(&resolved.bar.right), ["status", "agents", "tray"]);
+    assert!(errors_at(&resolved, "layout.bar").is_empty());
 }
