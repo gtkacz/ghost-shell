@@ -148,6 +148,21 @@ ghostd default-config > ~/.config/ghost-shell/config.toml
 
 Changes are applied when the file is saved. A value that fails validation is reported as a notification, and the previous value stays in effect.
 
+### Notifications
+
+```toml
+[notifications]
+history_limit = 200   # records kept; unread critical ones are never dropped
+popup_timeout_s = 6   # how long a toast stays up; critical toasts stay until dismissed
+max_popups = 3        # toasts shown at once; the rest wait and show as "+N WAITING"
+icons = true          # show the sender's icon in toasts (the centre and the widget never show one)
+
+[shortcuts]
+notifications = "Meta+N"   # opens the notification centre
+```
+
+Toasts, the bell and the centre are served by `ghostd` only once it owns `org.freedesktop.Notifications`; while Plasma serves, the bell's tooltip reads "Plasma serving" and the centre lists nothing and says so. The two commands that hand the name over and back are under "Handing the notification server to ghostd" above.
+
 ## Write your own widget
 
 A widget is a folder with a `manifest.toml` and a `Widget.qml`. `widgets/placeholder` is the smallest example. `ghostd` finds widgets in `~/.local/share/ghost-shell/widgets/` (the built-in ones) and in `~/.config/ghost-shell/widgets/` (yours). The full widget contract will be written up in `docs/widgets.md`; that document does not exist yet.
@@ -1107,6 +1122,59 @@ Headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, private buses, measured 202
 **Daemon feeds** (live, read-only): the ticker's failed-units count ≈ 0 s, firewalld state 0.01 s, PackageKit `GetUpdates` 0.82 s wall time.
 
 **Known limits of layout B** (left as they are; layout A is the default): the dock reserves no screen space, so maximised windows run under it; and its 58 px band leaves V1 too short for MEMORY's process rows and STORAGE's second and third drives.
+
+### Plan 3b: the notification server, toasts, bell, centre and widget
+
+Headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, private session and system buses, no PipeWire, measured 2026-10-24 on the shared machine (the user's desktop was running). Each task's deltas come from arms that differ only in the thing measured; the closing runs compare the 3b head (`3a8066f`) with the Plan 3a head (`bdbda0f`).
+
+**Closing runs** (release `ghostd` and the repo's shell, the 3b arm with the notifications marker so `ghostd` owns the name and an empty history; defaults, layout A, top bar, mono icons, `seconds = "covered"`, greeting off; 26 s warm-up, then `measure-cpu.sh` on the shell and the daemon together for 60 s; three rounds with the arms interleaved, median and range; V2 is `swap` from V1 with the UPLINK tab, MONITOR is `Activate("monitor")`, covered is a `Report` of the output):
+
+| State | Plan 3a head | Plan 3b | Δ | Rss, shell + daemon, 3a → 3b (KiB) | Outcome |
+|---|---|---|---|---|---|
+| V1 animating | 1.65 % (1.58–1.74) | **1.72 %** (1.62–1.89) | +0.07 | 277 136 → 285 560 (+8.2 MiB) | inside O1 (+0.25 points, +10 MiB) |
+| V2 | 2.35 % (1.87–2.45) | **1.95 %** (1.91–2.51) | −0.40 | 294 056 → 300 240 (+6.0 MiB) | inside O1; the 3a arm's spread is as wide as the difference |
+| MONITOR | 1.30 % (0.99–1.55) | **1.35 %** (1.15–1.48) | +0.05 | 290 644 → 299 116 (+8.3 MiB) | inside O1 |
+| Covered | 0.24 % (0.22–0.30) | **0.27 %** (0.22–0.78) | +0.03 | 268 568 → 275 260 (+6.5 MiB) | pass (≤ 0.50 %); one 3b run read 0.78 % (shell 0.70 %), the other two 0.22 and 0.27 %, and the cause was not found |
+
+- The daemon's share is +0.02 points and +2.6 MiB (the feed, the history and the zbus connection), the shell's +0.05 points and about +5 MiB (the bell, the toast and centre loaders, the widget and the rules). These absolute figures are lower than Plan 3a's table above and were not reconciled with it, so read the arms against each other, not against that table.
+- **A toast every 10 s over a covered desktop** (six normal toasts in the 60 s, the daemon and the shell together): **0.85 %** (0.55, 0.85, 1.00), against 0.27 % covered with none, so +0.58 points, or about +1.0 point over each toast's 6 s. **Over the margin; awaiting the user's decision.** The plan's budgets were ≤ 0.1 % per toast and ≤ 0.5 % in this state.
+- **The centre open** over the V1 dashboard (the open centre holds the 15 fps clock for its cursor's blink and is a second surface beside the dashboard): **2.65 %** (2.33, 2.65, 3.48) against 1.79 % (1.78, 1.79, 2.05) for the same build with the debug IPC and the centre closed, so +0.86 points while it is open (+0.55 to +1.7). The cost was not broken down; it looks like the toast cost below, a second surface drawing beside a visible dashboard. **Over the +0.25 margin while open; awaiting the user's decision.**
+- **Rss of the centre** (shell only, `smaps_rollup`, release daemon, three runs of eight open/close cycles): closed 237 788, 237 024, 237 528 KiB; the first opening +5.4, +4.7, +5.9 MiB; after the eighth cycle +7.7, +6.6, +6.4 MiB (a `VmRSS` run: 253 780 → 262 280 KiB, +8.3 MiB), flat from about the fifth cycle. That is inside the +10 MiB margin. Task 12 read +14 MiB on a different harness (debug build, the fake daemon, `VmRSS`); **that figure stays over the margin and awaiting the user's decision**, and the closing runs did not reproduce it.
+- **Rss of toasts** (shell only, five normal toasts 9 s apart, three runs): closed 238 044, 237 592, 239 784 KiB; the first toast on screen +6.4, +5.2, +4.4 MiB; after the fifth has ended +4.7, +5.2, +3.2 MiB. The surface and its caches are kept after the toasts end, and grow by under 1 MiB over the five toasts.
+
+**Per-change deltas** (each in its task; CPU in points of one core):
+
+| Change | CPU | Rss | Notes |
+|---|---|---|---|
+| `ghostd`, notification feed, idle (debug build, 60 s) | marker absent 0.02 → 0.03 %, present 0.03 → 0.02 % | +1.1 MiB (absent), +1.5 MiB (present) | the differences are one 10 ms tick in 60 s |
+| Bell in the tray | +0.02 | −0.2 MiB | within noise |
+| Toasts, no toast showing | +0.05 (1.67 → 1.72 %) | +0.3 MiB | the loader is inactive |
+| A normal toast, desktop visible | **+1.6** over its 6 s (1.33 → 2.89 %) | +3.7 MiB while shown, +0.8 MiB after | **over the ≤ 0.1 % plan budget and the O1 margin; awaiting the user's decision** |
+| A normal toast, covered | **+0.5** | | same |
+| A warn toast, visible / covered | **+5.8** / **+1.1** | | same; the box holds a 15 fps clock for its attention window |
+| Centre, closed | +0.2 (1.28 → 1.50 %) | +0.5 MiB | inside the noise and the margin |
+| Centre, repeated opens | | **+14 MiB** after the fifth cycle (a first run, `VmRSS`, fake daemon) | **over the +10 MiB margin; awaiting the user's decision**; the closing runs read +6.4 to +7.7 MiB |
+| Notifications widget in V1 | none (1.84 → 1.72 %) | +5 MiB | |
+
+**Where a normal toast's cost goes** (Task 11's diagnosis: `QSG_RENDER_TIMING=1` frame logs and `/proc` per-thread CPU every 0.25 s, 5 runs, 10 toasts; the table gives points of one core summed over a second, so "+6.2" is 6.2 point-seconds):
+
+| Phase of a normal toast, desktop visible | CPU % | Frames/s: desktop / bar / toast | Read |
+|---|---|---|---|
+| Before (4 s) | 1.83 | 15.0 / 1.1 / – | the dashboard's own 15 fps |
+| Creation and scramble (first second) | 8.01 (+6.2 point-s) | 15.0 / 1.0 / 17–26 | three scrambling texts on a new surface |
+| Steady (3.5 s) | 2.54 (+0.7) | 14.9 / 1.1 / 0.9 | one life-line frame a second |
+| End (2.5 s) | 2.38 (+0.5) | 14.8 / 1.2–2.4 / 0.8 | includes tearing the surface down |
+| Total | **+10.1 point-s, +1.7 over 6 s** | | |
+
+| What is switched off, desktop visible | Total | Average over 6 s |
+|---|---|---|
+| Nothing (as shipped) | 10.1 | +1.7 |
+| No scramble | 2.3 | +0.4 |
+| No scramble, no life line, no seconds clock (the surface and a static card) | about 0.5 | about +0.1 (inside the noise) |
+
+- The scramble is about 77 % of a normal toast's cost, the life line's seconds clock about 18 %, and creating and mapping the surface under 10 %. All of it is user-mode time in the shell's GUI thread. A frame on the toast's surface took 1.3–3.9 ms to sync with the desktop visible and 0.02–0.26 ms covered, for the same content, which is consistent with the second surface waiting on GPU or driver work shared with the dashboard; this reading was not isolated.
+- Covered, the same toasts cost +0.5 (normal) and +1.1 (warn) points; visible, +1.7 and +5.8. A warn toast's extra is its alert box holding a 15 fps clock for the 6 s on a second surface, against about +0.5 points for the same box on the dashboard's own frames.
+- Remedies measured or proposed, each independent: no scramble on toasts (about −1.3 points), a still alert box on toasts or a 1–2 s attention window (most of a warn toast's +4 to +5), a coarser life line (about −0.3). None is applied.
 
 ### Project 2: the lock screen, style A (installed, 2026-10-24)
 
