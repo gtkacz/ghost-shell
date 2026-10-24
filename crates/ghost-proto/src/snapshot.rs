@@ -175,6 +175,9 @@ pub struct DesktopSnapshot {
     pub task: Option<u8>,
     /// Counts task presses, so pressing the same one twice is two changes.
     pub task_seq: u64,
+    /// Counts presses of the notification-centre shortcut, which happen whatever has focus.
+    #[serde(default)]
+    pub notifications_seq: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

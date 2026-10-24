@@ -14,6 +14,7 @@ pub mod inhibit;
 pub mod markup;
 pub mod name;
 pub mod server;
+mod sources;
 mod state;
 mod store;
 
@@ -33,7 +34,8 @@ pub use name::Buses;
 
 use self::name::NameWatch;
 use self::server::{Claim, Request};
-use self::state::{Clock, State};
+use self::sources::{Sources, read_boot_id};
+use self::state::{Clock, Outputs, State};
 use crate::sdnotify;
 use crate::server::{Feed, FeedContext};
 
@@ -45,6 +47,7 @@ const APP_DIR: &str = "ghost-shell";
 const MARKER_FILE: &str = "notifications-server";
 const HISTORY_FILE: &str = "notifications.json";
 const IMAGES_DIR: &str = "notify";
+const BOOT_ID_FILE: &str = "/proc/sys/kernel/random/boot_id";
 /// Requests wait here for the loop; the server's dispatcher waits on each one's answer.
 const INBOX: usize = 16;
 
@@ -54,6 +57,9 @@ pub struct Paths {
     pub history: PathBuf,
     /// Empty when there is no runtime dir, which turns pictures off.
     pub images: PathBuf,
+    /// Where the kernel names this boot, which keeps a drive that died in an earlier one from
+    /// silencing this one.
+    pub boot_id: PathBuf,
 }
 
 pub fn default_paths() -> Paths {
@@ -72,6 +78,7 @@ pub fn default_paths() -> Paths {
         marker: state.join(MARKER_FILE),
         history: state.join(HISTORY_FILE),
         images,
+        boot_id: PathBuf::from(BOOT_ID_FILE),
     }
 }
 
@@ -85,12 +92,13 @@ fn unix_now_ms() -> u64 {
 
 /// The feed on the session bus, which is connected to twice once the daemon starts: the second
 /// connection asks the bus the questions the first one's handlers must not.
-pub fn feed(paths: Paths) -> Feed {
+pub fn feed(paths: Paths, signals: watch::Sender<Option<u32>>) -> Feed {
     Feed::new(topics::NOTIFICATIONS, |context| async move {
         let buses = connect().await;
         run(
             buses,
             paths,
+            signals,
             Box::new(unix_now_ms),
             sdnotify::ready,
             context,
@@ -104,11 +112,12 @@ pub fn feed(paths: Paths) -> Feed {
 pub fn feed_on(
     buses: Option<Buses>,
     paths: Paths,
+    signals: watch::Sender<Option<u32>>,
     now: impl Fn() -> u64 + Send + 'static,
     ready: impl FnOnce() + Send + 'static,
 ) -> Feed {
     Feed::new(topics::NOTIFICATIONS, move |context| {
-        run(buses, paths, Box::new(now), ready, context)
+        run(buses, paths, signals, Box::new(now), ready, context)
     })
 }
 
@@ -177,6 +186,7 @@ async fn name_change(names: &mut Option<NameWatch>) {
 async fn run(
     buses: Option<Buses>,
     paths: Paths,
+    signals: watch::Sender<Option<u32>>,
     now: Clock,
     ready: impl FnOnce(),
     context: FeedContext,
@@ -194,12 +204,19 @@ async fn run(
     }
     let (written_sender, mut written) = mpsc::unbounded_channel();
     let writer = store::spawn_writer(paths.history.clone(), paths.images.clone(), written_sender);
+    let (sent_sender, mut sent) = mpsc::unbounded_channel();
+    let sources = Sources::new(
+        buses.as_ref().map(|buses| buses.helper.clone()),
+        read_boot_id(&paths.boot_id),
+        sent_sender,
+    );
     let mut state = State::new(
         store::load(&paths.history),
+        sources,
         buses.as_ref().map(|buses| buses.bus.clone()),
         writer,
         images,
-        publisher,
+        Outputs { publisher, signals },
         now,
     );
     // Held for as long as the loop runs, so that a feed that serves nothing waits on it for ever
@@ -256,6 +273,7 @@ async fn run(
                 }
             }
             Some(done) = written.recv() => state.image_written(done),
+            Some(answer) = sent.recv() => state.sent(answer),
             () = until(state.next_expiry()) => state.expire(),
             () = until(state.save_deadline()) => state.save(),
             else => pending::<()>().await,

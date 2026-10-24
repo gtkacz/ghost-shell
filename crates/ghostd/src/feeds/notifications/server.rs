@@ -42,7 +42,8 @@ const SPEC_VERSION: &str = "1.2";
 pub const DEFAULT_ACTION: &str = "default";
 const URGENCY_LOW: u8 = 0;
 const URGENCY_CRITICAL: u8 = 2;
-const WARN_LEVEL: &str = "warn";
+pub(super) const LEVEL_HINT: &str = "x-ghost-shell-level";
+pub(super) const WARN_LEVEL: &str = "warn";
 const IMAGE_DATA_HINTS: [&str; 3] = ["image-data", "image_data", "icon_data"];
 const IMAGE_PATH_HINTS: [&str; 2] = ["image-path", "image_path"];
 const UNIQUE_NAME_PREFIX: char = ':';
@@ -146,7 +147,7 @@ fn parse(call: &Call<'_>) -> (Incoming, Option<ImageData>) {
     let urgency = urgency(hints);
     let level = if urgency == Urgency::Critical {
         NotificationLevel::Crit
-    } else if hint_str(hints, "x-ghost-shell-level") == Some(WARN_LEVEL) {
+    } else if hint_str(hints, LEVEL_HINT) == Some(WARN_LEVEL) {
         NotificationLevel::Warn
     } else {
         NotificationLevel::None

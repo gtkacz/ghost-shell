@@ -52,7 +52,14 @@ fn japanese_name(config: &ResolvedConfig) -> String {
         .unwrap_or_default()
 }
 
-pub fn snapshot_ini(config: &ResolvedConfig, host: &str, user: &str) -> String {
+/// `signals` is the count of notifications that arrived since the screen locked, and is written only
+/// while it is known.
+pub fn snapshot_ini(
+    config: &ResolvedConfig,
+    host: &str,
+    user: &str,
+    signals: Option<u32>,
+) -> String {
     let look = &config.appearance;
     let colors = &look.colors;
     let mut ini = String::new();
@@ -104,6 +111,9 @@ pub fn snapshot_ini(config: &ResolvedConfig, host: &str, user: &str) -> String {
         look.dots.scale,
         look.scanlines.opacity,
     );
+    if let Some(signals) = signals {
+        let _ = write!(ini, "[session]\nsignals={signals}\n");
+    }
     ini
 }
 
@@ -160,23 +170,32 @@ fn snapshot_paths_in(
     paths
 }
 
-/// Writes the snapshot at start and again after every config change.
+/// Writes the snapshot at start and again after every config or `signals` change.
 pub async fn keep(
     mut updates: watch::Receiver<ResolvedConfig>,
+    mut signals: watch::Receiver<Option<u32>>,
     host: String,
     user: String,
     paths: Vec<PathBuf>,
 ) {
+    let (mut config_open, mut signals_open) = (true, true);
     loop {
-        let ini = snapshot_ini(&updates.borrow_and_update(), &host, &user);
+        let ini = snapshot_ini(
+            &updates.borrow_and_update(),
+            &host,
+            &user,
+            *signals.borrow_and_update(),
+        );
         for path in &paths {
             if let Err(error) = write_atomic(path, &ini) {
                 warn!(%error, path = %path.display(), "cannot write the gate snapshot");
             }
         }
-        if updates.changed().await.is_err() {
-            // The config can no longer change, so the last snapshot stands.
-            future::pending::<()>().await;
+        tokio::select! {
+            changed = updates.changed(), if config_open => config_open = changed.is_ok(),
+            changed = signals.changed(), if signals_open => signals_open = changed.is_ok(),
+            // Neither can change any more, so the last snapshot stands.
+            else => future::pending::<()>().await,
         }
     }
 }
@@ -223,7 +242,12 @@ mod tests {
     ];
 
     fn default_ini() -> String {
-        snapshot_ini(&crate::config::load_str("").unwrap(), "ghost", "gtkacz")
+        snapshot_ini(
+            &crate::config::load_str("").unwrap(),
+            "ghost",
+            "gtkacz",
+            None,
+        )
     }
 
     #[test]
@@ -244,6 +268,17 @@ mod tests {
     }
 
     #[test]
+    fn signals_appears_in_the_gate_ini_only_while_some() {
+        let config = crate::config::load_str("").unwrap();
+
+        let locked = snapshot_ini(&config, "ghost", "gtkacz", Some(3));
+        let unlocked = snapshot_ini(&config, "ghost", "gtkacz", None);
+
+        assert!(locked.ends_with("\n[session]\nsignals=3\n"));
+        assert!(!unlocked.contains("[session]"));
+    }
+
+    #[test]
     fn strings_are_quoted_and_escaped_for_qsettings() {
         let ini = default_ini();
         assert!(ini.contains("\nfont=\"Kode Mono\"\n"));
@@ -255,7 +290,7 @@ mod tests {
         let mut config = crate::config::load_str("").unwrap();
         config.lock.style = LockStyle::Idcheck;
         config.appearance.panel_fill = 40;
-        let ini = snapshot_ini(&config, "ghost", "gtkacz");
+        let ini = snapshot_ini(&config, "ghost", "gtkacz", None);
         assert!(ini.contains("\nstyle=idcheck\n"));
         assert!(ini.contains("\npanel_fill=40\n"));
     }

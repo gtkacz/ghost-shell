@@ -25,6 +25,7 @@ const OUTPUT_SEPARATOR: char = ',';
 pub(crate) const MONITOR: &str = "monitor";
 pub(crate) const SWAP: &str = "swap";
 pub(crate) const LAUNCHER: &str = "launcher";
+pub(crate) const NOTIFICATIONS: &str = "notifications";
 
 #[derive(Debug, Default)]
 pub struct DesktopState {
@@ -67,6 +68,13 @@ impl DesktopState {
         true
     }
 
+    /// Counts a press of the notification-centre shortcut, which needs no focus: the bell shows over
+    /// windows too.
+    pub fn open_notifications(&mut self) -> bool {
+        self.snapshot.notifications_seq += 1;
+        true
+    }
+
     /// Passes on a task shortcut whatever has focus, since the bar shows over windows too.
     pub fn press_task(&mut self, index: u8) -> bool {
         self.snapshot.task = Some(index);
@@ -104,6 +112,10 @@ impl DesktopService {
 
     pub fn press_task(&self, index: u8) {
         self.update(|state| state.press_task(index));
+    }
+
+    pub fn open_notifications(&self) {
+        self.update(DesktopState::open_notifications);
     }
 
     /// Goes back to no covered outputs and no focus. The counts stay, since clients compare

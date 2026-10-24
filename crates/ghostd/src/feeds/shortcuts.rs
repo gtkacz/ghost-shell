@@ -15,7 +15,7 @@ use zbus::fdo::{self, NameOwnerChanged};
 use zbus::proxy::CacheProperties;
 use zbus::{Connection, MatchRule, Message, MessageStream, message, proxy};
 
-use super::desktop::{DesktopService, LAUNCHER, MONITOR, SWAP};
+use super::desktop::{DesktopService, LAUNCHER, MONITOR, NOTIFICATIONS, SWAP};
 use super::next;
 use crate::config::MAX_TASK_SHORTCUTS;
 use crate::keyseq;
@@ -29,6 +29,12 @@ const PRESSED_SIGNAL: &str = "globalShortcutPressed";
 const MONITOR_ID: [&str; 4] = [COMPONENT, MONITOR, COMPONENT, "Toggle the monitor view"];
 const SWAP_ID: [&str; 4] = [COMPONENT, SWAP, COMPONENT, "Next main view"];
 const LAUNCHER_ID: [&str; 4] = [COMPONENT, LAUNCHER, COMPONENT, "Open the launcher"];
+const NOTIFICATIONS_ID: [&str; 4] = [
+    COMPONENT,
+    NOTIFICATIONS,
+    COMPONENT,
+    "Open the notification centre",
+];
 const TASK_PREFIX: &str = "task-";
 // `SetShortcutFlag` in kglobalaccel 6.31's src/kglobalaccel_p.h.
 const SET_PRESENT: u32 = 2;
@@ -156,7 +162,7 @@ impl Registration {
         };
         let tasks: Vec<TaskId> = TaskId::all().collect();
         let task_ids = tasks.iter().map(TaskId::as_ids);
-        for action_id in [MONITOR_ID, SWAP_ID, LAUNCHER_ID]
+        for action_id in [MONITOR_ID, SWAP_ID, LAUNCHER_ID, NOTIFICATIONS_ID]
             .into_iter()
             .chain(task_ids)
         {
@@ -279,6 +285,7 @@ async fn register(
         (MONITOR_ID, &shortcuts.monitor),
         (SWAP_ID, &shortcuts.swap),
         (LAUNCHER_ID, &shortcuts.launcher),
+        (NOTIFICATIONS_ID, &shortcuts.notifications),
     ]
     .into_iter()
     .chain(configured_tasks.map(|(sequence, task)| (task.as_ids(), sequence)));
@@ -343,6 +350,7 @@ fn activate(desktop: &DesktopService, press: zbus::Result<Message>) {
         let (_component, shortcut, _timestamp): (&str, &str, i64) = body.deserialize()?;
         match shortcut {
             LAUNCHER => desktop.toggle_launcher(),
+            NOTIFICATIONS => desktop.open_notifications(),
             _ => match task_index(shortcut) {
                 Some(index) => desktop.press_task(index),
                 None => desktop.activate(shortcut)?,

@@ -7,12 +7,12 @@
 use std::time::Duration;
 
 use ghost_proto::{
-    Notification, NotificationServer, Notifications, NotificationsSnapshot, WindowsSnapshot, calls,
-    topics,
+    DiskSnapshot, Notification, NotificationServer, Notifications, NotificationsSnapshot,
+    WeatherAlerts, WindowsSnapshot, calls, topics,
 };
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use tracing::{debug, warn};
 use zbus::Connection;
@@ -20,6 +20,7 @@ use zbus::Connection;
 use super::history::{Excess, History, Incoming, record};
 use super::images::ImageData;
 use super::server::{self, CLOSED_BY_CALL, DEFAULT_ACTION, DISMISSED, Request};
+use super::sources::{Sent, Sources};
 use super::store::{Job, Written};
 use crate::server::{Call, Publisher, TopicUpdate};
 
@@ -34,6 +35,13 @@ const NOT_SUPPRESSED: &str = "";
 
 pub type Clock = Box<dyn Fn() -> u64 + Send>;
 
+/// Where the state sends what it decides.
+pub struct Outputs {
+    pub publisher: Publisher,
+    /// The count of notifications since the lock, while the session is locked.
+    pub signals: watch::Sender<Option<u32>>,
+}
+
 pub struct State {
     history: History,
     /// Transient records with the moment they stop passing; newest first, in front of the history.
@@ -42,6 +50,8 @@ pub struct State {
     inhibited: bool,
     fullscreen: bool,
     locked: bool,
+    /// The wall-clock second at which `locked` last became true.
+    lock_s: u64,
     published: Option<NotificationsSnapshot>,
     save_at: Option<Instant>,
     last_save: Option<Instant>,
@@ -50,6 +60,8 @@ pub struct State {
     writer: mpsc::Sender<Job>,
     images: bool,
     publisher: Publisher,
+    signals: watch::Sender<Option<u32>>,
+    sources: Sources,
     now: Clock,
 }
 
@@ -62,12 +74,14 @@ fn id_arg(args: &Value) -> Option<u32> {
 impl State {
     pub fn new(
         history: History,
+        sources: Sources,
         bus: Option<Connection>,
         writer: mpsc::Sender<Job>,
         images: bool,
-        publisher: Publisher,
+        outputs: Outputs,
         now: Clock,
     ) -> Self {
+        let Outputs { publisher, signals } = outputs;
         Self {
             history,
             passing: Vec::new(),
@@ -75,6 +89,7 @@ impl State {
             inhibited: false,
             fullscreen: false,
             locked: false,
+            lock_s: 0,
             published: None,
             save_at: None,
             last_save: None,
@@ -82,6 +97,8 @@ impl State {
             writer,
             images,
             publisher,
+            signals,
+            sources,
             now,
         }
     }
@@ -120,6 +137,12 @@ impl State {
 
     /// Publishes the snapshot unless it is the one already out.
     pub fn publish(&mut self) {
+        let signals = self.locked.then(|| self.history.unread_since(self.lock_s));
+        self.signals.send_if_modified(|current| {
+            let changed = *current != signals;
+            *current = signals;
+            changed
+        });
         let snapshot = self.snapshot();
         if self.published.as_ref() != Some(&snapshot) {
             self.publisher.publish(topics::NOTIFICATIONS, &snapshot);
@@ -130,6 +153,11 @@ impl State {
     pub fn set_server(&mut self, server: NotificationServer) {
         self.server = server;
         self.publish();
+    }
+
+    /// Takes the answer to a source's send.
+    pub fn sent(&mut self, sent: Sent) {
+        self.sources.sent(sent);
     }
 
     pub fn set_inhibited(&mut self, inhibited: bool) {
@@ -150,14 +178,34 @@ impl State {
                 Err(error) => debug!(%error, "the windows topic is unreadable; keeping fullscreen"),
             },
             topics::SESSION => match update.value.get("locked").and_then(Value::as_bool) {
-                Some(locked) => self.locked = locked,
+                Some(locked) => {
+                    if locked && !self.locked {
+                        self.lock_s = (self.now)() / MS_PER_S;
+                    }
+                    self.locked = locked;
+                }
                 None => debug!("the session topic has no `locked`; keeping it"),
+            },
+            topics::WEATHER_ALERTS => match WeatherAlerts::deserialize(&*update.value) {
+                Ok(alerts) => {
+                    if self.sources.weather(&mut self.history, &alerts) {
+                        self.mark_dirty();
+                    }
+                }
+                Err(error) => debug!(%error, "the weather alerts are unreadable; raising none"),
+            },
+            topics::DISKS => match DiskSnapshot::deserialize(&*update.value) {
+                Ok(disks) => {
+                    if self.sources.disks(&mut self.history, &disks) {
+                        self.mark_dirty();
+                    }
+                }
+                Err(error) => debug!(%error, "the disks topic is unreadable; raising none"),
             },
             _ => return,
         }
         self.publish();
     }
-
     pub async fn request(&mut self, request: Request, settings: &Notifications) {
         match request {
             Request::Notify {

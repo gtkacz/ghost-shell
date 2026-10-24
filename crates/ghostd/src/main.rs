@@ -178,14 +178,19 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
     info!(socket = %socket.display(), config = %config_path.display(), "listening");
 
     let config = ConfigFeed::open(&config_path);
+    let (signals_sender, signals_receiver) = watch::channel(None);
     let (sampler, mut feeds) = if options.fake {
         (fake::sampler(), fake::feeds())
     } else {
-        (host_sampler(config.subscribe()), host_feeds(&config_path))
+        (
+            host_sampler(config.subscribe()),
+            host_feeds(&config_path, signals_sender),
+        )
     };
     if !options.fake {
         tokio::spawn(gate::keep(
             config.subscribe(),
+            signals_receiver,
             server::host_name(),
             // The login name, as the greeting's name defaults to.
             env::var("USER").unwrap_or_default(),
@@ -305,7 +310,7 @@ fn host_sampler(config: watch::Receiver<ResolvedConfig>) -> Sampler {
     )
 }
 
-fn host_feeds(config_path: &Path) -> Vec<Feed> {
+fn host_feeds(config_path: &Path, signals: watch::Sender<Option<u32>>) -> Vec<Feed> {
     vec![
         feeds::host::feed(SysRoot::host()),
         feeds::weather::feed(Arc::new(Ureq::default())),
@@ -322,7 +327,7 @@ fn host_feeds(config_path: &Path) -> Vec<Feed> {
         feeds::ticker::feed(),
         feeds::recent::feed(),
         feeds::pins::feed(config_path.to_owned(), plasma_config_dir()),
-        feeds::notifications::feed(feeds::notifications::default_paths()),
+        feeds::notifications::feed(feeds::notifications::default_paths(), signals),
     ]
 }
 

@@ -50,6 +50,7 @@ fn paths_in(dir: &TempDir) -> Paths {
         marker: dir.path().join("state/notifications-server"),
         history: dir.path().join("state/notifications.json"),
         images: dir.path().join("run/notify"),
+        boot_id: dir.path().join("state/boot_id"),
     }
 }
 
@@ -140,6 +141,7 @@ impl Running {
         let feed = notifications::feed_on(
             buses,
             paths,
+            watch::channel(None).0,
             move || clock.fetch_add(CLOCK_STEP_MS, Ordering::SeqCst),
             move || {
                 ready_count.fetch_add(1, Ordering::SeqCst);

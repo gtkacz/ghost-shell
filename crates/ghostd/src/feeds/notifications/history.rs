@@ -2,7 +2,7 @@
 //! the server and the feed decide when to call it and when to persist.
 
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use ghost_proto::{Notification, NotificationAction, NotificationLevel, Urgency};
 use serde::de::Error as _;
@@ -67,6 +67,8 @@ pub struct History {
     dnd: bool,
     next_id: u32,
     last: Option<LastCall>,
+    /// What the built-in sources have raised, so that a restart does not raise it again.
+    seen_sources: BTreeSet<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -75,6 +77,9 @@ struct Stored<'a> {
     next_id: u32,
     dnd: bool,
     items: Cow<'a, [Notification]>,
+    // Absent from files written before the sources existed.
+    #[serde(default)]
+    seen_sources: Cow<'a, BTreeSet<String>>,
 }
 
 impl Default for History {
@@ -125,6 +130,7 @@ impl History {
             dnd: false,
             next_id: FIRST_ID,
             last: None,
+            seen_sources: BTreeSet::new(),
         }
     }
 
@@ -160,6 +166,7 @@ impl History {
             dnd: stored.dnd,
             next_id: stored.next_id.max(past_every_id),
             last: None,
+            seen_sources: stored.seen_sources.into_owned(),
         })
     }
 
@@ -169,6 +176,7 @@ impl History {
             next_id: self.next_id,
             dnd: self.dnd,
             items: Cow::Borrowed(&self.items),
+            seen_sources: Cow::Borrowed(&self.seen_sources),
         };
         serde_json::to_string(&stored).expect("strings and numbers always serialise")
     }
@@ -308,6 +316,19 @@ impl History {
     }
 
     /// The unread records that arrived after `since_s`.
+    /// Notes that a source raised `key`; whether it is new.
+    pub fn mark_source_seen(&mut self, key: &str) -> bool {
+        self.seen_sources.insert(key.to_owned())
+    }
+
+    /// Forgets the keys that start with `prefix` and that `keep` refuses; whether any went.
+    pub fn retain_sources(&mut self, prefix: &str, keep: impl Fn(&str) -> bool) -> bool {
+        let before = self.seen_sources.len();
+        self.seen_sources
+            .retain(|key| !key.starts_with(prefix) || keep(key));
+        self.seen_sources.len() != before
+    }
+
     pub fn unread_since(&self, since_s: u64) -> u32 {
         self.items
             .iter()
@@ -537,8 +558,37 @@ mod tests {
             next_id,
             dnd: false,
             items: Cow::Owned(items),
+            seen_sources: Cow::default(),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn seen_sources_survive_a_round_trip_and_default_when_absent() {
+        let mut history = History::new();
+        assert!(history.mark_source_seen("inmet:1"));
+        assert!(!history.mark_source_seen("inmet:1"));
+
+        let mut restored = History::from_json(&history.to_json()).unwrap();
+        assert!(!restored.mark_source_seen("inmet:1"));
+        let mut old =
+            History::from_json("{\"version\":1,\"next_id\":1,\"dnd\":false,\"items\":[]}").unwrap();
+        assert!(old.mark_source_seen("inmet:1"));
+    }
+
+    #[test]
+    fn retain_sources_only_touches_its_prefix() {
+        let mut history = History::new();
+        history.mark_source_seen("inmet:1");
+        history.mark_source_seen("inmet:2");
+        history.mark_source_seen("drive:a:boot");
+
+        assert!(history.retain_sources("inmet:", |key| key == "inmet:2"));
+
+        assert!(history.mark_source_seen("inmet:1"));
+        assert!(!history.mark_source_seen("inmet:2"));
+        assert!(!history.mark_source_seen("drive:a:boot"));
+        assert!(!history.retain_sources("inmet:", |_| true));
     }
 
     #[test]
