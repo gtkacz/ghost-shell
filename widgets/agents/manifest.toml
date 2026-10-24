@@ -1,0 +1,11 @@
+id = "agents"
+name = "Agents"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+requires = ["agents.usage", "agents.sessions"]
+
+[settings.style]
+type = "enum"
+values = ["chip"]
+default = "chip"
