@@ -228,6 +228,8 @@ window {{ outline: 1px solid {d['hair']}; outline-offset: -1px; }}
 tabbar {{ background: {p.ground}; border-bottom: 1px solid {d['hair']}; font-family: "Kode Mono"; }}
 tabbar .box {{ background: {p.ground}; box-shadow: none; }}
 tabbar tab {{ color: {d['dim']}; background: transparent; border-radius: 0; outline: none; border-right: 1px solid {d['hair']}; }}
+/* libadwaita rings the focused tab with a rounded accent outline on its tabboxchild, not on the tab itself. */
+tabbar tabbox > tabboxchild, tabbar tabbox > tabboxchild:focus-within:focus-visible {{ border-radius: 0; outline: none; }}
 tabbar tab:hover {{ color: {d['text']}; }}
 tabbar tab:selected {{ color: {d['hi']}; background: {d['ground']}; box-shadow: inset 0 -2px {d['dim']}; }}
 tabbar button {{ color: {d['dim']}; border-radius: 0; }}

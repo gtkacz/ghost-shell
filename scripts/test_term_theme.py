@@ -517,6 +517,10 @@ def test_gtk_css_squares_toasts_with_the_signal_edge_and_an_entrance():
     assert "animation: ghost-toast-in" in toast and "@keyframes ghost-toast-in" in css
 
 
+def test_gtk_css_drops_the_rounded_focus_ring_around_the_selected_tab():
+    assert "tabboxchild:focus-within:focus-visible { border-radius: 0; outline: none; }" in tt.render_gtk_css(_palette())
+
+
 def test_ghostty_loads_the_gtk_css():
     assert "gtk-custom-css = ~/.config/ghostty/ghost.css" in tt.render_ghostty(_palette())
 
