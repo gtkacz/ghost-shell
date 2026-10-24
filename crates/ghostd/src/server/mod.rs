@@ -256,7 +256,7 @@ impl RunningFeeds {
     }
 }
 
-fn host_name() -> String {
+pub fn host_name() -> String {
     gethostname()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default()

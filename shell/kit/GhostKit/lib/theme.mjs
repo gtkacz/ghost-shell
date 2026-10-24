@@ -36,6 +36,7 @@ export const TAGS = Object.freeze({
   all: Object.freeze({ kanji: '全部', katakana: 'オール' }),
   results: Object.freeze({ kanji: '検索', katakana: 'サーチ' }),
   bright: Object.freeze({ kanji: '輝度', katakana: 'ブライトネス' }),
+  auth: Object.freeze({ kanji: '認証', katakana: 'アクセス' }),
 });
 
 export const CHIPS = Object.freeze({

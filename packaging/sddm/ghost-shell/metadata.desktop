@@ -1,0 +1,7 @@
+[SddmGreeterTheme]
+Name=ghost-shell login screen
+Description=The ghost-shell gate's prompt as the SDDM login screen
+Type=sddm-theme
+MainScript=Main.qml
+ConfigFile=theme.conf
+QtVersion=6

@@ -1,0 +1,8 @@
+{
+    "KPackageStructure": "Plasma/Shell",
+    "KPlugin": {
+        "Id": "org.ghostshell.lockspike",
+        "Name": "ghost-shell lock spike"
+    },
+    "X-Plasma-APIVersion": "2"
+}

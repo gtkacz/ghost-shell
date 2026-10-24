@@ -28,10 +28,6 @@ Item {
     readonly property int stripePeriodMs: Theme.alertStripePeriodMs
     readonly property int stripeStepMs: Theme.alertStripeStepMs
     readonly property real millisPerSecond: 1000
-    readonly property int arrivalMs: 1600
-    // Held steps: each opacity starts at its percentage of arrivalMs and holds until the next one.
-    readonly property var arrivalStartPercents: [0, 6, 10, 14, 40, 70]
-    readonly property var arrivalOpacities: [0.3, 1, 0.46, 1, 0.82, 0.64]
 
     // Bound rather than read once: the surface reports a provisional ratio before it is configured.
     readonly property real pixelRatio: QsWindow.window ? QsWindow.window.devicePixelRatio : 1
@@ -78,14 +74,14 @@ Item {
             return 1;
         }
         const sinceArrival = FrameClock.elapsedMs - appearedAt;
-        if (sinceArrival >= arrivalMs) {
+        if (sinceArrival >= Attention.ARRIVAL_MS) {
             return FrameClock.blinkOpacity;
         }
-        const reachedPercent = Theme.percent * sinceArrival / arrivalMs;
-        let opacity = arrivalOpacities[0];
-        for (let i = 0; i < arrivalStartPercents.length; i += 1) {
-            if (reachedPercent >= arrivalStartPercents[i]) {
-                opacity = arrivalOpacities[i];
+        const reachedPercent = Theme.percent * sinceArrival / Attention.ARRIVAL_MS;
+        let opacity = Attention.ARRIVAL_OPACITIES[0];
+        for (let i = 0; i < Attention.ARRIVAL_START_PERCENTS.length; i += 1) {
+            if (reachedPercent >= Attention.ARRIVAL_START_PERCENTS[i]) {
+                opacity = Attention.ARRIVAL_OPACITIES[i];
             }
         }
         return opacity;

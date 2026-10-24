@@ -108,7 +108,7 @@ These come from the mockup unless marked.
 - A **boxed crit alert** appears under the field: `ACCESS DENIED · ATTEMPT n`.
   - It's the §5.4 alert box: a 3 px crit left edge, stepped scrolling stripes, the stepped arrival flicker, then the cursor blink.
   - **[call]** Unlike the dashboard's alerts, it blinks only for its arrival plus about 8 s, then holds still.
-- Typing again hides the alert.
+- The alert stays while the user types again and hides on the next submit (user decision, 2026-10-24).
 - **[call]** No shake and no other motion on failure.
 - If PAM reports a message (for example a lockout after too many attempts, or "account expired"), it replaces the alert text, still in crit.
 

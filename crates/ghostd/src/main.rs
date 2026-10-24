@@ -22,7 +22,7 @@ use ghostd::selfmon::SelfMon;
 use ghostd::server::{self, ConfigFeed, Feed, Hub, ProviderSpecs, WarningHook, WidgetDirs};
 use ghostd::sysroot::SysRoot;
 use ghostd::widgets::default_dirs;
-use ghostd::{fake, feeds, notify, providers};
+use ghostd::{fake, feeds, gate, notify, providers};
 use serde::Serialize;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
@@ -183,6 +183,15 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
     } else {
         (host_sampler(config.subscribe()), host_feeds(&config_path))
     };
+    if !options.fake {
+        tokio::spawn(gate::keep(
+            config.subscribe(),
+            server::host_name(),
+            // The login name, as the greeting's name defaults to.
+            env::var("USER").unwrap_or_default(),
+            gate::snapshot_paths(),
+        ));
+    }
     let shortcuts = Registration::default();
     // Real in fake mode too, so a smoke run can drive the views over its own private bus.
     feeds.push(feeds::desktop::feed(

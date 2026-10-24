@@ -99,6 +99,14 @@ Item {
                 path: "M6 1v5M3.4 3a4 4 0 1 0 5.2 0",
                 filled: false
             },
+            "keyboard": {
+                path: "M1 3.2h10v6H1zM3 5.2h1M5.5 5.2h1M8 5.2h1M3.5 7.3h5",
+                filled: false
+            },
+            "switch-user": {
+                path: "M3.8 4a2.2 2.2 0 1 0 4.4 0a2.2 2.2 0 1 0-4.4 0M1.8 11a4.2 3.2 0 0 1 8.4 0M9.2 1.4l1.6 1.6-1.6 1.6",
+                filled: false
+            },
             "scroll": {
                 path: "M3 4.6 6 2.2l3 2.4M3 7.4 6 9.8l3-2.4",
                 filled: false

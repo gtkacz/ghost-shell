@@ -104,3 +104,9 @@ export function heldStripePhase(wallMs, tilePx, periodMs, stepMs) {
 export function stepsOnWholeSeconds(stepMs) {
   return stepMs % MS_PER_SECOND === 0;
 }
+
+// A new alert's text flickers in over this long: each opacity starts at its percentage of ARRIVAL_MS and holds until
+// the next one starts.
+export const ARRIVAL_MS = 1600;
+export const ARRIVAL_START_PERCENTS = [0, 6, 10, 14, 40, 70];
+export const ARRIVAL_OPACITIES = [0.3, 1, 0.46, 1, 0.82, 0.64];
