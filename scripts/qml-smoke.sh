@@ -232,7 +232,7 @@ Name=$name
 GenericName=$generic
 Categories=$categories
 Keywords=$keywords
-Exec=sh -c "echo launched-$id >> $launcher_launches"
+Exec=sh -c "echo launched-$id >> $launcher_launches; cat /proc/self/cgroup > $launcher_launches.cgroup"
 ENTRY
 }
 
@@ -287,6 +287,9 @@ run_launcher_phase() {
     launcher_ipc key Return
     launcher_expect "launched firewall-config logged" "$(launcher_count 'launched firewall-config')" 1
     launcher_expect "the fake entry's Exec ran" "$(grep -c '^launched-firewall-config$' "$launcher_launches" || true)" 1
+    # With no systemd on the sandbox bus KIO starts a plain child. A launch that stays in the shell's own cgroup never
+    # reached the session's systemd manager, which would have put it in an app scope.
+    launcher_expect "the launch stayed in the sandbox's cgroup" "$(< "$launcher_launches.cgroup")" "$(< "/proc/$shell_pid/cgroup")"
     # The panel closes 140 ms after a launch.
     launcher_expect "closed after a launch" "$(launcher_count 'launcher closed')" 1
 

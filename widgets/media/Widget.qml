@@ -175,7 +175,7 @@ Panel {
     function playOrPause() {
         if (player === null) {
             if (launcher !== null) {
-                launcher.execute();
+                Launch.app(launcher);
             }
             return;
         }

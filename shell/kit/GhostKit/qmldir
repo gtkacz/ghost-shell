@@ -9,6 +9,7 @@ singleton Views 1.0 Views.qml
 singleton Tasks 1.0 Tasks.qml
 singleton TrayRules 1.0 TrayRules.qml
 singleton Launcher 1.0 Launcher.qml
+singleton Launch 1.0 Launch.qml
 DotGrid 1.0 DotGrid.qml
 Scanlines 1.0 Scanlines.qml
 Panel 1.0 Panel.qml

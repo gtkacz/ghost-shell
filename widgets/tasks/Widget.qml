@@ -114,7 +114,7 @@ Item {
     // A window that has since gone is ignored by the KWin script, so a click on a stale list does no harm.
     function perform(task, action) {
         if (action.kind === "launch") {
-            entryOf(task.appId)?.execute();
+            Launch.app(entryOf(task.appId));
         } else {
             Data.call("windows." + action.kind, {
                 id: action.id
@@ -123,7 +123,7 @@ Item {
     }
 
     function launch(task) {
-        entryOf(task.appId)?.execute();
+        Launch.app(entryOf(task.appId));
     }
 
     function activate(id) {

@@ -139,7 +139,7 @@ Item {
                 function choose(item) {
                     menuOpen = false;
                     if (item.kind === "action") {
-                        item.action.execute();
+                        Launch.action(item.action);
                     } else if (item.kind === "pin") {
                         root.host.setPinned(task, !task.pinned);
                     } else {

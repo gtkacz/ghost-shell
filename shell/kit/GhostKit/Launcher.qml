@@ -227,7 +227,7 @@ Singleton {
             Quickshell.execDetached(["xdg-open", item.file.path]);
             console.info("launcher opened file");
         } else {
-            item.entry.desktop.execute();
+            Launch.app(item.entry.desktop);
             console.info("launched " + item.entry.id);
         }
         core.burning = at;
