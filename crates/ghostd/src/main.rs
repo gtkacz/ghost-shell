@@ -305,6 +305,7 @@ fn host_feeds(config_path: &Path) -> Vec<Feed> {
         feeds::links::feed(),
         feeds::health::feed(),
         feeds::batteries::feed(),
+        feeds::brightness::feed(),
         feeds::uplink::feed(),
         feeds::session::feed(),
         feeds::launcher_entries::feed(),

@@ -68,9 +68,9 @@ const WALL_CLOCK_CHECK: Duration = Duration::from_secs(60);
 /// Either service answers a full read in milliseconds; one that takes longer is stuck, and the
 /// batteries read before stay up meanwhile.
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
-const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
+pub(super) const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 const GET: &str = "Get";
-const PROPERTIES_CHANGED: &str = "PropertiesChanged";
+pub(super) const PROPERTIES_CHANGED: &str = "PropertiesChanged";
 
 /// Reads UPower on the system bus and KDE Connect on the session bus, each connected to only once
 /// the topic is first wanted.
@@ -303,7 +303,7 @@ async fn next_owner_change(owners: &mut Option<NameOwnerChangedStream>) {
     }
 }
 
-async fn owner_changes(
+pub(super) async fn owner_changes(
     bus: &Connection,
     name: &'static str,
 ) -> zbus::Result<NameOwnerChangedStream> {
@@ -378,7 +378,7 @@ impl UpowerChanges {
 
 /// Calls `method` without letting the bus start `service` for it: an absent service must read as
 /// absent, not be launched by a dashboard.
-async fn call<B, R>(
+pub(super) async fn call<B, R>(
     bus: &Connection,
     service: &'static str,
     path: &str,
@@ -404,15 +404,15 @@ where
 }
 
 /// One interface of one object, whose properties are read as [`call`] calls.
-struct Object<'a> {
-    bus: &'a Connection,
-    service: &'static str,
-    path: &'a str,
-    interface: &'static str,
+pub(super) struct Object<'a> {
+    pub(super) bus: &'a Connection,
+    pub(super) service: &'static str,
+    pub(super) path: &'a str,
+    pub(super) interface: &'static str,
 }
 
 impl Object<'_> {
-    async fn get<T>(&self, name: &'static str) -> zbus::Result<T>
+    pub(super) async fn get<T>(&self, name: &'static str) -> zbus::Result<T>
     where
         T: TryFrom<OwnedVariant>,
         <T as TryFrom<OwnedVariant>>::Error: Into<zbus::Error>,

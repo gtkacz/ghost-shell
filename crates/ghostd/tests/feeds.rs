@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::{Instant, sleep, timeout, timeout_at};
 
 const WATCHED_TICKS: u64 = 6;
-const NEW_BUILTINS: [&str; 19] = [
+const NEW_BUILTINS: [&str; 20] = [
     topics::HOST,
     topics::DESKTOP,
     topics::WEATHER,
@@ -35,6 +35,7 @@ const NEW_BUILTINS: [&str; 19] = [
     topics::RECENT,
     topics::AGENTS_USAGE,
     topics::AGENTS_SESSIONS,
+    topics::BRIGHTNESS,
 ];
 const BOOT_TIME_S: u64 = 1_792_500_000;
 const RETURNING_FEED: &str = "returning";

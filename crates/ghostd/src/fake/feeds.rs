@@ -2,11 +2,11 @@ use std::future::pending;
 use std::time::Duration;
 
 use ghost_proto::{
-    AlertLevel, Batteries, Battery, BatteryKind, DiskHealth, DriveHealth, Endpoint, HostSnapshot,
-    LanLink, LauncherEntries, LauncherEntry, LinkState, LinksSnapshot, RainPeak, RecentFile,
-    RecentFiles, SessionSnapshot, SkySnapshot, SpectrumSnapshot, TailscaleLink, TickerSnapshot,
-    UplinkSnapshot, VpnLink, WeatherAlert, WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo,
-    WindowsSnapshot, topics,
+    AlertLevel, Batteries, Battery, BatteryKind, Brightness, DiskHealth, DisplayBrightness,
+    DriveHealth, Endpoint, HostSnapshot, LanLink, LauncherEntries, LauncherEntry, LinkState,
+    LinksSnapshot, NightLight, RainPeak, RecentFile, RecentFiles, SessionSnapshot, SkySnapshot,
+    SpectrumSnapshot, TailscaleLink, TickerSnapshot, UplinkSnapshot, VpnLink, WeatherAlert,
+    WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo, WindowsSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval, sleep};
 
@@ -28,6 +28,7 @@ pub fn feeds() -> Vec<Feed> {
         links(),
         disks_health(),
         batteries(),
+        brightness(),
         uplink(),
         session(),
         windows(),
@@ -309,6 +310,40 @@ fn batteries() -> Feed {
             .publish(topics::BATTERIES, &fake_batteries());
         pending::<()>().await;
     })
+}
+
+/// Two displays, one of them nearly at its top, and a running Night Light, published once.
+fn brightness() -> Feed {
+    Feed::new(topics::BRIGHTNESS, |context| async move {
+        context
+            .publisher
+            .publish(topics::BRIGHTNESS, &fake_brightness());
+        pending::<()>().await;
+    })
+}
+
+fn fake_brightness() -> Brightness {
+    Brightness {
+        displays: vec![
+            DisplayBrightness {
+                id: "display0".to_owned(),
+                label: "GIGA-BYTE TECHNOLOGY CO., LTD. M27Q".to_owned(),
+                brightness: 7000,
+                max: 10_000,
+            },
+            DisplayBrightness {
+                id: "display1".to_owned(),
+                label: "DELL U2723QE".to_owned(),
+                brightness: 30,
+                max: 100,
+            },
+        ],
+        night_light: NightLight {
+            available: true,
+            enabled: true,
+            running: true,
+        },
+    }
 }
 
 fn fake_disk_health() -> DiskHealth {

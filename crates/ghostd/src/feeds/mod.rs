@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod agents;
 pub mod batteries;
+pub mod brightness;
 pub mod desktop;
 pub mod health;
 pub mod host;

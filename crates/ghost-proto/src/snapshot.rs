@@ -547,3 +547,30 @@ pub enum AgentState {
     Idle,
     Waiting,
 }
+
+/// The displays whose backlight KDE's `org.kde.ScreenBrightness` can set, and Night Light. Empty
+/// and unavailable while neither service answers.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Brightness {
+    pub displays: Vec<DisplayBrightness>,
+    pub night_light: NightLight,
+}
+
+/// `brightness` and `max` are in the display's own units, which `brightness.set` takes too.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisplayBrightness {
+    /// The display's D-Bus name under `/org/kde/ScreenBrightness`, such as `display0`.
+    pub id: String,
+    pub label: String,
+    pub brightness: i32,
+    pub max: i32,
+}
+
+/// KWin's Night Light: `running` is whether it is tinting the screen now, which is `enabled` and
+/// not suspended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NightLight {
+    pub available: bool,
+    pub enabled: bool,
+    pub running: bool,
+}

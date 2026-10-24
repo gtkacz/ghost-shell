@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub mod actions;
+pub mod brightness;
 pub mod bus;
 pub mod calls;
 pub mod disk;

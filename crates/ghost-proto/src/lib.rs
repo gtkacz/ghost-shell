@@ -41,11 +41,12 @@ pub mod topics {
     pub const RECENT: &str = "recent";
     pub const AGENTS_USAGE: &str = "agents.usage";
     pub const AGENTS_SESSIONS: &str = "agents.sessions";
+    pub const BRIGHTNESS: &str = "brightness";
     /// Published by an alerts provider, so it is well known without being built in.
     pub const WEATHER_ALERTS: &str = "weather.alerts";
 
     // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
-    pub const BUILTIN: [&str; 25] = [
+    pub const BUILTIN: [&str; 26] = [
         CPU,
         MEM,
         SENSORS,
@@ -71,6 +72,7 @@ pub mod topics {
         RECENT,
         AGENTS_USAGE,
         AGENTS_SESSIONS,
+        BRIGHTNESS,
     ];
 }
 
@@ -101,11 +103,15 @@ pub mod calls {
     pub const KRUNNER_QUERY: &str = "krunner.query";
     /// `{"applet": "<name>"}`
     pub const PLASMA_POPUP: &str = "plasma.popup";
+    /// `{"display": "<id from the brightness topic>", "value": <raw brightness>}`
+    pub const BRIGHTNESS_SET: &str = "brightness.set";
+    /// `{}`
+    pub const NIGHTLIGHT_TOGGLE: &str = "nightlight.toggle";
     /// `{"app": "<desktop id>"}`
     pub const BAR_PIN: &str = "bar.pin";
     pub const BAR_UNPIN: &str = "bar.unpin";
 
-    pub const ALL: [&str; 12] = [
+    pub const ALL: [&str; 14] = [
         WINDOWS_ACTIVATE,
         WINDOWS_MINIMIZE,
         WINDOWS_CLOSE,
@@ -116,6 +122,8 @@ pub mod calls {
         SESSION_SUSPEND,
         KRUNNER_QUERY,
         PLASMA_POPUP,
+        BRIGHTNESS_SET,
+        NIGHTLIGHT_TOGGLE,
         BAR_PIN,
         BAR_UNPIN,
     ];
