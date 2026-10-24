@@ -634,14 +634,6 @@ fn slot(widget: &str, size: Option<f32>) -> LayoutNode {
     }
 }
 
-fn placeholder(label: &str, size: Option<f32>) -> LayoutNode {
-    LayoutNode::Slot {
-        widget: "placeholder".into(),
-        size,
-        settings: Map::from_iter([("label".to_owned(), Value::String(label.into()))]),
-    }
-}
-
 fn styled(widget: &str, size: Option<f32>, style: &str) -> LayoutNode {
     LayoutNode::Slot {
         widget: widget.into(),
@@ -692,7 +684,7 @@ fn default_v1() -> LayoutNode {
                         None,
                         vec![
                             styled("media", Some(290.0), "stack"),
-                            placeholder("Notifications", None),
+                            slot("notifications", None),
                         ],
                     ),
                 ],
@@ -753,7 +745,7 @@ fn default_v2() -> LayoutNode {
                 Column,
                 Some(300.0),
                 vec![
-                    placeholder("Notifications", Some(290.0)),
+                    slot("notifications", Some(290.0)),
                     slot("network", Some(164.0)),
                     slot("storage", None),
                 ],

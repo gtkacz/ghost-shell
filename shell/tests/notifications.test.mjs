@@ -16,6 +16,7 @@ import {
   rowMarkup,
   rowText,
   toastQueue,
+  widgetReadDue,
   windowToRaise,
 } from '../kit/GhostKit/lib/notifications.mjs';
 
@@ -267,4 +268,17 @@ test('actions take the new list when a key, a label or the count changes', () =>
   for (const next of [[{ key: 'read', label: 'Open' }], [{ key: 'open', label: 'Show' }], [], [...before, { key: 'x', label: 'X' }]]) {
     assert.equal(stableActions(before, next), next);
   }
+});
+
+test('widget marks read only after dwell uncovered and unlocked', () => {
+  const clear = { covered: false, greetingPlaying: false, locked: false };
+  assert.equal(widgetReadDue({ visibleMs: 1999, ...clear }), false);
+  assert.equal(widgetReadDue({ visibleMs: 2000, ...clear, covered: true }), false);
+  assert.equal(widgetReadDue({ visibleMs: 2000, ...clear, greetingPlaying: true }), false);
+  assert.equal(widgetReadDue({ visibleMs: 2000, ...clear, locked: true }), false);
+  assert.equal(widgetReadDue({ visibleMs: 2000, ...clear }), true);
+});
+
+test('greeting leaves signals out while plasma serves', () => {
+  assert.equal(greetingSignals({ server: 'plasma', unread: 3 }), 0);
 });

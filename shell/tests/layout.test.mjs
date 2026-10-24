@@ -15,7 +15,7 @@ const DEFAULT_V1_FOR_TEST = {
       size: null,
       children: [
         slot('clock', 262, { style: 'hero' }),
-        { direction: 'row', size: null, children: [slot('media', 290, { style: 'stack' }), slot('placeholder', null, { label: 'Notifications' })] },
+        { direction: 'row', size: null, children: [slot('media', 290, { style: 'stack' }), slot('notifications')] },
       ],
     },
     {
@@ -58,7 +58,7 @@ const DEFAULT_V2_FOR_TEST = {
         slot('media', 120, { style: 'strip' }),
       ],
     },
-    { direction: 'column', size: 300, children: [slot('placeholder', 290, { label: 'Notifications' }), slot('network', 164), slot('storage')] },
+    { direction: 'column', size: 300, children: [slot('notifications', 290), slot('network', 164), slot('storage')] },
   ],
 };
 
@@ -114,7 +114,7 @@ test('default v1 geometry', () => {
 
 test('default v1 flex columns fill the space between the fixed ones', () => {
   const r = computeRects(DEFAULT_V1_FOR_TEST, { x: 12, y: 42, w: 1256, h: 666 }, 12);
-  const notifications = r.find((rect) => rect.settings.label === 'Notifications');
+  const notifications = r.find((rect) => rect.widget === 'notifications');
   assert.deepEqual(pick(r, 'clock'), { x: 324, y: 42, w: 632, h: 262 });
   assert.equal(notifications.x, 324 + 290 + 12);
   assert.equal(notifications.w, 632 - 290 - 12);

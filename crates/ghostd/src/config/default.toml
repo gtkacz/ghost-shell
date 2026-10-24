@@ -285,8 +285,7 @@ size = 290
 settings = { style = "stack" }
 
 [[layout.views.v1.children.children.children]]
-widget = "placeholder"
-settings = { label = "Notifications" }
+widget = "notifications"
 
 [[layout.views.v1.children]]
 direction = "column"
@@ -359,9 +358,8 @@ direction = "column"
 size = 300
 
 [[layout.views.v2.children.children]]
-widget = "placeholder"
+widget = "notifications"
 size = 290
-settings = { label = "Notifications" }
 
 [[layout.views.v2.children.children]]
 widget = "network"

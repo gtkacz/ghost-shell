@@ -215,13 +215,16 @@ export function restingFrame() {
   };
 }
 
-export function subtitleText({ japanese, sessionId }) {
+export function subtitleText({ japanese, sessionId, signals = 0 }) {
   const parts = [];
   if (japanese !== 'off') {
     parts.push(WELCOME_JAPANESE);
   }
   if (sessionId !== '') {
     parts.push('SESSION ' + sessionId.padStart(SESSION_DIGITS, '0'));
+  }
+  if (signals > 0) {
+    parts.push(`${signals} NEW SIGNALS`);
   }
   return parts.join(SEPARATOR);
 }

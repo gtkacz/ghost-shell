@@ -25,6 +25,8 @@ Singleton {
     // Scalars apart from the snapshot: each republish rebinds them but QML signals only a changed value, so the bell
     // stays still while only the items change.
     readonly property string server: snapshot?.server ?? "none"
+    readonly property bool serving: server === NotificationsLib.SERVER
+    readonly property int widgetReadDwellMs: NotificationsLib.WIDGET_READ_DWELL_MS
     readonly property int unread: snapshot?.unread ?? 0
     readonly property int unreadCrit: snapshot?.unread_crit ?? 0
     readonly property bool dnd: snapshot?.dnd ?? false
@@ -39,6 +41,14 @@ Singleton {
     readonly property var records: core.open ? NotificationsLib.filterRecords(snapshot?.items ?? [], query) : []
 
     onRecordsChanged: index = NotificationsLib.clampSelection(index, records.length)
+
+    function countsLine(items) {
+        return NotificationsLib.countsLine(items);
+    }
+
+    function widgetReadDue(state) {
+        return NotificationsLib.widgetReadDue(state);
+    }
 
     function toggle() {
         if (core.open) {

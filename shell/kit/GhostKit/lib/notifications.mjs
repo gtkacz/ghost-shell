@@ -153,3 +153,11 @@ export function stableActions(previous, next) {
   const same = previous.length === next.length && previous.every((action, i) => action.key === next[i].key && action.label === next[i].label);
   return same ? previous : next;
 }
+
+export const WIDGET_READ_DWELL_MS = 2000;
+
+// The widget reads everything only once it has been looked at: long enough on screen, and not behind windows, a
+// greeting or the lock.
+export function widgetReadDue({ visibleMs, covered, greetingPlaying, locked }) {
+  return visibleMs >= WIDGET_READ_DWELL_MS && !covered && !greetingPlaying && !locked;
+}

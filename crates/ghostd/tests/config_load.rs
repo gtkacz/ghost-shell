@@ -390,7 +390,20 @@ fn placeholder_labels(layout: &LayoutConfig) -> Vec<String> {
 fn default_views_have_no_machine_placeholders() {
     let c = load_str_with_user("", "u").unwrap();
     let labels = placeholder_labels(&c.layout);
-    assert_eq!(labels, ["Notifications", "Notifications"]);
+    assert!(labels.is_empty(), "{labels:?}");
+}
+
+#[test]
+fn default_main_views_place_the_notifications_widget() {
+    let c = load_str_with_user("", "u").unwrap();
+    for name in ["v1", "v2"] {
+        let mut widgets = Vec::new();
+        collect_widgets(&c.layout.views[name], &mut widgets);
+        assert!(widgets.iter().any(|w| w == "notifications"), "{name}");
+    }
+    let mut monitor = Vec::new();
+    collect_widgets(&c.layout.views["monitor"], &mut monitor);
+    assert!(!monitor.iter().any(|w| w == "notifications"));
 }
 
 fn collect_widgets(node: &LayoutNode, widgets: &mut Vec<String>) {

@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import GhostKit
 import "../kit/GhostKit/lib/greeting.mjs" as GreetingLib
+import "../kit/GhostKit/lib/notifications.mjs" as NotifyLib
 import "../kit/GhostKit/lib/scale.mjs" as Scale
 
 // Plays the greeting (spec §7) and hides the dashboard until its scan pass reveals it. The overlay exists only while
@@ -112,14 +113,17 @@ Scope {
         const atMs = elapsedMs();
         // A frozen greeting reaches its typing at once, so it waits for the config whose name and language it shows.
         if (plan.lines === null && atMs >= plan.typingStartMs && (!frozen || Data.config !== null)) {
+            const subtitle = GreetingLib.subtitleText({
+                japanese: Theme.japanese,
+                sessionId: Data.topic("session").value?.id ?? "",
+                signals: NotifyLib.greetingSignals(Data.topic("notifications").value)
+            });
+            console.info("greeting subtitle " + subtitle);
             plan = GreetingLib.typeText(plan, {
                 title: titlePrefix + (Data.config ? Data.config.greeting.name : Quickshell.env("USER")),
                 nameStart: titlePrefix.length,
-                subtitle: GreetingLib.subtitleText({
-                    japanese: Theme.japanese,
-                    sessionId: Data.topic("session").value?.id ?? ""
-                })
-            }, frozen ? () => frozenJitter : Math.random);
+                subtitle: subtitle
+            },frozen ? () => frozenJitter : Math.random);
         }
         frame = GreetingLib.frameAt(plan, atMs);
         if (frame.scanStep !== null && !revealed) {

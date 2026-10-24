@@ -236,6 +236,12 @@ test('subtitle parts and padding', () => {
   assert.equal(subtitleText({ japanese: 'off', sessionId: 'c12345' }), 'SESSION c12345');
 });
 
+test('greeting reads unread before the widget', () => {
+  assert.equal(subtitleText({ japanese: 'mixed', sessionId: '2', signals: 3 }), 'おかえりなさい  ·  SESSION 0002  ·  3 NEW SIGNALS');
+  assert.equal(subtitleText({ japanese: 'off', sessionId: '', signals: 3 }), '3 NEW SIGNALS');
+  assert.equal(subtitleText({ japanese: 'off', sessionId: '2', signals: 0 }), 'SESSION 0002');
+});
+
 test('login plays at start only without the marker', () => {
   assert.equal(initialGreeting({ mode: 'auto', greeted: false }).phase, 'playing');
   assert.equal(initialGreeting({ mode: 'auto', greeted: true }).phase, 'idle');

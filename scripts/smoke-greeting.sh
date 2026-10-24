@@ -42,6 +42,8 @@ session_expected='armed|first frame at|playing unlock|revealed|done|armed|first 
 '|first frame at|playing wake|revealed|done'
 
 first_frame_budget_ms=500
+# The fake daemon's notification history starts with this many unread records, which the greeting must report.
+fake_unread=3
 done_budget_ms=12000
 # With the marker present nothing may start the greeting for this long.
 quiet_s=5
@@ -220,6 +222,10 @@ done_at=$(line_of "$login_log" "$done_line")
 [[ -n $first_frame_at ]] || fail "no \"${first_frame_line#qml: }<t>\" in $login_log"
 [[ -n $revealed_at ]] || fail "no \"${revealed_line#qml: }\" in $login_log"
 [[ -n $done_at ]] || fail "no \"${done_line#qml: }\" in $login_log"
+signals_line="qml: greeting subtitle .*${fake_unread} NEW SIGNALS$"
+if ! grep -qE -- "$signals_line" "$login_log"; then
+    fail "no subtitle ending in \"${fake_unread} NEW SIGNALS\" in $login_log"
+fi
 if ! (( playing_at < first_frame_at && first_frame_at < revealed_at && revealed_at < done_at )); then
     fail "playing, first frame, revealed and done are out of order in $login_log (lines $playing_at, $first_frame_at, $revealed_at, $done_at)"
 fi
