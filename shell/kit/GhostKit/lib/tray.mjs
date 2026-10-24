@@ -3,8 +3,9 @@ const PHONE = 'phone';
 const PERCENT = 100;
 // Twenty notches span the range, so a step is five percent.
 const NOTCHES_PER_RANGE = 20;
-// A backlight at zero can be fully dark, with nothing on screen to turn it back up.
-const MIN_BRIGHTNESS = 1;
+// A backlight at zero can be fully dark, with nothing on screen to turn it back up, and one raw unit is as dark on a
+// display whose range has thousands; ghostd clamps to the same share (DARK_PANEL_FLOOR_PCT in brightness.rs).
+const MIN_BRIGHTNESS_PCT = 1;
 
 export const APPLETS = {
   network: 'org.kde.plasma.networkmanagement',
@@ -49,22 +50,53 @@ export function showsInline(status) {
   return status !== STATUS_PASSIVE;
 }
 
+export function brightnessFloor(max) {
+  return Math.max(1, Math.ceil((max * MIN_BRIGHTNESS_PCT) / PERCENT));
+}
+
 export function stepBrightness(brightness, max, notches) {
   const step = Math.max(1, Math.round(max / NOTCHES_PER_RANGE));
-  return Math.min(max, Math.max(MIN_BRIGHTNESS, brightness + notches * step));
+  return Math.min(max, Math.max(brightnessFloor(max), brightness + notches * step));
 }
 
 // The slider is cells, so a press anywhere in a cell sets the brightness that lights the row up to and including it.
 export function cellBrightness(x, cells, cellStep, max) {
   if (cells <= 0) {
-    return MIN_BRIGHTNESS;
+    return brightnessFloor(max);
   }
   const cell = Math.min(cells, Math.max(1, Math.floor(x / cellStep) + 1));
-  return Math.max(MIN_BRIGHTNESS, Math.round((cell / cells) * max));
+  return Math.max(brightnessFloor(max), Math.round((cell / cells) * max));
 }
 
-// KWin's toggle suspends and resumes Night Light, so the switch shows whether it runs and works only while it is enabled.
+
+// KWin's "Toggle Night Color" flips `inhibited`, so the switch reads ON for an enabled Night Light that is not suspended,
+// including by day in scheduled mode, when it is not tinting the screen (`running` is false).
 export function nightLightSwitch(nightLight) {
   const usable = Boolean(nightLight?.available && nightLight?.enabled);
-  return { on: usable && Boolean(nightLight.running), usable };
+  const on = usable && !nightLight.inhibited;
+  let status = 'UNAVAILABLE';
+  if (usable) {
+    status = on ? 'ON' : 'SUSPENDED';
+  } else if (nightLight?.available) {
+    status = 'DISABLED';
+  }
+  return { on, usable, status };
+}
+
+// What a slider row draws: the drag under the pointer, else the value just sent while the topic has not caught up, else
+// the topic's. -1 is "none".
+export function displayedBrightness(dragged, held, published) {
+  if (dragged >= 0) {
+    return dragged;
+  }
+  return held >= 0 ? held : published;
+}
+
+export function pendingAfter(pending, published) {
+  return pending === published ? -1 : pending;
+}
+
+// Wheel notches add up from the target already sent, so notches faster than the round trip keep their steps.
+export function wheelTarget(pending, published, max, notches) {
+  return stepBrightness(pending >= 0 ? pending : published, max, notches);
 }

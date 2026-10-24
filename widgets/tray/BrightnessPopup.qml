@@ -18,6 +18,14 @@ Panel {
     // Letter spacing in em.
     readonly property real tracking: 0.04
     readonly property string noDisplaysText: "NO DISPLAYS"
+    // How long a sent brightness is shown before the topic is believed again, if it never echoes it.
+    readonly property int holdMs: 1500
+    readonly property var noDisplay: ({
+            id: "",
+            label: "",
+            brightness: 0,
+            max: 1
+        })
 
     // The brightness topic's value, or null before its first message.
     property var snapshot: null
@@ -54,17 +62,32 @@ Panel {
             font: root.textFont
         }
 
+        // The count, not the array: every message carries a new array, and a model that changes with it would rebuild
+        // the rows, and the one being dragged with them.
         Repeater {
-            model: root.displays
+            model: root.displays.length
 
             Column {
                 id: display
 
-                required property var modelData
+                required property int index
 
-                // The value under the pointer, so the cells follow it before the daemon's message comes back.
+                readonly property var modelData: index < root.displays.length ? root.displays[index] : root.noDisplay
+                // The value under the pointer while it presses, then the one sent last until the topic shows it, so the
+                // cells follow the hand and do not snap back to a message that lags it.
                 property int dragged: -1
-                readonly property real fraction: (dragged >= 0 ? dragged : modelData.brightness) / Math.max(1, modelData.max)
+                property int held: -1
+                readonly property int published: modelData.brightness
+                readonly property real fraction: TrayRules.displayedBrightness(dragged, held, published) / Math.max(1, modelData.max)
+
+                onPublishedChanged: held = TrayRules.pendingAfter(held, published)
+
+                Timer {
+                    id: holdLimit
+
+                    interval: root.holdMs
+                    onTriggered: display.held = -1
+                }
 
                 width: rows.width
                 spacing: Theme.d(root.captionGapPx)
@@ -110,6 +133,12 @@ Panel {
                     }
 
                     MouseArea {
+                        function release() {
+                            display.held = display.dragged;
+                            display.dragged = -1;
+                            holdLimit.restart();
+                        }
+
                         function setAt(x) {
                             const value = TrayRules.cellBrightness(x, meter.cells, meter.cellStep, display.modelData.max);
                             if (value !== display.dragged) {
@@ -122,8 +151,8 @@ Panel {
                         cursorShape: Qt.PointingHandCursor
                         onPressed: mouse => setAt(mouse.x)
                         onPositionChanged: mouse => setAt(mouse.x)
-                        onReleased: display.dragged = -1
-                        onCanceled: display.dragged = -1
+                        onReleased: release()
+                        onCanceled: release()
                     }
                 }
             }
@@ -148,7 +177,7 @@ Panel {
                     rightMargin: Theme.d(root.switchGapPx)
                     verticalCenter: parent.verticalCenter
                 }
-                text: root.nightLight.on ? "ON" : (root.snapshot !== null && !root.snapshot.night_light.available ? "UNAVAILABLE" : (root.nightLight.usable ? "OFF" : "DISABLED"))
+                text: root.nightLight.status
                 color: root.nightLight.on ? Theme.signal : Theme.dim
                 font: root.textFont
             }

@@ -42,15 +42,31 @@ Item {
 
     implicitWidth: row.implicitWidth
 
+    // The value the wheel sent last, until the topic shows it: notches faster than the round trip add up from it.
+    readonly property int wheelHoldMs: 1500
+    property int wheelPending: -1
+    readonly property int firstPublished: displays.length > 0 ? displays[0].brightness : -1
+
+    onFirstPublishedChanged: wheelPending = TrayRules.pendingAfter(wheelPending, firstPublished)
+
     function stepFirstDisplay(notches) {
         if (displays.length === 0) {
             return;
         }
         const first = displays[0];
+        wheelPending = TrayRules.wheelTarget(wheelPending, first.brightness, first.max, notches);
+        wheelHold.restart();
         Data.call("brightness.set", {
             display: first.id,
-            value: TrayRules.stepBrightness(first.brightness, first.max, notches)
+            value: wheelPending
         });
+    }
+
+    Timer {
+        id: wheelHold
+
+        interval: root.wheelHoldMs
+        onTriggered: root.wheelPending = -1
     }
 
     function openPopup(applet) {

@@ -46,4 +46,16 @@ Singleton {
     function nightLightSwitch(nightLight) {
         return TrayLib.nightLightSwitch(nightLight);
     }
+
+    function displayedBrightness(dragged, held, published) {
+        return TrayLib.displayedBrightness(dragged, held, published);
+    }
+
+    function pendingAfter(pending, published) {
+        return TrayLib.pendingAfter(pending, published);
+    }
+
+    function wheelTarget(pending, published, max, notches) {
+        return TrayLib.wheelTarget(pending, published, max, notches);
+    }
 }
