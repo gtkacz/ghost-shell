@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ghost-shell · Plan 3b · notifications and the bell</title>
+<link href="https://fonts.googleapis.com/css2?family=Kode+Mono:wght@400..700&family=Noto+Sans+JP:wght@500&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; padding: 28px 40px 80px; background: #05080a; color: #8a9e9c; font: 14px/1.55 system-ui, sans-serif; }
+  h1 { color: #e4f1ef; font-weight: 500; font-size: 20px; margin: 0 0 4px; }
+  h2 { color: #e4f1ef; font-weight: 500; font-size: 16px; margin: 44px 0 6px; }
+  p.sub { margin: 0 0 18px; max-width: 900px; }
+  .note { max-width: 900px; margin: 10px 0 0; font-size: 12.5px; }
+  .note strong { color: #e4f1ef; font-weight: 500; }
+  .stage { position: relative; background: #0a0f11; overflow: hidden; border: 1px solid #1a2527; }
+  .stage.dots { background-image: radial-gradient(rgba(163,212,204,.16) 1px, transparent 1px); background-size: 24px 24px; }
+  .stage.scan::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(transparent 0 2px, rgba(0,0,0,.15) 2px 3px); }
+  .cols { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .cap { font-size: 11px; letter-spacing: .14em; color: #587170; text-transform: uppercase; margin: 8px 0 4px; }
+  .sw { display: inline-flex; border: 1px solid #2a3a3d; margin: 0 0 14px; }
+  .sw button { background: none; border: 0; color: #587170; font: 11px/1 'Kode Mono', monospace; letter-spacing: .14em; padding: 7px 12px; cursor: pointer; }
+  .sw button.on { color: #e4f1ef; background: #1a2527; }
+
+  /* ---- ghost-shell tokens, mockup scale (1 px = 2 physical px) ---- */
+  .gs { --ground:#0a0f11; --hair:#2a3a3d; --hair2:#1a2527; --text:#b7d1cd; --hi:#e4f1ef; --dim:#587170; --sig:#a3d4cc; --warn:#e9a84c; --crit:#ff3b45;
+        font: 500 10px 'Kode Mono', monospace; letter-spacing: .08em; color: var(--text); }
+  .gs .jp { font-family: 'Noto Sans JP', sans-serif; letter-spacing: .06em; opacity: .85; }
+  .gs svg { display: block; }
+  .gs .ic { width: 12px; height: 12px; fill: none; stroke: var(--sig); stroke-width: 1.2; stroke-linecap: square; }
+  .gs .ic.dim { stroke: var(--dim); }
+  .gs .ic.hi { stroke: var(--hi); }
+  .gs .ic.crit { stroke: var(--crit); }
+
+  /* bar */
+  .gs .bar { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: rgba(10,15,17,.96); border-bottom: 1px solid var(--hair); }
+  .gs .brand { background: var(--sig); color: #071012; font-weight: 700; letter-spacing: .12em; padding: 0 14px 0 10px; height: 30px; display: flex; align-items: center; gap: 6px; clip-path: polygon(0 0, 100% 0, calc(100% - 9px) 100%, 0 100%); margin-left: -12px; }
+  .gs .brand small { font-size: 8px; font-weight: 500; letter-spacing: .06em; }
+  .gs .fill { flex: 1; }
+  .gs .st { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .gs .st b { letter-spacing: .12em; }
+  .gs .warn { color: var(--warn); } .gs .crit { color: var(--crit); } .gs .hi { color: var(--hi); } .gs .dimtxt { color: var(--dim); }
+  .gs .tray { display: flex; align-items: center; gap: 10px; }
+  .gs .tray span { position: relative; display: block; }
+  .gs .tray .badge { position: absolute; right: -7px; top: -6px; font-size: 8px; font-weight: 700; color: #071012; background: var(--sig); padding: 0 3px; line-height: 10px; letter-spacing: 0; }
+  .gs .tray .badge.c { background: var(--crit); }
+  .gs .chip { border: 1px solid var(--hair); padding: 3px 8px; display: flex; align-items: center; gap: 8px; letter-spacing: .14em; }
+  .gs .clock { color: var(--hi); font-weight: 700; font-size: 12px; letter-spacing: .04em; }
+  .gs .clock sup { color: var(--sig); font-size: 7px; font-weight: 500; margin-left: 2px; }
+  .gs .clock i { font-style: normal; color: var(--dim); font-size: 8.5px; font-weight: 500; margin-left: 8px; letter-spacing: .1em; }
+
+  /* panel */
+  .gs .panel { position: relative; background: rgba(10,15,17,.96); border: 1px solid var(--hair); clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
+  .gs .panel::before, .gs .panel::after { content: ""; position: absolute; width: 14px; height: 14px; border: 1.5px solid var(--sig); pointer-events: none; }
+  .gs .panel::before { left: 1px; top: 1px; border-right: 0; border-bottom: 0; }
+  .gs .panel::after { right: 1px; bottom: 1px; border-left: 0; border-top: 0; }
+  .gs .hd { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px; }
+  .gs .hd::before { content: ""; width: 5px; height: 5px; background: var(--sig); }
+  .gs .hd b { color: var(--hi); letter-spacing: .16em; font-weight: 600; }
+  .gs .hd .meta { margin-left: auto; color: var(--dim); font-size: 8.5px; letter-spacing: .1em; }
+  .gs .hd .meta .warn, .gs .hd .meta .crit { font-weight: 700; }
+  .gs .body { padding: 4px 12px 12px; }
+
+  /* toasts */
+  .toasts { position: absolute; right: 12px; top: 38px; width: 360px; display: flex; flex-direction: column; gap: 8px; }
+  .gs .toast .hd { height: 22px; }
+  .gs .toast .row { display: grid; grid-template-columns: 20px 1fr auto; gap: 10px; align-items: start; }
+  .gs .toast .app { color: var(--sig); font-size: 9px; letter-spacing: .14em; font-weight: 600; }
+  .gs .toast .app i { color: var(--dim); font-style: normal; font-weight: 500; margin-left: 8px; }
+  .gs .toast .sum { color: var(--hi); font-weight: 600; margin-top: 2px; }
+  .gs .toast .txt { color: var(--text); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gs .toast .txt.two { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.45; }
+  .gs .toast .icon { width: 20px; height: 20px; background: rgba(163,212,204,.12); clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px)); display: grid; place-items: center; }
+  .gs .toast .icon svg { width: 12px; height: 12px; fill: var(--sig); }
+  .gs .toast .icon.img { width: 40px; height: 40px; background: linear-gradient(135deg, #2a3a3d, #587170); }
+  .gs .toast .acts { display: flex; gap: 6px; margin-top: 8px; }
+  .gs .toast .acts span { border: 1px solid var(--hair); padding: 2px 8px; font-size: 8.5px; letter-spacing: .14em; color: var(--text); }
+  .gs .toast .acts span.pri { border-color: var(--sig); color: var(--hi); }
+  .gs .toast .x { width: 10px; height: 10px; stroke: var(--dim); stroke-width: 1.2; fill: none; margin-top: 1px; }
+  .gs .toast .life { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; display: flex; gap: 2px; padding: 0 12px 4px; }
+  .gs .toast .life i { flex: 1; height: 2px; background: rgba(163,212,204,.08); }
+  .gs .toast .life i.on { background: var(--sig); }
+  /* boxed alert toast */
+  .gs .alert { position: relative; border-left: 3px solid var(--warn); padding: 7px 8px 7px 12px; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+  .gs .alert::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 8px, rgba(233,168,76,.13) 8px 16px); animation: stripes 1.6s steps(24) infinite; }
+  .gs .alert.c { border-color: var(--crit); } .gs .alert.c::before { background: repeating-linear-gradient(135deg, transparent 0 8px, rgba(255,59,69,.13) 8px 16px); }
+  .gs .alert > * { position: relative; }
+  .gs .alert .tag { border: 1px solid var(--warn); color: var(--warn); font-size: 8px; padding: 0 5px; line-height: 14px; letter-spacing: .1em; }
+  .gs .alert.c .tag { border-color: var(--crit); color: var(--crit); }
+  .gs .alert .msg { color: var(--warn); font-weight: 600; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; animation: blink 1s steps(1) infinite; }
+  .gs .alert.c .msg { color: var(--crit); }
+  .gs .alert .cd { color: var(--warn); font-weight: 700; letter-spacing: .04em; }
+  .gs .alert.c .cd { color: var(--crit); }
+  .gs .alert.held .msg { animation: none; }
+  @keyframes stripes { to { background-position: 22.6px 0; } }
+  @keyframes blink { 0%,100% { opacity: 1 } 25% { opacity: .5 } 50% { opacity: 0 } 75% { opacity: .5 } }
+  .gs .more { text-align: right; color: var(--dim); font-size: 8.5px; letter-spacing: .14em; padding-right: 2px; }
+
+  /* compact toast variant */
+  .gs .toast.compact .row { grid-template-columns: 20px 76px 1fr auto; align-items: center; }
+  .gs .toast.compact .sum { margin: 0; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gs .toast.compact .sum b { color: var(--hi); font-weight: 600; }
+
+  /* centre */
+  .centre { position: absolute; right: 12px; top: 30px; width: 392px; height: 560px; display: flex; flex-direction: column; }
+  .gs .search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--hair); padding: 3px 8px; margin: 2px 0 8px; color: var(--dim); }
+  .gs .search .pr { color: var(--sig); }
+  .gs .search .q { flex: 1; color: var(--hi); }
+  .gs .search .q::after { content: ""; display: inline-block; width: 6px; height: 10px; background: var(--sig); vertical-align: -1px; margin-left: 1px; animation: blink 1s steps(1) infinite; }
+  .gs .search .k { border: 1px solid var(--hair); padding: 0 5px; font-size: 8.5px; }
+  .gs .tools { display: flex; gap: 6px; margin-bottom: 6px; }
+  .gs .tools span { border: 1px solid var(--hair); padding: 2px 8px; font-size: 8.5px; letter-spacing: .14em; color: var(--dim); }
+  .gs .tools span.on { border-color: var(--warn); color: var(--warn); }
+  .gs .tools .sp { flex: 1; border: 0; padding: 0; }
+  .gs .list { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+  .gs .list li { list-style: none; display: grid; grid-template-columns: 76px 1fr 28px; gap: 8px; padding: 4px 6px 4px 0; border-bottom: 1px solid var(--hair2); align-items: center; position: relative; }
+  .gs .list li .app { color: var(--sig); font-size: 9px; letter-spacing: .1em; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gs .list li .msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .gs .list li.u .msg { color: var(--hi); }
+  .gs .list li .msg i { font-style: normal; color: var(--dim); }
+  .gs .list li .t { color: var(--dim); text-align: right; font-size: 9px; }
+  .gs .list li.w { box-shadow: inset 3px 0 0 var(--warn); padding-left: 6px; } .gs .list li.w .app, .gs .list li.w .msg { color: var(--warn); }
+  .gs .list li.c { box-shadow: inset 3px 0 0 var(--crit); padding-left: 6px; } .gs .list li.c .app, .gs .list li.c .msg { color: var(--crit); }
+  .gs .list li.sel { background: rgba(42,58,61,.45); }
+  .gs .list li.sel .t { visibility: hidden; }
+  .gs .list li.sel::after { content: ""; position: absolute; right: 9px; top: 50%; width: 7px; height: 7px; transform: translateY(-50%); background:
+      linear-gradient(45deg, transparent 45%, var(--dim) 45% 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, var(--dim) 45% 55%, transparent 55%); }
+  .gs .list ul { margin: 0; padding: 0; }
+  .gs .foot { display: flex; justify-content: space-between; color: var(--dim); font-size: 8.5px; letter-spacing: .14em; padding-top: 8px; }
+  .gs .empty { flex: 1; display: grid; place-items: center; color: var(--dim); letter-spacing: .2em; }
+
+  /* dashboard widget */
+  .widget { width: 420px; height: 236px; display: flex; flex-direction: column; }
+  .widget .panel { background: rgba(10,15,17,.55); }
+</style>
+</head>
+<body>
+
+<h1>Plan 3b · notifications and the bell</h1>
+<p class="sub">Everything at mockup scale (1 px = 2 physical px), in the tokens of the reference mockup. Values are simulated; the app names, the drive and the INMET wording are this machine's. The toasts' stripes step at 15 fps and the text blinks in the boot cursor's four held steps, as the alert boxes already do.</p>
+
+<h2>1 · The bell, at the tray's end</h2>
+<p class="sub">The bell is the tray's last built-in icon, right before the view chip, as the reference mockup places it. The count sits on the bell as a small solid square: signal while the unread items are ordinary, crit while any unread critical item remains. Four states, left to right.</p>
+<div class="cols">
+  <div class="gs"><div class="cap">Quiet · nothing unread</div>
+    <div class="stage" style="width:300px"><div class="bar" style="justify-content:flex-end">
+      <div class="tray"><span><svg class="ic" viewBox="0 0 12 12"><path d="M1.5 4.5h2.5L7 2v8L4 7.5H1.5zM9 4a3 3 0 0 1 0 4"/></svg></span>
+        <span><svg class="ic dim" viewBox="0 0 12 12"><path d="M2.5 9V5.5a3.5 3.5 0 0 1 7 0V9zM1.5 9h9M5 10.5h2"/></svg></span></div>
+      <div class="chip">MAIN</div><div class="clock">23:11<sup>32</sup><i>24.10.26</i></div></div></div></div>
+  <div class="gs"><div class="cap">3 unread</div>
+    <div class="stage" style="width:300px"><div class="bar" style="justify-content:flex-end">
+      <div class="tray"><span><svg class="ic" viewBox="0 0 12 12"><path d="M1.5 4.5h2.5L7 2v8L4 7.5H1.5zM9 4a3 3 0 0 1 0 4"/></svg></span>
+        <span><svg class="ic" viewBox="0 0 12 12"><path d="M2.5 9V5.5a3.5 3.5 0 0 1 7 0V9zM1.5 9h9M5 10.5h2"/></svg><em class="badge">3</em></span></div>
+      <div class="chip">MAIN</div><div class="clock">23:11<sup>32</sup><i>24.10.26</i></div></div></div></div>
+  <div class="gs"><div class="cap">1 unread critical</div>
+    <div class="stage" style="width:300px"><div class="bar" style="justify-content:flex-end">
+      <div class="tray"><span><svg class="ic" viewBox="0 0 12 12"><path d="M1.5 4.5h2.5L7 2v8L4 7.5H1.5zM9 4a3 3 0 0 1 0 4"/></svg></span>
+        <span><svg class="ic crit" viewBox="0 0 12 12"><path d="M2.5 9V5.5a3.5 3.5 0 0 1 7 0V9zM1.5 9h9M5 10.5h2"/></svg><em class="badge c">4</em></span></div>
+      <div class="chip">MAIN</div><div class="clock">23:11<sup>32</sup><i>24.10.26</i></div></div></div></div>
+  <div class="gs"><div class="cap">Do not disturb · 2 unread kept</div>
+    <div class="stage" style="width:300px"><div class="bar" style="justify-content:flex-end">
+      <div class="tray"><span><svg class="ic" viewBox="0 0 12 12"><path d="M1.5 4.5h2.5L7 2v8L4 7.5H1.5zM9 4a3 3 0 0 1 0 4"/></svg></span>
+        <span><svg class="ic dim" viewBox="0 0 12 12"><path d="M2.5 9V5.5a3.5 3.5 0 0 1 7 0V9zM1.5 9h9M5 10.5h2M1.5 1.5l9 9"/></svg><em class="badge" style="background:#587170">2</em></span></div>
+      <div class="chip">MAIN</div><div class="clock">23:11<sup>32</sup><i>24.10.26</i></div></div></div></div>
+</div>
+<p class="note"><strong>Click</strong> opens the centre (§3). <strong>Middle-click</strong> toggles Do Not Disturb. The bell is drawn, like the other tray icons; the slash is the DND variant of the same icon.</p>
+
+<h2>2 · Toasts, top-right under the bar</h2>
+<p class="sub">New notifications appear under the bar at the screen's right edge, newest nearest the bar, at most three at a time; the rest wait and the last line says how many. A bottom bar puts the stack above itself, growing upwards. Two densities to react to:</p>
+<div class="sw"><button class="on" onclick="density('cards',this)">A · CARDS</button><button onclick="density('compact',this)">B · COMPACT ROWS</button></div>
+<div class="gs stage dots scan" style="width:1280px;height:330px" id="toaststage">
+  <div class="bar"><div class="brand">GS//01 <small class="jp">攻殻</small></div>
+    <div class="fill"></div>
+    <div class="st"><b>CPU</b><span>12%</span></div><div class="st"><b>NET</b><svg class="ic dim" viewBox="0 0 12 12" style="width:9px;height:9px"><path d="M2.6 7.5 6 4.5l3.4 3"/></svg><span>1.2M</span><svg class="ic dim" viewBox="0 0 12 12" style="width:9px;height:9px"><path d="M2.6 4.5 6 7.5l3.4-3"/></svg><span>84K</span></div>
+    <div class="st"><b>VPN</b><span>2 UP</span></div><div class="st"><b>WX</b><span class="warn">18° · STORM</span></div>
+    <div class="tray"><span><svg class="ic" viewBox="0 0 12 12"><path d="M1.5 4.5h2.5L7 2v8L4 7.5H1.5zM9 4a3 3 0 0 1 0 4"/></svg></span>
+      <span><svg class="ic crit" viewBox="0 0 12 12"><path d="M2.5 9V5.5a3.5 3.5 0 0 1 7 0V9zM1.5 9h9M5 10.5h2"/></svg><em class="badge c">3</em></span></div>
+    <div class="chip">MAIN</div><div class="clock">23:11<sup>32</sup><i>24.10.26</i></div></div>
+
+  <div class="toasts" id="toasts">
+    <!-- normal, with an app icon and an action -->
+    <div class="panel toast"><div class="hd"><b>DISCORD</b><span class="meta">NOW</span></div>
+      <div class="body"><div class="row">
+        <div class="icon"><svg viewBox="0 0 12 12"><path d="M2 3.5C3 2.8 4 2.5 4.6 2.4l.3.6c.7-.1 1.5-.1 2.2 0l.3-.6c.6.1 1.6.4 2.6 1.1.9 2 1.1 4 .9 5.6-1 .7-1.9 1-2.5 1.1l-.5-.8c.4-.1.7-.3 1-.5-1.6.8-4.2.8-5.8 0 .3.2.6.4 1 .5l-.5.8C3 9.7 2.1 9.4 1.1 8.7.9 7.1 1.1 5.3 2 3.5zm2.6 2.3a.8 1 0 1 0 0 2 .8 1 0 0 0 0-2zm2.8 0a.8 1 0 1 0 0 2 .8 1 0 0 0 0-2z"/></svg></div>
+        <div><div class="sum">#rice-share</div><div class="txt two">gtkacz: the globe arcs look sick, how did you get the packets to follow the load?</div>
+          <div class="acts"><span class="pri">OPEN</span><span>MARK READ</span></div></div>
+        <svg class="x" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6"/></svg></div></div>
+      <div class="life"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <!-- warn, boxed, from the INMET source -->
+    <div class="panel toast"><div class="hd"><b>WEATHER</b><span class="meta">2M</span></div>
+      <div class="body"><div class="alert"><span class="tag jp">アラート</span><span class="msg">STORM · PERIGO POTENCIAL · SÃO PAULO</span><span class="cd">00:41:12</span></div></div></div>
+    <!-- crit, boxed, persistent, with an image from the sender -->
+    <div class="panel toast"><div class="hd"><b>KDE CONNECT</b><span class="meta">7M</span></div>
+      <div class="body"><div class="row" style="grid-template-columns:40px 1fr auto">
+        <div class="icon img"></div>
+        <div><div class="sum">Mãe</div><div class="txt two">Liga quando puder, é urgente</div>
+          <div class="acts"><span class="pri">OPEN ON PHONE</span><span>DISMISS</span></div></div>
+        <svg class="x" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6"/></svg></div></div></div>
+    <div class="more">+2 WAITING</div>
+  </div>
+</div>
+<p class="note"><strong>Normal</strong> toasts dismiss after the configured 6 s; the segmented line along the bottom is the time left, in held steps, and hovering holds it. <strong>Critical</strong> ones stay until dismissed and have no line. A boxed toast (warn or crit) is an <strong>AlertBox</strong>: stripes, arrival flicker, the cursor blink for its attention window, then held. The app's own icon follows the bar's icon style (mono here); a picture the sender attached replaces it at 40 px. Text scrambles in once; a replaced notification updates in place without scrambling again. The close cross and the chevrons are drawn, never glyphs.</p>
+
+<h2>3 · The centre, dropped from the bell</h2>
+<p class="sub">The same panel size as the launcher (392 × 560), hanging from the bell's right edge; with a bottom bar it rises from the bell instead. It takes keyboard focus on demand and closes when it loses it, on Esc, or after it opens something. Typing filters. Up/Down select, Enter opens, Delete dismisses the selected row.</p>
+<div class="gs stage dots scan" style="position:relative;width:1000px;height:600px">
+  <div class="bar"><div class="brand">GS//01 <small class="jp">攻殻</small></div><div class="fill"></div>
+    <div class="st"><b>CPU</b><span>12%</span></div><div class="st"><b>VPN</b><span>2 UP</span></div><div class="st"><b>WX</b><span class="warn">18° · STORM</span></div>
+    <div class="tray"><span><svg class="ic" viewBox="0 0 12 12"><path d="M1.5 4.5h2.5L7 2v8L4 7.5H1.5zM9 4a3 3 0 0 1 0 4"/></svg></span>
+      <span><svg class="ic hi" viewBox="0 0 12 12"><path d="M2.5 9V5.5a3.5 3.5 0 0 1 7 0V9zM1.5 9h9M5 10.5h2"/></svg></span></div>
+    <div class="chip">MAIN</div><div class="clock">23:11<sup>32</sup><i>24.10.26</i></div></div>
+  <div class="cap" style="position:absolute;left:40px;top:60px">Empty, DND on</div>
+  <div class="panel centre" style="position:absolute;left:40px;top:84px;width:300px;height:220px">
+    <div class="hd"><b>NOTIFICATIONS</b><span class="jp">通知</span><span class="meta">0 TOTAL</span></div>
+    <div class="body list" style="flex:1">
+      <div class="search"><span class="pr">&gt;</span><span class="q" style="color:var(--dim)">FILTER</span><span class="k">ESC</span></div>
+      <div class="tools"><span>MARK ALL READ</span><span>CLEAR</span><span class="sp"></span><span class="on">DND</span></div>
+      <div class="empty">NO SIGNALS</div>
+      <div class="foot"><span>QUIET SINCE 22:40</span><span></span></div>
+    </div></div>
+  <div class="panel centre" style="position:absolute;top:36px;right:92px">
+    <div class="hd"><b>NOTIFICATIONS</b><span class="jp">通知</span><span class="meta">18 TOTAL · <span class="crit">1 CRIT</span> · <span class="warn">1 WARN</span></span></div>
+    <div class="body list" style="flex:1">
+      <div class="search"><span class="pr">&gt;</span><span class="q">disc</span><span class="k">ESC</span></div>
+      <div class="tools"><span>MARK ALL READ</span><span>CLEAR</span><span class="sp"></span><span>DND</span></div>
+      <ul>
+        <li class="c u"><span class="app">STORAGE</span><span class="msg">WD Green 960G · controller state DEAD</span><span class="t">1M</span></li>
+        <li class="w"><span class="app">WEATHER</span><span class="msg">INMET: storm · perigo potencial <i>00:41:12</i></span><span class="t">4M</span></li>
+        <li class="u sel"><span class="app">DISCORD</span><span class="msg">#rice-share <i>— gtkacz: the globe arcs look sick, how did…</i></span><span class="t">9M</span></li>
+        <li><span class="app">SPOTIFY</span><span class="msg">Now playing <i>— Derezzed · Daft Punk</i></span><span class="t">12M</span></li>
+        <li><span class="app">DNF</span><span class="msg">16 package updates available <i>— kernel 7.2.12</i></span><span class="t">14M</span></li>
+        <li class="u"><span class="app">KDE CONNECT</span><span class="msg">Mãe <i>— Liga quando puder, é urgente</i></span><span class="t">22M</span></li>
+        <li><span class="app">DUALSENSE</span><span class="msg">Controller battery at 20%</span><span class="t">41M</span></li>
+        <li><span class="app">STEAM</span><span class="msg">Download complete <i>— Cyberpunk 2077</i></span><span class="t">1H</span></li>
+        <li><span class="app">THORIUM</span><span class="msg">Download finished <i>— wrayth-main.zip</i></span><span class="t">1H</span></li>
+        <li><span class="app">TAILSCALE</span><span class="msg">Connected to tailnet</span><span class="t">2H</span></li>
+        <li><span class="app">FIREWALLD</span><span class="msg">Zone changed to home</span><span class="t">2H</span></li>
+        <li><span class="app">DISCORD</span><span class="msg">New direct message</span><span class="t">3H</span></li>
+        <li><span class="app">SYSTEMD</span><span class="msg">User unit ghost-shell.service restarted</span><span class="t">3H</span></li>
+        <li><span class="app">GHOST-SHELL</span><span class="msg">config: appearance.colors.warn <i>— expected #rrggbb</i></span><span class="t">4H</span></li>
+        <li><span class="app">THORIUM</span><span class="msg">Download finished <i>— edex-ui.AppImage</i></span><span class="t">5H</span></li>
+        <li><span class="app">KDE CONNECT</span><span class="msg">Clipboard received from phone</span><span class="t">5H</span></li>
+      </ul>
+      <div class="foot"><span>16 SHOWN · 3 NEW</span><span>ENTER OPEN · DEL DISMISS</span></div>
+    </div>
+  </div>
+</div>
+<p class="note">Unread rows show their summary in <strong>hi</strong>; read ones in text. Warn and crit rows keep the coloured left edge of the reference mockup and never animate here. The selected row swaps its age for a drawn dismiss cross. The filter matches app, summary and body. The small panel at the left is the same centre with nothing in it and DND switched on.</p>
+
+<h2>4 · The dashboard widget</h2>
+<p class="sub">The reference mockup's Notifications panel, unchanged: V1 beside Media, V2 at 290 high in the right column. Same rows and footer as the centre; its header meta counts the unread. Showing it marks everything read.</p>
+<div class="gs stage dots scan" style="width:460px;height:260px;padding:12px">
+  <div class="panel widget">
+    <div class="hd"><b>NOTIFICATIONS</b><span class="jp">通知</span><span class="meta">3 NEW</span></div>
+    <div class="body list" style="flex:1">
+      <div class="search"><span class="pr">&gt;</span><span class="q" style="color:var(--dim)">FILTER NOTIFICATIONS</span><span class="k">/</span></div>
+      <ul>
+        <li class="c u"><span class="app">STORAGE</span><span class="msg">WD Green 960G · controller state DEAD</span><span class="t">1M</span></li>
+        <li class="w"><span class="app">WEATHER</span><span class="msg">INMET: storm · perigo potencial <i>00:41:12</i></span><span class="t">4M</span></li>
+        <li class="u"><span class="app">DISCORD</span><span class="msg">#rice-share <i>— gtkacz: the globe arcs look sick…</i></span><span class="t">9M</span></li>
+        <li><span class="app">SPOTIFY</span><span class="msg">Now playing <i>— Derezzed · Daft Punk</i></span><span class="t">12M</span></li>
+        <li><span class="app">DNF</span><span class="msg">16 package updates available</span><span class="t">14M</span></li>
+        <li class="u"><span class="app">KDE CONNECT</span><span class="msg">Mãe <i>— Liga quando puder, é urgente</i></span><span class="t">22M</span></li>
+      </ul>
+      <div class="foot"><span>18 TOTAL · 1 CRIT · 1 WARN</span><span>SCROLL</span></div>
+    </div>
+  </div>
+</div>
+<p class="note">The desktop layer takes no keyboard today. The spike checks whether the field can take focus on click there; if not, clicking it opens the centre with the field focused, which keeps the search one click away.</p>
+
+<script>
+const CARDS = document.getElementById('toasts').innerHTML;
+const COMPACT = `
+  <div class="panel toast compact"><div class="body" style="padding:8px 12px"><div class="row">
+    <div class="icon"><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5"/></svg></div><div class="app">DISCORD<i>NOW</i></div>
+    <div class="sum"><b>#rice-share</b> — gtkacz: the globe arcs look sick, how did you get the packets…</div>
+    <svg class="x" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6"/></svg></div>
+    <div class="acts" style="margin:6px 0 0 30px"><span class="pri">OPEN</span><span>MARK READ</span></div></div>
+    <div class="life"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  <div class="panel toast compact"><div class="body" style="padding:8px 12px"><div class="alert"><span class="tag jp">アラート</span><span class="msg">STORM · PERIGO POTENCIAL · SÃO PAULO</span><span class="cd">00:41:12</span></div></div></div>
+  <div class="panel toast compact"><div class="body" style="padding:8px 12px"><div class="row">
+    <div class="icon img" style="width:20px;height:20px"></div><div class="app">KDE CONNECT<i>7M</i></div>
+    <div class="sum"><b>Mãe</b> — Liga quando puder, é urgente</div>
+    <svg class="x" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6"/></svg></div>
+    <div class="acts" style="margin:6px 0 0 30px"><span class="pri">OPEN ON PHONE</span><span>DISMISS</span></div></div></div>
+  <div class="more">+2 WAITING</div>`;
+function density(which, btn) {
+  document.getElementById('toasts').innerHTML = which === 'cards' ? CARDS : COMPACT;
+  for (const b of btn.parentNode.children) { b.classList.toggle('on', b === btn); }
+}
+</script>
+</body>
+</html>
