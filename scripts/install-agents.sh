@@ -51,7 +51,6 @@ if [[ $mode == install && ! -x $ghostd ]]; then
 fi
 
 # Nothing is edited unless every backup was copied and compared byte for byte.
-backups=()
 for target in "$claude_settings" "$codex_hooks"; do
     [[ -e $target ]] || continue
     backup=$target.ghost-shell.bak.$stamp
@@ -60,7 +59,8 @@ for target in "$claude_settings" "$codex_hooks"; do
         echo "backup of $target did not verify; nothing was changed" >&2
         exit 1
     fi
-    backups+=("$target:$backup")
+    echo "backup: $backup"
+    echo "restore: cp $backup $target"
 done
 
 if [[ $mode == uninstall ]]; then
@@ -68,13 +68,10 @@ if [[ $mode == uninstall ]]; then
     hooks codex-remove "$codex_hooks" "$hook_command"
 else
     hooks claude-wrap "$claude_settings" "$inner_file" "$tap_command"
-    mapfile -t events < <(hooks codex-merge "$codex_hooks" "$hook_command")
+    merged=$(hooks codex-merge "$codex_hooks" "$hook_command")
+    mapfile -t events <<<"$merged"
 fi
 
-for pair in "${backups[@]}"; do
-    echo "backup: ${pair#*:}"
-    echo "restore: cp ${pair#*:} ${pair%%:*}"
-done
 if [[ $mode == install ]]; then
     echo "codex hooks:"
     printf '  %s\n' "${events[@]}"

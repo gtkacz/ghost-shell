@@ -35,21 +35,32 @@ class HooksError(Exception):
     pass
 
 
+def _with_command(status_line: dict, command: str) -> dict:
+    return {**status_line, "type": "command", "command": command}
+
+
 def wrap_claude(settings: dict, tap_command: str) -> tuple[dict, str | None]:
     wrapped = copy.deepcopy(settings)
-    current = (wrapped.get("statusLine") or {}).get("command")
+    status_line = wrapped.get("statusLine") or {}
+    current = status_line.get("command")
     if current is not None and current.endswith(TAP_SUFFIX):
         return wrapped, None
-    wrapped["statusLine"] = {"type": "command", "command": tap_command}
+    wrapped["statusLine"] = _with_command(status_line, tap_command)
     return wrapped, current
 
 
 def unwrap_claude(settings: dict, inner_command: str | None) -> dict:
     restored = copy.deepcopy(settings)
-    if inner_command is None:
-        restored.pop("statusLine", None)
+    status_line = restored.get("statusLine") or {}
+    if inner_command is not None:
+        restored["statusLine"] = _with_command(status_line, inner_command)
+        return restored
+    # Keys another tool added (padding, ...) are not ours to delete along with the tap.
+    others = {key: value for key, value in status_line.items() if key not in ("type", "command")}
+    if others:
+        restored["statusLine"] = others
     else:
-        restored["statusLine"] = {"type": "command", "command": inner_command}
+        restored.pop("statusLine", None)
     return restored
 
 

@@ -35,6 +35,15 @@ def test_unwrap_restores_or_removes():
     assert "statusLine" not in ah.unwrap_claude(tapped, None)
 
 
+def test_wrap_then_unwrap_keeps_the_status_lines_other_keys():
+    original = {"statusLine": {"type": "command", "command": "bun hud.ts", "padding": 1}}
+    wrapped, inner = ah.wrap_claude(original, "/h/ghostd claude-statusline-tap")
+    assert wrapped["statusLine"]["padding"] == 1
+    assert ah.unwrap_claude(wrapped, inner) == original
+    tapped = {"statusLine": {"type": "command", "command": "/h/ghostd claude-statusline-tap", "padding": 1}}
+    assert ah.unwrap_claude(tapped, None) == {"statusLine": {"padding": 1}}
+
+
 def test_merge_adds_one_group_per_event_once():
     existing = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}}
     merged = ah.merge_codex(existing, "/h/ghostd codex-hook")
