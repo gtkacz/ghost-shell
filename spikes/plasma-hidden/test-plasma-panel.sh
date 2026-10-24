@@ -6,6 +6,7 @@ set -euo pipefail
 # It runs retire, checks the screenshot regions, the popup map, the shortcuts and status, refuses a second retire,
 # runs restore, and diffs every backed-up file against the original (expected: identical). Failure paths follow: a
 # retire that prints no "ok", one killed after plasmashell was stopped, a truncated keys backup, a missing popup map,
+# an older retire's Brightness and Color entry in the map,
 # repeated retire/restore cycles and a preflight that fails. It also checks that
 # KGlobalAccel's setInactive on never-registered ghost-shell task-N slots creates no entries (Task 5's carry-forward).
 #   test-plasma-panel.sh                run the test; it builds and removes its own sandbox
@@ -47,6 +48,8 @@ strip_px=$(awk -v band="$(mjs_constant layout.mjs BAR_BAND_PX)" -v design="$(mjs
 ghost_config=$root/config/ghost-shell/config.toml
 held_key=$((0x1E000000 + 0x01000030 + 2))
 held_key_text=Meta+Ctrl+Alt+Shift+F3
+# A widget id no sandbox layout uses, standing for the Brightness and Color applet an older retire gave F8.
+older_brightness_widget=9999
 # What KWin --virtual calls its one output, and so what Plasma's screenForConnector knows it by.
 sandbox_connector=Virtual-0
 
@@ -453,10 +456,7 @@ popup_map_is_valid() {
         action_names plasmashell | grep -qxF "activate widget $id" || { note "  no 'activate widget $id' action"; return 1; }
     done < "$map"
     note "  $lines popups: $(tr '\t\n' '= ' < "$map")"
-    # A desktop without brightness control has no such applet in its tray, and retire skips it with a note.
-    local brightness_lines
-    brightness_lines=$(grep -c '^org.kde.plasma.brightness	' "$map" || true)
-    ((lines == $(wc -l <<< "$accepted") - 1 + brightness_lines))
+    ((lines == $(wc -l <<< "$accepted")))
 }
 
 # After a restore the desktop must be what it was before the first retire, whatever went wrong on the way.
@@ -575,6 +575,20 @@ failure_paths() {
     rm -- "$ghost_config"
     sleep "$settle_s"
     check "the files are still identical after plasmashell settled" same_files "$root/before" "$root/config"
+
+    note "== a popup map an older retire wrote, with a Brightness and Color entry, then restore (cycle 4)"
+    try retire
+    check "retire succeeds" test "$script_rc" -eq 0
+    sleep "$settle_s"
+    check "retire left Brightness and Color out of the map" bash -c '! grep -q "^org.kde.plasma.brightness" "$1"' _ "$map"
+    sbx_busctl call org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel doRegister as 4 plasmashell \
+        "activate widget $older_brightness_widget" plasmashell "Activate Brightness and Color"
+    printf 'org.kde.plasma.brightness\t%s\n' "$older_brightness_widget" >> "$map"
+    check "plasmashell holds the older entry's action" bash -c 'grep -qxF "activate widget $1" <<< "$2"' _ \
+        "$older_brightness_widget" "$(action_names plasmashell)"
+    try restore
+    assert_restored "older brightness entry"
+    sleep "$settle_s"
 
     note "== a preflight that fails changes nothing"
     backups_before=$(ls "$root/state/ghost-shell/plasma-backup" | wc -l)

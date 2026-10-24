@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 
 const NETWORK: &str = "org.kde.plasma.networkmanagement";
 const CLOCK: &str = "org.kde.plasma.digitalclock";
-const BRIGHTNESS: &str = "org.kde.plasma.brightness";
+const RETIRED_BRIGHTNESS: &str = "org.kde.plasma.brightness";
 const MAP_FILE: &str = "plasma-popups";
 
 /// The real feed on private buses only. `feed()`, which connects to the machine's own buses, is
@@ -186,15 +186,13 @@ async fn popup_for_a_known_applet_uses_the_spike_route() {
 }
 
 #[tokio::test]
-async fn popup_for_the_brightness_applet_uses_its_widget() {
+async fn popup_for_the_retired_brightness_applet_is_refused() {
     let running = Running::start(SessionStubs::ALL).await;
-    running.write_map(&format!("{BRIGHTNESS}\t61\n"));
-    running.call(calls::PLASMA_POPUP, json!({"applet": BRIGHTNESS}));
-    assert_eq!(
-        running.stubs.log.wait_for(1).await,
-        [invoke("activate widget 61")]
-    );
+    running.write_map(&format!("{RETIRED_BRIGHTNESS}\t61\n"));
+    running.call(calls::PLASMA_POPUP, json!({"applet": RETIRED_BRIGHTNESS}));
+    assert_eq!(running.seen_before_a_lock().await, [lock()]);
 }
+
 #[tokio::test]
 async fn popup_map_is_read_again_on_every_call() {
     let running = Running::start(SessionStubs::ALL).await;

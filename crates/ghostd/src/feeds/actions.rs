@@ -62,7 +62,7 @@ const INVOKE_SHORTCUT: Target = Target::session(
 /// A shortcut Plasma registers only for a widget that has a global key, which
 /// `scripts/plasma-panel.sh retire` gives each popup's widget.
 const ACTIVATE_WIDGET: &str = "activate widget";
-const POPUP_APPLETS: [&str; 8] = [
+const POPUP_APPLETS: [&str; 7] = [
     "org.kde.plasma.networkmanagement",
     "org.kde.plasma.bluetooth",
     "org.kde.plasma.volume",
@@ -70,7 +70,6 @@ const POPUP_APPLETS: [&str; 8] = [
     "org.kde.plasma.clipboard",
     "org.kde.plasma.systemtray",
     "org.kde.plasma.digitalclock",
-    "org.kde.plasma.brightness",
 ];
 const POPUP_MAP: &str = "ghost-shell/plasma-popups";
 const MAP_SEPARATOR: char = '\t';
