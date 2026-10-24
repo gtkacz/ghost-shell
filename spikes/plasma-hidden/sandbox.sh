@@ -20,7 +20,7 @@ set -euo pipefail
 
 spike=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd "$spike/../.." && pwd)
-name=3a-t2
+name=${SANDBOX_NAME:-3a-t2}
 root=/tmp/gs-sbx-$name
 wayland_name=ghost-sbx-$name
 
