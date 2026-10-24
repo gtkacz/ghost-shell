@@ -46,6 +46,28 @@ lock_dropin=$lock_dropin_dir/ghost-shell-lock.conf
 lock_previous=$app_dir/lock.previous
 lock_snapshot=${XDG_STATE_HOME:-$HOME/.local/state}/ghost-shell/gate.ini
 
+# The login part writes under /usr, /etc and /var, each reached through these, so a test can point them at a temp
+# directory and stub the privileged commands.
+ghost_root=${GHOST_ROOT:-}
+read -ra sudo_cmd <<< "${GHOST_SUDO-sudo}"
+read -ra localectl_cmd <<< "${GHOST_LOCALECTL:-localectl}"
+read -ra semanage_cmd <<< "${GHOST_SEMANAGE:-semanage}"
+read -ra restorecon_cmd <<< "${GHOST_RESTORECON:-restorecon}"
+read -ra getenforce_cmd <<< "${GHOST_GETENFORCE:-getenforce}"
+
+login_theme_src=$repo/packaging/sddm/ghost-shell
+login_dropin_src=$repo/packaging/sddm/zz-ghost-shell.conf
+login_theme=$ghost_root/usr/share/sddm/themes/ghost-shell
+login_dropin_dir=$ghost_root/etc/sddm.conf.d
+login_dropin=$login_dropin_dir/zz-ghost-shell.conf
+login_system_dir=$ghost_root/var/lib/ghost-shell
+login_font_dir=$ghost_root/usr/local/share/fonts/ghost-shell
+login_config=$config_home/ghost-shell/config.toml
+# The SELinux type of SDDM's own state directory, which the greeter (xdm_t) may read.
+login_selinux_type=xdm_var_lib_t
+login_selinux_pattern='/var/lib/ghost-shell(/.*)?'
+login_default_font='Kode Mono'
+
 excluded_widget=broken-example
 required_tools=(cargo fc-list fc-cache kpackagetool6 kreadconfig6)
 
@@ -262,6 +284,15 @@ require_tools() {
     done
 }
 
+require_shaders() {
+    local frag
+    for frag in "$shaders_src"/*.frag; do
+        if [[ -e $frag && ! -f $frag.qsb ]]; then
+            die "no compiled shader for ${frag##*/}; run make shaders first"
+        fi
+    done
+}
+
 daemon_reload() {
     if systemctl --user show-environment > /dev/null 2>&1; then
         systemctl --user daemon-reload
@@ -275,14 +306,10 @@ lock_dropin_text() {
 }
 
 install_lock() {
-    local shell_package frag
+    local shell_package
 
     require_tools kreadconfig6
-    for frag in "$shaders_src"/*.frag; do
-        if [[ -e $frag && ! -f $frag.qsb ]]; then
-            die "no compiled shader for ${frag##*/}; run make shaders first"
-        fi
-    done
+    require_shaders
 
     # The key beats the variable, so the drop-in would do nothing (lock greeters spike, (a)).
     shell_package=$(kreadconfig6 --file plasmashellrc --group Shell --key ShellPackage)
@@ -339,7 +366,125 @@ remove_lock() {
     step "done; the stock lock screen returns at your next login"
 }
 
+as_root() {
+    "${sudo_cmd[@]}" "$@"
+}
+
+# Prints the font files of the families the login screen draws with: Kode Mono and the configured interface font.
+login_font_files() {
+    local configured family
+    configured=$(sed -n 's/^font *= *"\(.*\)"/\1/p' "$login_config" 2> /dev/null || true)
+    for family in "$login_default_font" "$configured"; do
+        if [[ -z $family ]]; then
+            continue
+        fi
+        if [[ -z $(fc-list -f '%{file}\n' "$family") ]]; then
+            warn "no installed font file for \"$family\"; the login screen will fall back to another font"
+        fi
+        fc-list -f '%{file}\n' "$family"
+    done | sort -u
+}
+
+# Skipped when SELinux is off or absent, where the snapshot directory's label does not matter.
+selinux_active() {
+    local mode
+    if ! command -v "${getenforce_cmd[0]}" > /dev/null 2>&1; then
+        return 1
+    fi
+    mode=$("${getenforce_cmd[@]}")
+    [[ $mode == Enforcing || $mode == Permissive ]]
+}
+
+install_login() {
+    local stage fonts layouts answer
+
+    require_tools install cp fc-list fc-cache kreadconfig6
+    require_shaders
+
+    mapfile -t fonts < <(login_font_files)
+    layouts=$(kreadconfig6 --file kxkbrc --group Layout --key LayoutList)
+
+    step "about to change, with ${sudo_cmd[*]:-no privilege escalation}:"
+    printf '  install the fonts into %s: %s\n' "$login_font_dir" "${fonts[*]##*/}"
+    printf '  install the login theme into %s\n' "$login_theme"
+    printf '  create %s, owned by %s, for ghostd'"'"'s snapshot\n' "$login_system_dir" "$(id -un)"
+    if selinux_active; then
+        printf '  label %s as %s so the SDDM greeter can read it\n' "$login_system_dir" "$login_selinux_type"
+    fi
+    printf '  point SDDM at the theme with %s\n' "$login_dropin"
+
+    stage=$(mktemp -d)
+    # The greeter runs as another user, so what it reads must be world-readable.
+    chmod 755 "$stage"
+    cp -r -- "$login_theme_src/." "$stage/"
+    "$repo/scripts/assemble-gate.sh" "$stage"
+    chmod -R go+rX "$stage"
+
+    step "installing the fonts into $login_font_dir"
+    as_root install -d -m 755 "$login_font_dir"
+    if (( ${#fonts[@]} > 0 )); then
+        as_root install -m 644 -t "$login_font_dir" "${fonts[@]}"
+    fi
+    as_root fc-cache -f "$login_font_dir"
+
+    step "installing the login theme into $login_theme"
+    as_root rm -rf -- "$login_theme"
+    as_root mkdir -p -- "$login_theme"
+    as_root cp -r -- "$stage/." "$login_theme/"
+    rm -rf -- "$stage"
+
+    step "creating $login_system_dir"
+    as_root install -d -o "$(id -un)" -m 0755 "$login_system_dir"
+    if selinux_active; then
+        step "labelling $login_system_dir as $login_selinux_type"
+        as_root "${semanage_cmd[@]}" fcontext -a -t "$login_selinux_type" "$login_selinux_pattern" \
+            || as_root "${semanage_cmd[@]}" fcontext -m -t "$login_selinux_type" "$login_selinux_pattern"
+        as_root "${restorecon_cmd[@]}" -R "$login_system_dir"
+    fi
+
+    step "pointing SDDM at the theme with $login_dropin"
+    as_root install -D -m 644 "$login_dropin_src" "$login_dropin"
+
+    if [[ $layouts == *,* ]]; then
+        printf 'SDDM takes its keyboard layouts from the system keymap, which would then be: %s\n' "$layouts"
+        printf 'This runs: %s set-x11-keymap %s\n' "${localectl_cmd[*]}" "$layouts"
+        printf 'Run it? [y/N] '
+        read -r answer || answer=
+        if [[ $answer == [yY] ]]; then
+            as_root "${localectl_cmd[@]}" set-x11-keymap "$layouts"
+        else
+            step "leaving the system keymap alone"
+        fi
+    fi
+
+    step "done; restart ghostd (systemctl --user restart ghostd) so it writes the snapshot to $login_system_dir; the login screen changes at SDDM's next start"
+}
+
+remove_login() {
+    step "about to remove, with ${sudo_cmd[*]:-no privilege escalation}: $login_dropin, $login_theme, $login_system_dir and $login_font_dir"
+    as_root rm -f -- "$login_dropin"
+    # Fails, harmlessly, when the directory holds other drop-ins.
+    as_root rmdir -- "$login_dropin_dir" 2> /dev/null || true
+    as_root rm -rf -- "$login_theme" "$login_system_dir" "$login_font_dir"
+    if command -v fc-cache > /dev/null 2>&1; then
+        as_root fc-cache -f
+    fi
+    if selinux_active; then
+        step "removing the SELinux label rule for $login_system_dir"
+        as_root "${semanage_cmd[@]}" fcontext -d "$login_selinux_pattern" || true
+    fi
+    step "done; SDDM's own theme returns at its next start. The system keymap is left as it is: undo it with localectl set-x11-keymap if it was changed"
+}
+
 case ${1:-} in
+    --login)
+        install_login
+        exit
+        ;;
+    --remove-login)
+        remove_login
+        exit
+        ;;
     --lock)
         install_lock
         exit
@@ -349,7 +494,7 @@ case ${1:-} in
         exit
         ;;
     '') ;;
-    *) die "unknown option $1; usage: install.sh [--lock | --remove-lock]" ;;
+    *) die "unknown option $1; usage: install.sh [--lock | --remove-lock | --login | --remove-login]" ;;
 esac
 
 check_prerequisites
