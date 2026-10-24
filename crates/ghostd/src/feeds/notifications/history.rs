@@ -96,7 +96,7 @@ fn repeats(last: &Incoming, incoming: &Incoming) -> bool {
         && last.urgency == incoming.urgency
 }
 
-fn record(id: u32, incoming: Incoming, arrived_s: u64, held: bool) -> Notification {
+pub(super) fn record(id: u32, incoming: Incoming, arrived_s: u64, held: bool) -> Notification {
     Notification {
         id,
         app: incoming.app,
@@ -269,6 +269,15 @@ impl History {
                 item.read = true;
             }
         }
+    }
+
+    /// Points the record at its picture once the file exists; false when the record is gone.
+    pub fn set_image(&mut self, id: u32, image: String) -> bool {
+        let Some(item) = self.items.iter_mut().find(|item| item.id == id) else {
+            return false;
+        };
+        item.image = image;
+        true
     }
 
     pub fn set_dnd(&mut self, on: bool) {

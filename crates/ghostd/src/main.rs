@@ -322,6 +322,7 @@ fn host_feeds(config_path: &Path) -> Vec<Feed> {
         feeds::ticker::feed(),
         feeds::recent::feed(),
         feeds::pins::feed(config_path.to_owned(), plasma_config_dir()),
+        feeds::notifications::feed(feeds::notifications::default_paths()),
     ]
 }
 

@@ -39,7 +39,7 @@ const CAPABILITIES: [&str; 7] = [
 ];
 const SERVER_NAME: &str = "ghost-shell";
 const SPEC_VERSION: &str = "1.2";
-const DEFAULT_ACTION: &str = "default";
+pub const DEFAULT_ACTION: &str = "default";
 const URGENCY_LOW: u8 = 0;
 const URGENCY_CRITICAL: u8 = 2;
 const WARN_LEVEL: &str = "warn";
