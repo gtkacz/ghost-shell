@@ -127,6 +127,7 @@ impl FakeDisplay {
 pub struct NightLightState {
     pub available: bool,
     pub enabled: bool,
+    pub inhibited: bool,
     pub running: bool,
 }
 
@@ -144,6 +145,11 @@ impl FakeNightLight {
     #[zbus(property, name = "enabled")]
     fn enabled(&self) -> bool {
         self.state.enabled
+    }
+
+    #[zbus(property, name = "inhibited")]
+    fn inhibited(&self) -> bool {
+        self.state.inhibited
     }
 
     #[zbus(property, name = "running")]
@@ -176,6 +182,7 @@ impl FakePlasma {
         let night_light = NightLightState {
             available: true,
             enabled: true,
+            inhibited: false,
             running: true,
         };
         Self::start_with(bus, night_light).await
@@ -270,6 +277,7 @@ impl FakePlasma {
         let emitter = night_light.signal_emitter();
         fields.available_changed(emitter).await.unwrap();
         fields.enabled_changed(emitter).await.unwrap();
+        fields.inhibited_changed(emitter).await.unwrap();
         fields.running_changed(emitter).await.unwrap();
     }
 }

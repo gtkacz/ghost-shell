@@ -566,11 +566,13 @@ pub struct DisplayBrightness {
     pub max: i32,
 }
 
-/// KWin's Night Light: `running` is whether it is tinting the screen now, which is `enabled` and
-/// not suspended.
+/// KWin's Night Light: `enabled` is its setting, `inhibited` whether it is suspended (what KWin's
+/// "Toggle Night Color" flips), and `running` whether it is tinting the screen now, which a
+/// scheduled Night Light does not do by day.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct NightLight {
     pub available: bool,
     pub enabled: bool,
+    pub inhibited: bool,
     pub running: bool,
 }

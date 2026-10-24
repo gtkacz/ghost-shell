@@ -8,25 +8,27 @@
 //!
 //! The calls are handled whether or not the topic is wanted, one at a time in arrival order:
 //! - `brightness.set` checks the display against the ones powerdevil lists now, so no client can
-//!   name a path of its own, and clamps the value to `1..=max`. Zero is left out because a
-//!   backlight at zero can be fully dark, with nothing on screen to turn it back up;
+//!   name a path of its own, and clamps the value to `DARK_PANEL_FLOOR_PCT` of the display's range up to its
+//!   maximum;
 //! - `nightlight.toggle` runs KWin's own "Toggle Night Color" global action, the one its keyboard
 //!   shortcut runs, through KGlobalAccel. KWin's Night Light has no D-Bus method or writable
 //!   property for the switch (only `inhibit`, whose cookie dies with the caller, and `enabled`,
 //!   which is read-only), and the action suspends or resumes it, so a second toggle undoes the
 //!   first. It is left alone while Night Light is unavailable or disabled in the settings: it
-//!   would suspend nothing visible, and would leave it suspended when it is enabled later.
+//!   would suspend nothing visible, and would leave it suspended when it is enabled later. A toggle
+//!   within `TOGGLE_DEBOUNCE` of the last one is dropped, so a double click is one toggle.
 
+use std::collections::HashMap;
 use std::future::pending;
 use std::time::Duration;
 
 use ghost_proto::{Brightness, DisplayBrightness, NightLight, calls, topics};
 use serde_json::Value;
 use tokio::sync::broadcast;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout};
 use tracing::{debug, warn};
 use zbus::fdo::NameOwnerChangedStream;
-use zbus::{Connection, MatchRule, MessageStream, message};
+use zbus::{Connection, MatchRule, Message, MessageStream, OwnedVariant, message};
 
 use super::batteries::{Object, PROPERTIES, PROPERTIES_CHANGED, call, owner_changes};
 use super::{drain, next, until_unwanted, until_wanted};
@@ -42,9 +44,17 @@ const KGLOBALACCEL: &str = "org.kde.kglobalaccel";
 const KWIN_COMPONENT_PATH: &str = "/component/kwin";
 const COMPONENT_INTERFACE: &str = "org.kde.kglobalaccel.Component";
 const TOGGLE_NIGHT_LIGHT: &str = "Toggle Night Color";
+const NIGHT_LIGHT_READ: [&str; 4] = ["available", "enabled", "inhibited", "running"];
 const DISPLAY_ARG: &str = "display";
 const VALUE_ARG: &str = "value";
-const MIN_BRIGHTNESS: i32 = 1;
+/// A backlight at zero can be fully dark, with nothing on screen to turn it back up, and one raw
+/// unit is as dark on a display whose range has thousands; the floor the user chose is a share of
+/// the range. The shell mirrors it in `tray.mjs`.
+const DARK_PANEL_FLOOR_PCT: i32 = 1;
+const PERCENT: i32 = 100;
+/// Long enough to take a double click for one toggle, short enough that the next deliberate one
+/// goes through; KWin's action flips a state, so two in a row would undo each other.
+const TOGGLE_DEBOUNCE: Duration = Duration::from_millis(400);
 /// powerdevil's `SetBrightness` flags; none asks for its defaults.
 const NO_FLAGS: u32 = 0;
 /// Both services answer in milliseconds; one that takes longer is stuck, and must not hold up
@@ -176,14 +186,33 @@ impl Changes {
 
     /// Waits for a change. Never returns once the bus is gone.
     async fn next(&mut self) {
-        tokio::select! {
-            Some(_) = next(&mut self.screen_owners) => {}
-            Some(_) = next(&mut self.kwin_owners) => {}
-            Some(_) = next(&mut self.screen) => {}
-            Some(_) = next(&mut self.night_light) => {}
-            else => pending::<()>().await,
+        loop {
+            tokio::select! {
+                Some(_) = next(&mut self.screen_owners) => return,
+                Some(_) = next(&mut self.kwin_owners) => return,
+                Some(_) = next(&mut self.screen) => return,
+                Some(message) = next(&mut self.night_light) => {
+                    if message.is_ok_and(|message| changes_what_is_read(&message)) {
+                        return;
+                    }
+                }
+                else => pending::<()>().await,
+            }
         }
     }
+}
+
+/// Whether a Night Light `PropertiesChanged` touches a property the topic carries: KWin also
+/// signals `currentTemperature` every few tens of milliseconds through a transition.
+fn changes_what_is_read(message: &Message) -> bool {
+    let body = message
+        .body()
+        .deserialize::<(String, HashMap<String, OwnedVariant>, Vec<String>)>();
+    body.is_ok_and(|(_, changed, invalidated)| {
+        NIGHT_LIGHT_READ.iter().any(|name| {
+            changed.contains_key(*name) || invalidated.iter().any(|invalid| invalid == name)
+        })
+    })
 }
 
 async fn read(bus: &Connection) -> Brightness {
@@ -191,6 +220,14 @@ async fn read(bus: &Connection) -> Brightness {
         displays: read_displays(bus).await,
         night_light: read_night_light(bus).await,
     }
+}
+
+/// The lowest brightness a client may set on a display whose range ends at `max`: a share of the
+/// range, rounded up so a coarse range keeps at least one unit.
+fn dark_floor(max: i32) -> i32 {
+    let floor = (i64::from(max.max(1)) * i64::from(DARK_PANEL_FLOOR_PCT) + i64::from(PERCENT) - 1)
+        / i64::from(PERCENT);
+    i32::try_from(floor).unwrap_or(i32::MAX)
 }
 
 async fn display_names(bus: &Connection) -> zbus::Result<Vec<String>> {
@@ -257,6 +294,7 @@ async fn read_night_light(bus: &Connection) -> NightLight {
         Ok::<_, zbus::Error>(NightLight {
             available: night_light.get("available").await?,
             enabled: night_light.get("enabled").await?,
+            inhibited: night_light.get("inhibited").await?,
             running: night_light.get("running").await?,
         })
     };
@@ -269,9 +307,21 @@ async fn read_night_light(bus: &Connection) -> NightLight {
 /// Never returns: calls keep coming for as long as the daemon runs. They are handled one at a
 /// time, in arrival order.
 async fn serve_calls(bus: Option<&Connection>, mut incoming: broadcast::Receiver<Call>) {
+    let mut last_toggle: Option<Instant> = None;
     loop {
         match incoming.recv().await {
-            Ok(call) => handle(bus, &call).await,
+            Ok(call) => {
+                if call.method == calls::NIGHTLIGHT_TOGGLE {
+                    if last_toggle.is_some_and(|at| at.elapsed() < TOGGLE_DEBOUNCE) {
+                        debug!(
+                            "a Night Light toggle came within {TOGGLE_DEBOUNCE:?} of the last; dropped"
+                        );
+                        continue;
+                    }
+                    last_toggle = Some(Instant::now());
+                }
+                handle(bus, &call).await;
+            }
             Err(broadcast::error::RecvError::Lagged(missed)) => {
                 warn!(
                     missed,
@@ -331,8 +381,8 @@ async fn set_brightness(bus: &Connection, args: &Value) -> Result<(), CallError>
     .get("MaxBrightness")
     .await?;
     let value = value.round().clamp(
-        f64::from(MIN_BRIGHTNESS),
-        f64::from(max.max(MIN_BRIGHTNESS)),
+        f64::from(dark_floor(max)),
+        f64::from(max.max(dark_floor(max))),
     );
     let _: () = call(
         bus,

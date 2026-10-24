@@ -341,6 +341,7 @@ fn fake_brightness() -> Brightness {
         night_light: NightLight {
             available: true,
             enabled: true,
+            inhibited: false,
             running: true,
         },
     }

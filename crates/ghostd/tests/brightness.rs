@@ -20,6 +20,10 @@ const QUIET: Duration = Duration::from_millis(300);
 const NO_FLAGS: u32 = 0;
 const MONITOR_START: i32 = MONITOR_MAX;
 const PANEL_START: i32 = 100;
+// One percent of the range, rounded up.
+const MONITOR_FLOOR: i32 = 100;
+const PANEL_FLOOR: i32 = 3;
+const DEBOUNCED: Duration = Duration::from_millis(500);
 
 /// The real feed on a private bus standing in for the session bus, and everything it publishes.
 struct Running {
@@ -121,16 +125,19 @@ impl Running {
 const NIGHT_LIGHT_RUNNING: NightLightState = NightLightState {
     available: true,
     enabled: true,
+    inhibited: false,
     running: true,
 };
 const NIGHT_LIGHT_OFF: NightLightState = NightLightState {
     available: true,
     enabled: false,
+    inhibited: false,
     running: false,
 };
 const NIGHT_LIGHT_UNAVAILABLE: NightLightState = NightLightState {
     available: false,
     enabled: false,
+    inhibited: false,
     running: false,
 };
 
@@ -169,6 +176,7 @@ async fn publishes_the_displays_and_night_light_once_wanted() {
             night_light: NightLight {
                 available: true,
                 enabled: true,
+                inhibited: false,
                 running: true,
             },
         }
@@ -222,6 +230,7 @@ async fn follows_night_light() {
         NightLight {
             available: true,
             enabled: false,
+            inhibited: false,
             running: false,
         }
     );
@@ -239,21 +248,23 @@ async fn no_displays_once_powerdevil_leaves_the_bus() {
 }
 
 #[tokio::test]
-async fn sets_a_display_and_clamps_the_value_to_its_range() {
+async fn sets_a_display_and_clamps_the_value_to_one_percent_up_to_its_range() {
     let running = Running::start().await;
     running.call(calls::BRIGHTNESS_SET, set(MONITOR, json!(5000)));
     running.call(calls::BRIGHTNESS_SET, set(MONITOR, json!(99_999)));
     running.call(calls::BRIGHTNESS_SET, set(MONITOR, json!(0)));
     running.call(calls::BRIGHTNESS_SET, set(MONITOR, json!(-40)));
     running.call(calls::BRIGHTNESS_SET, set(PANEL, json!(77.6)));
+    running.call(calls::BRIGHTNESS_SET, set(PANEL, json!(0)));
     assert_eq!(
-        running.requests(5).await,
+        running.requests(6).await,
         [
             set_request(MONITOR, 5000),
             set_request(MONITOR, MONITOR_MAX),
-            set_request(MONITOR, 1),
-            set_request(MONITOR, 1),
+            set_request(MONITOR, MONITOR_FLOOR),
+            set_request(MONITOR, MONITOR_FLOOR),
             set_request(PANEL, 78),
+            set_request(PANEL, PANEL_FLOOR),
         ]
     );
 }
@@ -346,4 +357,33 @@ async fn survives_a_plasma_that_is_not_on_the_bus() {
         .unwrap();
     sleep(QUIET).await;
     assert!(!task.is_finished());
+}
+
+#[tokio::test]
+async fn a_double_click_toggles_night_light_once_and_a_later_click_again() {
+    let running = Running::start().await;
+    running.call(calls::NIGHTLIGHT_TOGGLE, json!({}));
+    running.call(calls::NIGHTLIGHT_TOGGLE, json!({}));
+    assert_eq!(running.requests_after_quiet().await.len(), 1);
+    sleep(DEBOUNCED).await;
+    running.call(calls::NIGHTLIGHT_TOGGLE, json!({}));
+    assert_eq!(running.requests(2).await.len(), 2);
+}
+
+#[tokio::test]
+async fn follows_night_light_being_suspended() {
+    let mut running = Running::start().await;
+    assert!(!running.next_snapshot().await.night_light.inhibited);
+    running
+        .plasma
+        .set_night_light(NightLightState {
+            inhibited: true,
+            running: false,
+            ..NIGHT_LIGHT_RUNNING
+        })
+        .await;
+    let snapshot = running
+        .snapshot_where(|snapshot| snapshot.night_light.inhibited)
+        .await;
+    assert!(snapshot.night_light.enabled && !snapshot.night_light.running);
 }
