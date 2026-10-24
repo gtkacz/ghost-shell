@@ -33,7 +33,7 @@ Item {
     implicitWidth: chip.width
 
     function levelColor(fraction) {
-        const level = Fmt.levelAbove(fraction, Theme.usageWarn, Theme.usageCrit);
+        const level = Fmt.level(fraction, Theme.usageWarn, Theme.usageCrit);
         return level === "crit" ? Theme.crit : level === "warn" ? Theme.warn : Theme.text;
     }
 

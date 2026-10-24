@@ -53,7 +53,7 @@ Rectangle {
     }
 
     function levelColor(fraction) {
-        const level = Fmt.levelAbove(fraction, Theme.usageWarn, Theme.usageCrit);
+        const level = Fmt.level(fraction, Theme.usageWarn, Theme.usageCrit);
         return level === "crit" ? Theme.crit : level === "warn" ? Theme.warn : Theme.signal;
     }
 
@@ -244,6 +244,7 @@ Rectangle {
                     }
 
                     Cell {
+                        width: Theme.d(root.stateWidthPx - root.cellGapPx)
                         text: Agents.stateLabel(line.modelData)
                         color: root.stateColor(line.modelData.state)
                     }
