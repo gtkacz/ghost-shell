@@ -19,7 +19,7 @@ Singleton {
     }
 
     function file(path) {
-        Quickshell.execDetached(LaunchLib.fileCommand(path));
+        Quickshell.execDetached(LaunchLib.fileCommand(path, home));
         console.info("launch file");
     }
 

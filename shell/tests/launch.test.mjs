@@ -67,6 +67,11 @@ test('the app script execs kioclient on the first desktop file that exists, and 
   }
 });
 
-test('a file opens through kioclient as one argument, however its name reads', () => {
-  assert.deepEqual(fileCommand('/h/My Docs/$(x); y.txt'), ['kioclient', 'exec', '/h/My Docs/$(x); y.txt']);
+test('a file opens with xdg-open in a service of its own, never through kioclient', () => {
+  const path = '/h/My Docs/$(x); y.sh';
+  const argv = fileCommand(path, '/home/u');
+  assert.deepEqual(argv.slice(0, 2), ['systemd-run', '--user']);
+  assert.deepEqual(argv.slice(-3), ['--', 'xdg-open', path]);
+  assert.equal(argv.filter((arg) => arg === path).length, 1);
+  assert.equal(argv.some((arg) => arg.includes('kioclient')), false);
 });

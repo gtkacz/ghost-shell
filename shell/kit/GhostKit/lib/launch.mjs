@@ -19,24 +19,29 @@ export function appCommand(id, dirs) {
   return ['sh', '-c', FIND_AND_EXEC, SCRIPT_NAME, id, ...dirs];
 }
 
-// Like an app, a file opens in KIO's own scope, so it outlives the shell. ghostd only lists absolute paths, which
-// kioclient reads as paths rather than options.
-export function fileCommand(path) {
-  return ['kioclient', 'exec', path];
-}
-
 // kioclient cannot run a desktop action, so it gets a transient service of the user manager, which is where KDE puts
 // apps too. The command is Quickshell's own parse of the action's Exec.
 export function actionCommand(action, home) {
+  return transientService(action.name, home, action.command);
+}
+
+// xdg-open, not kioclient, since kioclient exec would run a recent file that is a script instead of opening it. The
+// service keeps the opened app out of the shell's cgroup. ghostd only lists absolute paths, so the path never reads
+// as an option.
+export function fileCommand(path, home) {
+  return transientService(path, home, ['xdg-open', path]);
+}
+
+function transientService(description, home, command) {
   return [
     'systemd-run',
     '--user',
     '--collect',
     '--quiet',
     '--slice=app.slice',
-    `--description=${action.name}`,
+    `--description=${description}`,
     `--working-directory=${home}`,
     '--',
-    ...action.command,
+    ...command,
   ];
 }
