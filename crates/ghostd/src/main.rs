@@ -316,6 +316,8 @@ fn host_feeds(config_path: &Path) -> Vec<Feed> {
         feeds::ticker::feed(),
         feeds::recent::feed(),
         feeds::pins::feed(config_path.to_owned(), plasma_config_dir()),
+        feeds::agents::sessions_feed(SysRoot::host()),
+        feeds::agents::usage_feed(),
     ]
 }
 
