@@ -18,6 +18,11 @@ Singleton {
         console.info("launch app " + desktop.id);
     }
 
+    function file(path) {
+        Quickshell.execDetached(LaunchLib.fileCommand(path));
+        console.info("launch file");
+    }
+
     function action(desktopAction) {
         Quickshell.execDetached(LaunchLib.actionCommand(desktopAction, home));
         console.info("launch action " + desktopAction.id);

@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actionCommand, appCommand, searchDirs } from '../kit/GhostKit/lib/launch.mjs';
+import { actionCommand, appCommand, fileCommand, searchDirs } from '../kit/GhostKit/lib/launch.mjs';
 
 test('the user data directory is searched before the system ones, each once', () => {
   assert.deepEqual(searchDirs('/h/.local/share', '/usr/local/share:/usr/share:/h/.local/share'), [
@@ -65,4 +65,8 @@ test('the app script execs kioclient on the first desktop file that exists, and 
   } finally {
     rmSync(root, { recursive: true });
   }
+});
+
+test('a file opens through kioclient as one argument, however its name reads', () => {
+  assert.deepEqual(fileCommand('/h/My Docs/$(x); y.txt'), ['kioclient', 'exec', '/h/My Docs/$(x); y.txt']);
 });

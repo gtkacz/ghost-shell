@@ -224,7 +224,7 @@ Singleton {
         }
         core.index = at;
         if (item.kind === "file") {
-            Quickshell.execDetached(["xdg-open", item.file.path]);
+            Launch.file(item.file.path);
             console.info("launcher opened file");
         } else {
             Launch.app(item.entry.desktop);

@@ -250,9 +250,6 @@ make_launcher_fixture() {
     printf 'NoDisplay=true\n' >> "$root/data/applications/kate.desktop"
     # The same Dolphin as a system entry, which the launcher must merge into the user's.
     cp -- "$root/data/applications/dolphin.desktop" "$root/sys/applications/org.kde.dolphin.desktop"
-    # Files are opened through xdg-open, which here only records the call.
-    printf '#!/bin/sh\necho "xdg-open $*" >> "%s"\n' "$launcher_launches" > "$root/bin/xdg-open"
-    chmod +x "$root/bin/xdg-open"
     launcher_env=(
         "XDG_RUNTIME_DIR=$state_dir/run"
         "XDG_DATA_HOME=$root/data"
