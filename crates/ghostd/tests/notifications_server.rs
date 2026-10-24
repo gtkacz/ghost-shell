@@ -13,11 +13,12 @@ use ghostd::feeds::notifications::server::{
     self, CLOSED_BY_CALL, Claim, DISMISSED, EXPIRED, Request,
 };
 use ghostd::sdnotify;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
 use zbus::Connection;
 use zbus::Variant;
 use zbus::fdo::{self, RequestNameFlags};
+use zbus::message::Message;
 use zbus::proxy::CacheProperties;
 use zbus::{Array, Structure};
 
@@ -28,6 +29,7 @@ struct Served {
     bus: PrivateBus,
     daemon: Connection,
     inbox: mpsc::Receiver<Request>,
+    inhibited: watch::Receiver<bool>,
 }
 
 async fn serving() -> Served {
@@ -40,8 +42,14 @@ async fn serving_unclaimed() -> Served {
     let bus = PrivateBus::start();
     let daemon = bus.connect().await;
     let (sender, inbox) = mpsc::channel(16);
-    server::serve(&daemon, sender).await.unwrap();
-    Served { bus, daemon, inbox }
+    let helper = bus.connect().await;
+    let inhibited = server::serve(&daemon, &helper, sender).await.unwrap();
+    Served {
+        bus,
+        daemon,
+        inbox,
+        inhibited,
+    }
 }
 
 async fn received(inbox: &mut mpsc::Receiver<Request>) -> Request {
@@ -339,9 +347,17 @@ async fn inhibit(client: &NotifyClient) -> u32 {
         .unwrap()
 }
 
+async fn becomes(watch: &mut watch::Receiver<bool>, value: bool) {
+    timeout(BUS_WAIT, watch.wait_for(|&current| current == value))
+        .await
+        .expect("inhibition did not settle in time")
+        .unwrap();
+}
+
 #[tokio::test]
 async fn inhibit_sets_the_property_and_uninhibit_clears_it() {
-    let mut served = serving().await;
+    let served = serving().await;
+    let mut inhibited = served.inhibited.clone();
     let app = served.bus.connect().await;
     let client = NotifyClient::new(&app).await;
     let mut changes = property_changes(&app).await;
@@ -351,11 +367,7 @@ async fn inhibit_sets_the_property_and_uninhibit_clears_it() {
 
     assert_ne!(cookie, 0);
     assert!(client.inhibited().await);
-    let Request::Inhibit { who, cookie: sent } = received(&mut served.inbox).await else {
-        panic!("expected an Inhibit");
-    };
-    assert_eq!(who, app.unique_name().unwrap().to_string());
-    assert_eq!(sent, cookie);
+    assert!(*inhibited.borrow());
     let change = next(&mut changes).await.unwrap();
     assert_eq!(
         change
@@ -369,42 +381,29 @@ async fn inhibit_sets_the_property_and_uninhibit_clears_it() {
 
     let () = client.proxy.call("UnInhibit", &(cookie,)).await.unwrap();
     assert!(!client.inhibited().await);
-    assert!(matches!(
-        received(&mut served.inbox).await,
-        Request::UnInhibit { cookie: unsent } if unsent == cookie
-    ));
+    becomes(&mut inhibited, false).await;
 }
 
 #[tokio::test]
 async fn uninhibit_of_an_unknown_cookie_is_a_no_op() {
-    let mut served = serving().await;
+    let served = serving().await;
     let app = served.bus.connect().await;
     let client = NotifyClient::new(&app).await;
+    inhibit(&client).await;
 
     let () = client.proxy.call("UnInhibit", &(99u32,)).await.unwrap();
-    let () = client
-        .proxy
-        .call("CloseNotification", &(1u32,))
-        .await
-        .unwrap();
 
-    assert!(matches!(
-        received(&mut served.inbox).await,
-        Request::Close { id: 1 }
-    ));
+    assert!(client.inhibited().await);
+    assert!(*served.inhibited.borrow());
 }
 
 #[tokio::test]
 async fn an_inhibitor_that_disconnects_is_released() {
-    let mut served = serving().await;
+    let served = serving().await;
+    let mut inhibited = served.inhibited.clone();
     let app = served.bus.connect().await;
-    let unique = app.unique_name().unwrap().to_string();
     let client = NotifyClient::new(&app).await;
     inhibit(&client).await;
-    assert!(matches!(
-        received(&mut served.inbox).await,
-        Request::Inhibit { .. }
-    ));
     let watcher = served.bus.connect().await;
     // A connection shuts down gracefully only once every clone of it is gone.
     drop(client);
@@ -415,11 +414,77 @@ async fn an_inhibitor_that_disconnects_is_released() {
         .await
         .expect("shutdown hung");
 
-    let Request::InhibitorGone { unique_name } = received(&mut served.inbox).await else {
-        panic!("expected InhibitorGone");
-    };
-    assert_eq!(unique_name, unique);
+    becomes(&mut inhibited, false).await;
     assert!(!observer.inhibited().await);
+}
+
+#[tokio::test]
+async fn inhibitor_that_leaves_immediately_does_not_stick() {
+    let served = serving().await;
+    let mut inhibited = served.inhibited.clone();
+    let observer_connection = served.bus.connect().await;
+    let observer = NotifyClient::new(&observer_connection).await;
+    // Many rounds, since the bug was a race between the call and the departure.
+    for _ in 0..20 {
+        let app = served.bus.connect().await;
+        let call = Message::method_call(NOTIFICATIONS_PATH, "Inhibit")
+            .destination(NOTIFICATIONS)
+            .interface(NOTIFICATIONS)
+            .build(&("firefox", "reason", HashMap::<&str, Variant>::new()))
+            .unwrap();
+        app.send(&call).await.unwrap();
+        timeout(BUS_WAIT, app.graceful_shutdown())
+            .await
+            .expect("shutdown hung");
+    }
+
+    becomes(&mut inhibited, false).await;
+    assert!(!observer.inhibited().await);
+}
+
+#[tokio::test]
+async fn pipelined_replacements_arrive_in_send_order() {
+    const CALLS: u32 = 20;
+    let served = serving().await;
+    let app = served.bus.connect().await;
+    // Answers each call as the feed would, from its own task.
+    let mut inbox = served.inbox;
+    let feed = tokio::spawn(async move {
+        let mut order = Vec::new();
+        while order.len() < CALLS as usize {
+            let Request::Notify {
+                incoming, reply, ..
+            } = received(&mut inbox).await
+            else {
+                panic!("expected a Notify");
+            };
+            order.push(incoming.summary);
+            reply.send(Ok(5)).unwrap();
+        }
+        order
+    });
+
+    for number in 0..CALLS {
+        let call = Message::method_call(NOTIFICATIONS_PATH, "Notify")
+            .destination(NOTIFICATIONS)
+            .interface(NOTIFICATIONS)
+            .build(&(
+                "App",
+                5u32,
+                "",
+                number.to_string(),
+                "",
+                Vec::<&str>::new(),
+                HashMap::<&str, Variant>::new(),
+                -1i32,
+            ))
+            .unwrap();
+        app.send(&call).await.unwrap();
+    }
+
+    let order = timeout(BUS_WAIT, feed).await.unwrap().unwrap();
+    let expected: Vec<String> = (0..CALLS).map(|number| number.to_string()).collect();
+    assert_eq!(order, expected);
 }
 
 fn holder_flags(allow_replacement: bool) -> RequestNameFlags {

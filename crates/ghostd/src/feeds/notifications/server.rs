@@ -3,9 +3,11 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use ghost_proto::{NotificationAction, NotificationLevel, Urgency};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::timeout;
 use tracing::debug;
 use zbus::OwnedVariant;
 use zbus::fdo::{self, NameOwnerChangedStream, RequestNameFlags, RequestNameReply};
@@ -44,6 +46,8 @@ const WARN_LEVEL: &str = "warn";
 const IMAGE_DATA_HINTS: [&str; 3] = ["image-data", "image_data", "icon_data"];
 const IMAGE_PATH_HINTS: [&str; 2] = ["image-path", "image_path"];
 const UNIQUE_NAME_PREFIX: char = ':';
+/// The bus answers these in microseconds; the limit only keeps a wedged bus from stalling every call.
+const BUS_QUERY_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// What the server asks of the feed, which owns the history.
 // A call is a rare event and the queue is short, so boxing the one big variant buys nothing.
@@ -58,16 +62,6 @@ pub enum Request {
     },
     Close {
         id: u32,
-    },
-    Inhibit {
-        who: String,
-        cookie: u32,
-    },
-    UnInhibit {
-        cookie: u32,
-    },
-    InhibitorGone {
-        unique_name: String,
     },
 }
 
@@ -87,11 +81,25 @@ fn unavailable<E>(_: E) -> fdo::Error {
 pub struct Server {
     inbox: mpsc::Sender<Request>,
     inhibitors: Arc<Mutex<Inhibitors>>,
+    // On a connection of its own: calls are served in order on the server's connection, whose
+    // handler would otherwise wait for a reply that only its own dispatcher can read.
+    bus: fdo::DBusProxy<'static>,
 }
 
 impl Server {
     fn inhibitors(&self) -> MutexGuard<'_, Inhibitors> {
         lock(&self.inhibitors)
+    }
+
+    /// Whether the caller is still on the bus; true when the bus cannot say, since the departure
+    /// watcher is then the one to release it.
+    async fn caller_present(&self, who: &str) -> bool {
+        let Ok(name) = BusName::try_from(who) else {
+            return true;
+        };
+        timeout(BUS_QUERY_TIMEOUT, self.bus.name_has_owner(name))
+            .await
+            .map_or(true, |reply| reply.unwrap_or(true))
     }
 }
 
@@ -189,19 +197,19 @@ fn parse(call: &Call<'_>) -> (Incoming, Option<ImageData>) {
 }
 
 /// The caller's process id, or 0 when the bus cannot say.
-async fn sender_pid(connection: &Connection, header: &Header<'_>) -> u32 {
+async fn sender_pid(bus: &fdo::DBusProxy<'_>, header: &Header<'_>) -> u32 {
     let Some(sender) = header.sender() else {
         return 0;
     };
-    let Ok(bus) = fdo::DBusProxy::new(connection).await else {
-        return 0;
-    };
-    bus.get_connection_unix_process_id(BusName::from(sender.to_owned()))
+    let lookup = bus.get_connection_unix_process_id(BusName::from(sender.to_owned()));
+    timeout(BUS_QUERY_TIMEOUT, lookup)
         .await
-        .unwrap_or(0)
+        .map_or(0, |pid| pid.unwrap_or(0))
 }
 
-#[interface(name = "org.freedesktop.Notifications")]
+// Calls are served one at a time in the order the bus delivered them: a client that replaces a
+// notification without awaiting each reply (a progress bar) must see its last state win.
+#[interface(name = "org.freedesktop.Notifications", spawn = false)]
 impl Server {
     #[allow(clippy::too_many_arguments)]
     async fn notify(
@@ -215,7 +223,6 @@ impl Server {
         hints: HashMap<String, OwnedVariant>,
         // The app's own timeout is ignored: the shell decides how long a toast stays.
         _expire_timeout: i32,
-        #[zbus(connection)] connection: &Connection,
         #[zbus(header)] header: Header<'_>,
     ) -> Result<u32, NotifyError> {
         let (mut incoming, image_data) = parse(&Call {
@@ -227,7 +234,7 @@ impl Server {
             actions: &actions,
             hints: &hints,
         });
-        incoming.pid = sender_pid(connection, &header).await;
+        incoming.pid = sender_pid(&self.bus, &header).await;
         let (reply, answer) = oneshot::channel();
         self.inbox
             .send(Request::Notify {
@@ -275,18 +282,18 @@ impl Server {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> fdo::Result<u32> {
         let who = header.sender().map(ToString::to_string).unwrap_or_default();
-        let (cookie, flipped) = {
+        let (cookie, was_active) = {
             let mut inhibitors = self.inhibitors();
             let was_active = inhibitors.active();
-            (inhibitors.add(&who), !was_active)
+            (inhibitors.add(&who), was_active)
         };
-        if flipped {
+        // After the insert, so a departure the watcher already handled cannot be missed.
+        if !self.caller_present(&who).await {
+            self.inhibitors().release(&who);
+        }
+        if self.inhibitors().active() != was_active {
             self.inhibited_changed(&emitter).await?;
         }
-        self.inbox
-            .send(Request::Inhibit { who, cookie })
-            .await
-            .map_err(unavailable)?;
         Ok(cookie)
     }
 
@@ -306,10 +313,7 @@ impl Server {
         if !now_active {
             self.inhibited_changed(&emitter).await?;
         }
-        self.inbox
-            .send(Request::UnInhibit { cookie })
-            .await
-            .map_err(unavailable)
+        Ok(())
     }
 
     #[zbus(property)]
@@ -337,12 +341,23 @@ pub async fn emit_action_invoked(bus: &Connection, id: u32, key: &str) -> zbus::
 }
 
 /// Registers the interface at its path, before any name request, so that no call arrives at a
-/// name that serves nothing. Also releases the cookies of callers that leave the bus.
-pub async fn serve(bus: &Connection, inbox: mpsc::Sender<Request>) -> zbus::Result<()> {
-    let inhibitors = Arc::<Mutex<Inhibitors>>::default();
+/// name that serves nothing. Also releases the cookies of callers that leave the bus. The receiver
+/// reads whether any inhibition is held. `helper` is a second connection to the same bus, for the
+/// questions the handlers ask the bus.
+pub async fn serve(
+    bus: &Connection,
+    helper: &Connection,
+    inbox: mpsc::Sender<Request>,
+) -> zbus::Result<watch::Receiver<bool>> {
+    let (inhibitors, inhibited) = Inhibitors::new();
+    let inhibitors = Arc::new(Mutex::new(inhibitors));
     let server = Server {
-        inbox: inbox.clone(),
+        inbox,
         inhibitors: Arc::clone(&inhibitors),
+        bus: fdo::DBusProxy::builder(helper)
+            .cache_properties(CacheProperties::No)
+            .build()
+            .await?,
     };
     bus.object_server().at(PATH, server).await?;
     let departures = fdo::DBusProxy::builder(bus)
@@ -351,15 +366,14 @@ pub async fn serve(bus: &Connection, inbox: mpsc::Sender<Request>) -> zbus::Resu
         .await?
         .receive_name_owner_changed()
         .await?;
-    tokio::spawn(release_departed(bus.clone(), departures, inhibitors, inbox));
-    Ok(())
+    tokio::spawn(release_departed(bus.clone(), departures, inhibitors));
+    Ok(inhibited)
 }
 
 async fn release_departed(
     bus: Connection,
     mut changes: NameOwnerChangedStream,
     inhibitors: Arc<Mutex<Inhibitors>>,
-    inbox: mpsc::Sender<Request>,
 ) {
     while let Some(change) = next(&mut changes).await {
         let Ok(args) = change.args() else {
@@ -382,13 +396,6 @@ async fn release_departed(
             if let Err(error) = server.inhibited_changed(interface.signal_emitter()).await {
                 debug!(%error, "cannot announce that inhibition ended");
             }
-        }
-        if inbox
-            .send(Request::InhibitorGone { unique_name })
-            .await
-            .is_err()
-        {
-            return;
         }
     }
 }
