@@ -85,7 +85,7 @@ scripts/plasma-panel.sh retire-notifications    # ghostd serves org.freedesktop.
 scripts/plasma-panel.sh restore-notifications   # plasmashell serves it again
 ```
 
-`retire-notifications` is separate from `retire` and can run with or without it. It prints every change before making it, and refuses if plasmashell is not run by `plasma-plasmashell.service` or if another component than ghost-shell holds `shortcuts.notifications` (default `Meta+N`; a value that is not `Meta+<letter>` is not checked, with a warning). In order, it:
+`retire-notifications` is separate from `retire` and can run with or without it. It prints every change before making it, and refuses if plasmashell is not run by `plasma-plasmashell.service`, if the loaded `ghostd.service` is not `Type=notify` (reinstall with `scripts/install.sh`), or if another component than ghost-shell holds `shortcuts.notifications` (default `Meta+N`; a value that is not `Meta+<letter>` is not checked, with a warning). In order, it:
 
 1. backs up `plasmanotifyrc` (or notes that it is absent) into `~/.local/state/ghost-shell/plasma-backup/<UTC stamp>/` with a `notifications-manifest`, and writes `~/.local/state/ghost-shell/notifications-retired`;
 2. writes the marker `~/.local/state/ghost-shell/notifications-server`, which makes ghostd request the name when it starts;
@@ -95,7 +95,7 @@ scripts/plasma-panel.sh restore-notifications   # plasmashell serves it again
 
 `restore-notifications` removes the marker and the drop-in (and the drop-in's directory if it is then empty), reloads systemd, stops plasmashell, puts `plasmanotifyrc` back byte for byte (or deletes it if it did not exist), restarts ghostd only if it is running, starts plasmashell, checks that plasmashell owns the name, and removes `notifications-retired`. It works with ghostd stopped, and undoes everything `retire-notifications` did. As with `retire`, a failure part way starts plasmashell again and prints the restore command.
 
-While nobody owns the name (ghostd crashed after the retire and has not been restarted by systemd yet), an app's notification call can stall for about 25 s and then fail: Plasma's activatable service file for the name starts a process that waits for it and never takes it. `ghostd.service` is `Type=notify` with a 15 s start timeout so that plasmashell starts only once ghostd has settled the name. The environment variables `GHOST_SYSTEMD_RELOAD`, `GHOST_GHOSTD_RESTART`, `GHOST_GHOSTD_TRY_RESTART` and `GHOST_GHOSTD_PID_CHECK` each name one executable that replaces the matching `systemctl --user` call, and `spikes/plasma-hidden/test-plasma-notifications.sh` uses them to run both subcommands in a sandboxed Plasma with a dev ghostd.
+While nobody owns the name (ghostd crashed after the retire and has not been restarted by systemd yet), an app's notification call can stall for about 25 s and then fail: Plasma's activatable service file for the name starts a process that waits for it and never takes it. `ghostd.service` is `Type=notify` with a 15 s start timeout so that plasmashell starts only once ghostd has settled the name. The environment variables `GHOST_SYSTEMD_RELOAD`, `GHOST_GHOSTD_RESTART`, `GHOST_GHOSTD_TRY_RESTART`, `GHOST_GHOSTD_PID_CHECK` and `GHOST_GHOSTD_TYPE_CHECK` each name one executable that replaces the matching `systemctl --user` call, and `spikes/plasma-hidden/test-plasma-notifications.sh` uses them to run both subcommands in a sandboxed Plasma with a dev ghostd.
 
 ### Terminal theme (optional)
 
