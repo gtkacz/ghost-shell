@@ -1087,6 +1087,16 @@ Headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, private buses, measured 202
 
 **Daemon feeds** (live, read-only): the ticker's failed-units count ≈ 0 s, firewalld state 0.01 s, PackageKit `GetUpdates` 0.82 s wall time.
 
+### Project 2: the lock screen, style A (installed, 2026-10-24)
+
+`kscreenlocker_greet` running the gate's prompt, idle and locked on the M27Q, measured over 60 s from `/proc/<pid>/stat` (budget ≤ 1 %, spec §8.4):
+
+| CPU | Memory |
+|---|---|
+| **0.40 %** | 512 MiB `VmRSS` |
+
+The greeter is non-dumpable, so `smaps_rollup` is unreadable and `scripts/measure-cpu.sh` cannot run on it. `VmRSS` counts NVIDIA's `/dev/nvidiactl` mappings twice and includes the greeter's own Plasma imports, so it overstates the gate's memory.
+
 ## License
 
 Copyright (C) 2026 Gabriel Mitelman Tkacz
