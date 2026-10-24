@@ -67,6 +67,10 @@ Item {
                 path: "M3.5 1h5v10h-5zM5.5 9h1",
                 filled: false
             },
+            "brightness": {
+                path: "M4 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M6 1v1.4M6 9.6V11M1 6h1.4M9.6 6H11M2.5 2.5l1 1M8.5 8.5l1 1M9.5 2.5l-1 1M3.5 8.5l-1 1",
+                filled: false
+            },
             "clipboard": {
                 path: "M2.5 2h7v9h-7zM4.5 1h3v2h-3z",
                 filled: false

@@ -66,11 +66,11 @@ scripts/plasma-panel.sh status    # "retired <stamp>" or "plasma panel in place"
 scripts/plasma-panel.sh restore   # give it back
 ```
 
-`retire` prints every change before making it. Before the first change it checks that `plasma-plasmashell.service` runs the live plasmashell and that none of the seven popup keys below is taken; if either fails, it refuses and names the problem. In order, it then:
+`retire` prints every change before making it. Before the first change it checks that `plasma-plasmashell.service` runs the live plasmashell and that none of the eight popup keys below is taken; if either fails, it refuses and names the problem. In order, it then:
 
 1. backs up `plasma-org.kde.plasma.desktop-appletsrc`, `plasmashellrc` and `kglobalshortcutsrc` from `~/.config`, and the keys of plasmashell's "activate application launcher" and "activate task manager entry 1…10" shortcuts, into `~/.local/state/ghost-shell/plasma-backup/<UTC stamp>/` with a `manifest`, and marks the panel retired;
 2. removes every Plasma panel, and puts a System Tray and a Digital Clock at the right end of the bar's edge, under the bar on the bar's screen (the top or the bottom edge, following `bar.position`), with the panel's tray and clock settings. Their position only decides where KDE's popups open;
-3. restarts plasmashell once (`systemctl --user stop|start plasma-plasmashell.service`), giving the tray, the clock and the tray's network, Bluetooth, volume, KDE Connect and clipboard applets a global shortcut each (Meta+Ctrl+Alt+Shift+F1…F7), so that ghostd can open their popups, and writes which widget is which to `~/.local/state/ghost-shell/plasma-popups`;
+3. restarts plasmashell once (`systemctl --user stop|start plasma-plasmashell.service`), giving the tray, the clock and the tray's network, Bluetooth, volume, KDE Connect, clipboard and Brightness and Color applets a global shortcut each (Meta+Ctrl+Alt+Shift+F1…F8; a tray without the brightness applet, as on a desktop with no brightness control, skips it with a note), so that ghostd can open their popups, and writes which widget is which to `~/.local/state/ghost-shell/plasma-popups`;
 4. through KGlobalAccel, takes bare Meta off "activate application launcher" (Alt+F1 and its other keys stay) and clears the keys of "activate task manager entry 1…10", which frees Meta and Meta+1…9 for ghost-shell. Meta+0 is KWin's "Zoom to actual size" and is left alone;
 5. reconfigures KWin.
 

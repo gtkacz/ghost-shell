@@ -4,7 +4,7 @@ import Quickshell.Services.Pipewire
 import Quickshell.Services.SystemTray
 import GhostKit
 
-// The tray: the built-in network, Bluetooth, volume and KDE Connect icons, then the apps' status items, then a chevron.
+// The tray: the built-in network, Bluetooth, volume, KDE Connect and Brightness and Color icons, then the apps' status items, then a chevron.
 // A click on a built-in or on the chevron opens KDE's own popup for it through the daemon.
 Item {
     id: root
@@ -23,6 +23,10 @@ Item {
     readonly property var adapter: Bluetooth.defaultAdapter
     readonly property var bluetooth: TrayRules.bluetooth({
         enabled: adapter !== null && adapter.enabled
+    })
+    // No feed carries Night Light yet, so the icon stays lit.
+    readonly property var brightness: TrayRules.brightness({
+        nightLight: true
     })
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property bool sinkReady: sink !== null && sink.ready && sink.audio !== null
@@ -111,6 +115,18 @@ Item {
             onClicked: button => {
                 if (button === Qt.LeftButton) {
                     root.openPopup(TrayRules.applets.kdeconnect);
+                }
+            }
+        }
+
+        TrayItem {
+            anchors.verticalCenter: parent.verticalCenter
+            glyph: root.brightness.glyph
+            dim: root.brightness.dim
+            tip: "Brightness and Color"
+            onClicked: button => {
+                if (button === Qt.LeftButton) {
+                    root.openPopup(TrayRules.applets.brightness);
                 }
             }
         }

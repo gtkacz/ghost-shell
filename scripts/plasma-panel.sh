@@ -72,7 +72,7 @@ edid_name_tag=000000fc
 edid_name_skip=5
 tray_plugin=org.kde.plasma.systemtray
 clock_plugin=org.kde.plasma.digitalclock
-# Qt::MetaModifier | ControlModifier | AltModifier | ShiftModifier, and Qt::Key_F1, which F2…F7 follow by one.
+# Qt::MetaModifier | ControlModifier | AltModifier | ShiftModifier, and Qt::Key_F1, which F2…F8 follow by one.
 popup_modifiers=$((0x1E000000))
 key_f1=$((0x01000030))
 # The applets ghostd's plasma.popup accepts (POPUP_APPLETS in crates/ghostd/src/feeds/actions.rs), each with the key
@@ -86,6 +86,7 @@ popups=(
     "org.kde.plasma.clipboard Meta+Ctrl+Alt+Shift+F5"
     "$tray_plugin Meta+Ctrl+Alt+Shift+F6"
     "$clock_plugin Meta+Ctrl+Alt+Shift+F7"
+    "org.kde.plasma.brightness Meta+Ctrl+Alt+Shift+F8"
 )
 
 # Run through org.kde.PlasmaShell.evaluateScript. Prints "tray <id>", "clock <id>" and "ok" last.

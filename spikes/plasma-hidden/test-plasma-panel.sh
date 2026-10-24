@@ -162,8 +162,8 @@ make_stubs() {
     local stub=$root/stub-bin
     # The script's live default stops and starts plasmashell through systemctl; here that must never run.
     printf '#!/bin/sh\necho "systemctl $*" >> "%s/live-path-used"\nexit 1\n' "$root" > "$stub/systemctl"
-    printf '#!/bin/sh\nexec "%s" __plasma-stop\n' "$self" > "$stub/plasma-stop"
-    printf '#!/bin/sh\nexec "%s" __plasma-start\n' "$self" > "$stub/plasma-start"
+    printf '#!/bin/sh\nSANDBOX_ROOT="%s" exec "%s" __plasma-stop\n' "$root" "$self" > "$stub/plasma-stop"
+    printf '#!/bin/sh\nSANDBOX_ROOT="%s" exec "%s" __plasma-start\n' "$root" "$self" > "$stub/plasma-start"
     printf '#!/bin/sh\n[ ! -e "%s/faults/check-fails" ]\n' "$root" > "$stub/plasma-check"
     # evaluateScript answers without "ok" while the fault is set; everything else reaches the sandbox bus.
     cat > "$stub/busctl" <<- EOF
@@ -224,8 +224,8 @@ seed_config() {
 	plugin=org.kde.plasma.systemtray
 
 	[Containments][2][Applets][5][Configuration][General]
-	extraItems=org.kde.plasma.networkmanagement,org.kde.plasma.bluetooth,org.kde.plasma.volume,org.kde.kdeconnect,org.kde.plasma.clipboard,org.kde.plasma.notifications
-	knownItems=org.kde.plasma.networkmanagement,org.kde.plasma.bluetooth,org.kde.plasma.volume,org.kde.kdeconnect,org.kde.plasma.clipboard,org.kde.plasma.notifications
+	extraItems=org.kde.plasma.networkmanagement,org.kde.plasma.bluetooth,org.kde.plasma.volume,org.kde.kdeconnect,org.kde.plasma.clipboard,org.kde.plasma.brightness,org.kde.plasma.notifications
+	knownItems=org.kde.plasma.networkmanagement,org.kde.plasma.bluetooth,org.kde.plasma.volume,org.kde.kdeconnect,org.kde.plasma.clipboard,org.kde.plasma.brightness,org.kde.plasma.notifications
 	hiddenItems=org.kde.kdeconnect
 
 	[Containments][2][Applets][6]
@@ -453,7 +453,10 @@ popup_map_is_valid() {
         action_names plasmashell | grep -qxF "activate widget $id" || { note "  no 'activate widget $id' action"; return 1; }
     done < "$map"
     note "  $lines popups: $(tr '\t\n' '= ' < "$map")"
-    ((lines == $(wc -l <<< "$accepted")))
+    # A desktop without brightness control has no such applet in its tray, and retire skips it with a note.
+    local brightness_lines
+    brightness_lines=$(grep -c '^org.kde.plasma.brightness	' "$map" || true)
+    ((lines == $(wc -l <<< "$accepted") - 1 + brightness_lines))
 }
 
 # After a restore the desktop must be what it was before the first retire, whatever went wrong on the way.
@@ -678,7 +681,7 @@ run_test() {
     note "manifest: $(paste -sd ';' "$backup/manifest" 2> /dev/null)"
     note "backup against the files before retire:"
     check "the backup is byte-identical to the originals" same_files "$root/before" "$backup"
-    check "the popup map holds every POPUP_APPLETS applet with a live action" popup_map_is_valid
+    check "the popup map holds every POPUP_APPLETS applet the tray has, each with a live action" popup_map_is_valid
     panel_after=$(region_mean panel-after 0 $((height - panel_px)) "$width" "$panel_px")
     top_after=$(region_mean top-after $((width - top_right_px)) 0 "$top_right_px" "$strip_px")
     note "panel region $panel_after; top-right region $top_after"
