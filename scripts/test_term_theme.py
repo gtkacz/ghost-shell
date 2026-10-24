@@ -504,6 +504,19 @@ def test_gtk_css_paints_the_tab_strip_on_the_dark_ground():
     assert f"tabbar {{ background: {p.ground}" in tt.render_gtk_css(p)
 
 
+def test_ghostty_keeps_the_tab_strip_with_its_new_tab_button_up_with_one_tab():
+    out = tt.render_ghostty(_palette())
+    assert "gtk-titlebar-style = tabs" in out and "window-show-tab-bar = always" in out
+
+
+def test_gtk_css_squares_toasts_with_the_signal_edge_and_an_entrance():
+    p = _palette()
+    css = tt.render_gtk_css(p)
+    toast = css[css.index("toast {"):]
+    assert f"border-left: 3px solid {p.desktop['signal']}" in toast and "border-radius: 0" in toast
+    assert "animation: ghost-toast-in" in toast and "@keyframes ghost-toast-in" in css
+
+
 def test_ghostty_loads_the_gtk_css():
     assert "gtk-custom-css = ~/.config/ghostty/ghost.css" in tt.render_ghostty(_palette())
 
