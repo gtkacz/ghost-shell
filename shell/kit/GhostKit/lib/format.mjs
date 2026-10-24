@@ -176,3 +176,7 @@ export function dow(date) {
   }
   return WEEKDAYS[date.getDay()];
 }
+
+export function memShort(usedKib, totalKib) {
+  return isMissing(usedKib) || isMissing(totalKib) ? MISSING : gib(usedKib) + '/' + gib(totalKib, 0) + 'G';
+}

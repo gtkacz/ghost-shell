@@ -4,6 +4,7 @@ import Quickshell
 import "lib/format.mjs" as Format
 import "lib/labels.mjs" as Labels
 import "lib/segments.mjs" as Segments
+import "lib/ticker.mjs" as Ticker
 import "lib/weather.mjs" as Weather
 
 // Re-exports the formatters so widgets reach them through the GhostKit import instead of by file path.
@@ -18,6 +19,14 @@ Singleton {
 
     function tempShort(value) {
         return Format.tempShort(value);
+    }
+
+    function memShort(usedKib, totalKib) {
+        return Format.memShort(usedKib, totalKib);
+    }
+
+    function tickerSegments(inputs) {
+        return Ticker.tickerSegments(inputs);
     }
 
     function gib(kib, dp) {

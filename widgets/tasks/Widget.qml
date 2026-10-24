@@ -29,7 +29,14 @@ Item {
         }
         return byClass;
     }
+    readonly property var pinnedEntries: {
+        return pinned.map(id => ({
+                    id: id,
+                    startupClass: entryOf(id)?.startupClass ?? ""
+                }));
+    }
     readonly property var lookups: ({
+            pinned: pinnedEntries,
             hasId: id => entryOf(id) !== null,
             byStartupClass: windowClass => startupClasses.get(windowClass.toLowerCase()) ?? null,
             heuristic: windowClass => DesktopEntries.heuristicLookup(windowClass)?.id ?? null

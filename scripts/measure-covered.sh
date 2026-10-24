@@ -6,16 +6,18 @@ set -euo pipefail
 # covers are reported the way the KWin script reports them, to a release ghostd started for this run on
 # a bus made for this run.
 #
-# GHOST_MEASURE_BAR=on measures with the bar loaded, as it runs on the desktop: the bar keeps drawing, so its frames
-# are reported rather than held to zero, and the budget stays. Without it the shell runs with GHOST_BAR=off, which
-# keeps the dashboard-only check of zero frames exact.
+# The bar is loaded, as it runs on the desktop: it keeps drawing, so its frames are reported rather than held to
+# zero, and the budget stays. GHOST_MEASURE_BAR=off runs the shell with GHOST_BAR=off, which keeps the
+# dashboard-only check of zero frames exact.
+#
+# GHOST_SMOKE_BAR picks the bar as qml-smoke.sh does: top or bottom, and a, b or c, separated by commas or spaces.
 
 if [[ $# -gt 1 || ! ${1:-60} =~ ^[1-9][0-9]*$ ]]; then
     echo "usage: ${0##*/} [seconds=60]" >&2
     exit 64
 fi
 seconds=${1:-60}
-bar=${GHOST_MEASURE_BAR:-off}
+bar=${GHOST_MEASURE_BAR:-on}
 if [[ $bar != on && $bar != off ]]; then
     echo "GHOST_MEASURE_BAR must be on or off, got \"$bar\"" >&2
     exit 64
@@ -187,6 +189,14 @@ export PIPEWIRE_REMOTE=/nonexistent PIPEWIRE_RUNTIME_DIR=$run_dir/pipewire
 # The defaults have no location and no providers, so no weather or sky feed runs.
 config=$run_dir/config.toml
 "$daemon" default-config > "$config"
+smoke_bar=${GHOST_SMOKE_BAR:-}
+for word in ${smoke_bar//,/ }; do
+    case $word in
+        top | bottom) sed -i "s/^position = .*/position = \"$word\"/" "$config" ;;
+        a | b | c) sed -i "s/^layout = \"[abc]\"/layout = \"$word\"/" "$config" ;;
+        *) fail "GHOST_SMOKE_BAR takes top, bottom, a, b or c, got \"$word\"" ;;
+    esac
+done
 
 "$daemon" run --socket "$socket" --config "$config" --widgets-dir "$repo/widgets" > "$daemon_log" 2>&1 &
 daemon_pid=$!

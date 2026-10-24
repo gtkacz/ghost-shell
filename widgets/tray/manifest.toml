@@ -1,0 +1,6 @@
+id = "tray"
+name = "Tray"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+requires = ["net.links", "batteries"]

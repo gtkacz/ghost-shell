@@ -2,6 +2,7 @@
 //! imports the Plasma task manager's launchers into it once.
 
 use std::collections::HashSet;
+use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write};
@@ -22,6 +23,15 @@ const APPLICATIONS_SCHEME: &str = "applications:";
 const FILE_SCHEME: &str = "file://";
 const PREFERRED_FILE_MANAGER: &str = "preferred://filemanager";
 const DESKTOP_SUFFIX: &str = ".desktop";
+const DESKTOP_MIMEAPPS_FILE: &str = "kde-mimeapps.list";
+const MIMEAPPS_FILE: &str = "mimeapps.list";
+const XDG_CONFIG_DIRS_ENV: &str = "XDG_CONFIG_DIRS";
+const XDG_DATA_DIRS_ENV: &str = "XDG_DATA_DIRS";
+const DEFAULT_XDG_CONFIG_DIRS: &str = "/etc/xdg";
+const DEFAULT_XDG_DATA_DIRS: &str = "/usr/local/share:/usr/share";
+const DATA_APPLICATIONS_SUBDIR: &str = "applications";
+// Plasma's own fallback for `preferred://filemanager` when no mimeapps list names a handler.
+const FALLBACK_FILE_MANAGER: &str = "org.kde.dolphin.desktop";
 const MIMEAPPS_DEFAULTS_SECTION: &str = "[Default Applications]";
 const DIRECTORY_MIME: &str = "inode/directory";
 const MIME_HANDLER_SEPARATOR: char = ';';
@@ -32,6 +42,21 @@ pub fn plasma_config_dir() -> PathBuf {
     config_dir()
         .parent()
         .map_or_else(PathBuf::new, Path::to_path_buf)
+}
+
+/// The system-wide directories the XDG mime-apps spec searches after the user's config dir:
+/// `$XDG_CONFIG_DIRS`, then `$XDG_DATA_DIRS/applications`.
+pub fn system_mimeapps_dirs() -> Vec<PathBuf> {
+    let list = |name: &str, default: &str| {
+        env::var_os(name)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| OsString::from(default))
+    };
+    let config_dirs = list(XDG_CONFIG_DIRS_ENV, DEFAULT_XDG_CONFIG_DIRS);
+    let data_dirs = list(XDG_DATA_DIRS_ENV, DEFAULT_XDG_DATA_DIRS);
+    env::split_paths(&config_dirs)
+        .chain(env::split_paths(&data_dirs).map(|dir| dir.join(DATA_APPLICATIONS_SUBDIR)))
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -98,6 +123,7 @@ pub fn import_plasma_launchers(
     config: &Path,
     appletsrc: &Path,
     mimeapps: &Path,
+    system_dirs: &[PathBuf],
 ) -> Result<Option<Vec<String>>, EditError> {
     let mut document = read_document(config)?;
     if existing_pinned(&mut document)?.is_some() {
@@ -106,11 +132,11 @@ pub fn import_plasma_launchers(
     let Some(launchers) = read_optional(appletsrc)?.and_then(|text| task_launchers(&text)) else {
         return Ok(None);
     };
-    let mimeapps = read_optional(mimeapps)?.unwrap_or_default();
+    let file_manager = preferred_file_manager(mimeapps, system_dirs)?;
     let mut imported: Vec<String> = Vec::new();
     for id in launchers
         .split(LAUNCHER_SEPARATOR)
-        .filter_map(|launcher| launcher_id(launcher.trim(), &mimeapps))
+        .filter_map(|launcher| launcher_id(launcher.trim(), &file_manager))
     {
         if !imported.contains(&id) {
             imported.push(id);
@@ -219,9 +245,9 @@ fn task_launchers(appletsrc: &str) -> Option<String> {
 }
 
 /// The desktop-file id a launcher URL stands for, if it names one this config can hold.
-fn launcher_id(launcher: &str, mimeapps: &str) -> Option<String> {
+fn launcher_id(launcher: &str, file_manager: &str) -> Option<String> {
     let desktop_file = if launcher == PREFERRED_FILE_MANAGER {
-        file_manager(mimeapps)?
+        file_manager.to_owned()
     } else if let Some(id) = launcher.strip_prefix(APPLICATIONS_SCHEME) {
         id.to_owned()
     } else {
@@ -237,8 +263,30 @@ fn launcher_id(launcher: &str, mimeapps: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The first `inode/directory` handler the user's `[Default Applications]` lists.
-fn file_manager(mimeapps: &str) -> Option<String> {
+/// What KDE resolves `preferred://filemanager` to: the first `inode/directory` default in the
+/// user's config dir, then the system dirs, `kde-mimeapps.list` before `mimeapps.list` in each.
+fn preferred_file_manager(
+    user_mimeapps: &Path,
+    system_dirs: &[PathBuf],
+) -> Result<String, EditError> {
+    let user_dir = user_mimeapps
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    for dir in std::iter::once(&user_dir).chain(system_dirs) {
+        for name in [DESKTOP_MIMEAPPS_FILE, MIMEAPPS_FILE] {
+            if let Some(handler) =
+                read_optional(&dir.join(name))?.and_then(|text| directory_handler(&text))
+            {
+                return Ok(handler);
+            }
+        }
+    }
+    Ok(FALLBACK_FILE_MANAGER.to_owned())
+}
+
+/// The first `inode/directory` handler a mimeapps list's `[Default Applications]` names.
+fn directory_handler(mimeapps: &str) -> Option<String> {
     let mut in_defaults = false;
     for line in mimeapps.lines().map(str::trim) {
         if line.starts_with('[') {

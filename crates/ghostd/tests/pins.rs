@@ -21,6 +21,12 @@ const APPLETSRC: &str = "[Containments][2][Applets][5]\nplugin=org.kde.plasma.ic
 
 const MIMEAPPS: &str = "[Added Associations]\ninode/directory=other.desktop;\n\n[Default Applications]\ninode/directory=org.kde.dolphin.desktop;thunar.desktop;\n";
 
+const PREFERRED_ONLY: &str = "[Containments][1][Applets][2]\nplugin=org.kde.plasma.taskmanager\n[Containments][1][Applets][2][Configuration][General]\nlaunchers=preferred://filemanager\n";
+
+const NO_DIRECTORY_DEFAULT: &str = "[Default Applications]\ntext/plain=kate.desktop;\n";
+
+const SYSTEM_DEFAULT: &str = "[Default Applications]\ninode/directory=thunar.desktop;\n";
+
 struct Sandbox {
     dir: TempDir,
 }
@@ -30,6 +36,13 @@ impl Sandbox {
         Self {
             dir: TempDir::new().unwrap(),
         }
+    }
+
+    fn system_dir(&self, dir: &str, name: &str, contents: &str) -> PathBuf {
+        let path = self.dir.path().join(dir);
+        fs::create_dir_all(&path).unwrap();
+        fs::write(path.join(name), contents).unwrap();
+        path
     }
 
     fn file(&self, name: &str, contents: &str) -> PathBuf {
@@ -165,7 +178,7 @@ fn import_reads_plasma_launchers_once() {
     );
     let (appletsrc, mimeapps) = plasma(&sandbox, APPLETSRC, MIMEAPPS);
 
-    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps).unwrap();
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps, &[]).unwrap();
     assert_eq!(imported.unwrap(), ["org.kde.dolphin", "steam", "firefox"]);
     let text = fs::read_to_string(&config).unwrap();
     assert!(text.starts_with("# mine\n"));
@@ -173,7 +186,7 @@ fn import_reads_plasma_launchers_once() {
     assert_eq!(parsed["bar"]["pinned"].as_array().unwrap().len(), 3);
 
     assert_eq!(
-        import_plasma_launchers(&config, &appletsrc, &mimeapps).unwrap(),
+        import_plasma_launchers(&config, &appletsrc, &mimeapps, &[]).unwrap(),
         None
     );
 }
@@ -185,7 +198,7 @@ fn explicit_empty_pinned_is_not_overwritten() {
     let (appletsrc, mimeapps) = plasma(&sandbox, APPLETSRC, MIMEAPPS);
 
     assert_eq!(
-        import_plasma_launchers(&config, &appletsrc, &mimeapps).unwrap(),
+        import_plasma_launchers(&config, &appletsrc, &mimeapps, &[]).unwrap(),
         None
     );
     assert_eq!(fs::read_to_string(&config).unwrap(), "[bar]\npinned = []\n");
@@ -198,12 +211,65 @@ fn preferred_filemanager_resolves_through_mimeapps() {
     let appletsrc = APPLETSRC.replace("launchers=", "launchers=preferred://filemanager,");
     let (appletsrc, mimeapps) = plasma(&sandbox, &appletsrc, MIMEAPPS);
 
-    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps).unwrap();
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps, &[]).unwrap();
     assert_eq!(imported.unwrap()[0], "org.kde.dolphin");
 }
 
 #[test]
-fn unresolvable_preferred_launcher_is_dropped() {
+fn preferred_filemanager_falls_back_to_a_system_default() {
+    let sandbox = Sandbox::new();
+    let config = sandbox.file("config.toml", "");
+    let (appletsrc, mimeapps) = plasma(&sandbox, PREFERRED_ONLY, NO_DIRECTORY_DEFAULT);
+    let system = sandbox.system_dir("sys", "kde-mimeapps.list", SYSTEM_DEFAULT);
+
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps, &[system]).unwrap();
+    assert_eq!(imported.unwrap(), ["thunar"]);
+}
+
+#[test]
+fn preferred_filemanager_falls_back_to_dolphin() {
+    let sandbox = Sandbox::new();
+    let config = sandbox.file("config.toml", "");
+    let (appletsrc, mimeapps) = plasma(&sandbox, PREFERRED_ONLY, NO_DIRECTORY_DEFAULT);
+    let system = sandbox.system_dir("sys", "mimeapps.list", NO_DIRECTORY_DEFAULT);
+
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps, &[system]).unwrap();
+    assert_eq!(imported.unwrap(), ["org.kde.dolphin"]);
+}
+
+#[test]
+fn user_default_wins_over_the_system_one() {
+    let sandbox = Sandbox::new();
+    let config = sandbox.file("config.toml", "");
+    let (appletsrc, mimeapps) = plasma(
+        &sandbox,
+        PREFERRED_ONLY,
+        "[Default Applications]\ninode/directory=nemo.desktop;\n",
+    );
+    let system = sandbox.system_dir("sys", "kde-mimeapps.list", SYSTEM_DEFAULT);
+
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps, &[system]).unwrap();
+    assert_eq!(imported.unwrap(), ["nemo"]);
+}
+
+#[test]
+fn kde_list_is_read_before_the_plain_one() {
+    let sandbox = Sandbox::new();
+    let config = sandbox.file("config.toml", "");
+    let (appletsrc, mimeapps) = plasma(&sandbox, PREFERRED_ONLY, NO_DIRECTORY_DEFAULT);
+    sandbox.system_dir(
+        "sys",
+        "mimeapps.list",
+        "[Default Applications]\ninode/directory=nautilus.desktop;\n",
+    );
+    let system = sandbox.system_dir("sys", "kde-mimeapps.list", SYSTEM_DEFAULT);
+
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps, &[system]).unwrap();
+    assert_eq!(imported.unwrap(), ["thunar"]);
+}
+
+#[test]
+fn unresolvable_launchers_are_dropped() {
     let sandbox = Sandbox::new();
     let config = sandbox.file("config.toml", "");
     let (appletsrc, mimeapps) = plasma(
@@ -212,8 +278,8 @@ fn unresolvable_preferred_launcher_is_dropped() {
         "[Default Applications]\ntext/plain=kate.desktop;\n",
     );
 
-    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps).unwrap();
-    assert_eq!(imported.unwrap(), ["steam"]);
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps, &[]).unwrap();
+    assert_eq!(imported.unwrap(), ["org.kde.dolphin", "steam"]);
 }
 
 #[test]
@@ -223,7 +289,7 @@ fn import_without_a_task_manager_writes_nothing() {
     let (appletsrc, mimeapps) = plasma(&sandbox, "[Containments][1]\nplugin=x\n", MIMEAPPS);
 
     assert_eq!(
-        import_plasma_launchers(&config, &appletsrc, &mimeapps).unwrap(),
+        import_plasma_launchers(&config, &appletsrc, &mimeapps, &[]).unwrap(),
         None
     );
     assert_eq!(fs::read_to_string(&config).unwrap(), "# mine\n");
@@ -285,6 +351,6 @@ fn default_config_leaves_pinned_unset_so_the_import_runs() {
 
     let loaded = ghostd::config::load_str(ghostd::config::DEFAULT_TOML).unwrap();
     assert!(loaded.bar.pinned.is_empty());
-    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps).unwrap();
+    let imported = import_plasma_launchers(&config, &appletsrc, &mimeapps, &[]).unwrap();
     assert_eq!(imported.unwrap().len(), 3);
 }

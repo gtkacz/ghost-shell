@@ -72,6 +72,6 @@ Item {
         width: root.tileWidth
         height: parent.height
         cursorShape: Qt.PointingHandCursor
-        onClicked: console.info("launcher not built yet")
+        onClicked: Launcher.toggle()
     }
 }

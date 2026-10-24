@@ -56,6 +56,28 @@ It stops with an error if `cargo`, `fc-list`, `fc-cache`, `kpackagetool6`, `krea
 
 When an install changes a compiled shader, the script says so at the end. The shell's first start after that compiles the shaders into its cache and stays about 61 MiB above its steady state until it is restarted (see Performance). So start or restart `ghost-shell`, wait about 30 s, and run `systemctl --user restart ghost-shell` once.
 
+### Retiring the Plasma panel
+
+The bar and the launcher replace Plasma's panel and Kickoff, while `plasmashell` keeps running for the clipboard, the OSDs, notifications and KDE's applet popups. `scripts/install.sh` only prints this step; run it yourself, once, from the Plasma session, with `ghostd` and `ghost-shell` running:
+
+```sh
+scripts/plasma-panel.sh retire    # hand the panel over to the bar
+scripts/plasma-panel.sh status    # "retired <stamp>" or "plasma panel in place"
+scripts/plasma-panel.sh restore   # give it back
+```
+
+`retire` prints every change before making it. Before the first change it checks that `plasma-plasmashell.service` runs the live plasmashell and that none of the seven popup keys below is taken; if either fails, it refuses and names the problem. In order, it then:
+
+1. backs up `plasma-org.kde.plasma.desktop-appletsrc`, `plasmashellrc` and `kglobalshortcutsrc` from `~/.config`, and the keys of plasmashell's "activate application launcher" and "activate task manager entry 1…10" shortcuts, into `~/.local/state/ghost-shell/plasma-backup/<UTC stamp>/` with a `manifest`, and marks the panel retired;
+2. removes every Plasma panel, and puts a System Tray and a Digital Clock at the right end of the bar's edge, under the bar on the bar's screen (the top or the bottom edge, following `bar.position`), with the panel's tray and clock settings. Their position only decides where KDE's popups open;
+3. restarts plasmashell once (`systemctl --user stop|start plasma-plasmashell.service`), giving the tray, the clock and the tray's network, Bluetooth, volume, KDE Connect and clipboard applets a global shortcut each (Meta+Ctrl+Alt+Shift+F1…F7), so that ghostd can open their popups, and writes which widget is which to `~/.local/state/ghost-shell/plasma-popups`;
+4. through KGlobalAccel, takes bare Meta off "activate application launcher" (Alt+F1 and its other keys stay) and clears the keys of "activate task manager entry 1…10", which frees Meta and Meta+1…9 for ghost-shell. Meta+0 is KWin's "Zoom to actual size" and is left alone;
+5. reconfigures KWin.
+
+It refuses to run again until `restore` has run. If it fails or is interrupted part way, it starts plasmashell again if it had stopped it and prints the `restore` command, which undoes what it had already changed.
+
+`restore` stops plasmashell, removes the popups' shortcuts and gives the 11 shortcuts their backed-up keys through KGlobalAccel, puts the three files back byte for byte, deletes `plasma-popups`, starts plasmashell and reconfigures KWin. The backups stay in `plasma-backup/`. The script reads `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `DBUS_SESSION_BUS_ADDRESS`, so `spikes/plasma-hidden/test-plasma-panel.sh` can run it against a sandboxed Plasma; that test checks the restore is byte-identical.
+
 ### Terminal theme (optional)
 
 ```sh
@@ -1030,6 +1052,40 @@ The installed `ghostd` and shell (installed at 14:36 from HEAD `a907735`), each 
 - **Idle CPU:** 1.00–1.05 %, unchanged from before the plan.
 - **Shell Rss:** +0.5–1.1 MiB with the greeting off (`GHOST_GREETING=off`); 10 s after a greeting has played, +1.3 MiB, within the run-to-run spread.
 - **Locked session** (installed build, HEAD `f5ad921`, live desktop, 2026-10-23 10:51, `measure-cpu.sh` on both processes for 60 s from 5 s after the lock): shell **0.02 %**, `ghostd` **0.03 %**; Rss 149 092 + 34 556 KiB. The overlay rests under the lock and nothing ticks, well inside the covered budget (≤ 0.50 %). 15 s after the unlock: shell 0.02 %, `ghostd` 0.00 %; what covered the screen then was not recorded.
+
+### Plan 3a: the bar and the launcher
+
+Headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, private buses, measured 2026-10-23 and 2026-10-24. Per-change deltas come from identical arms that differ only in the thing measured, 4 interleaved 60 s runs per arm unless noted.
+
+**Budget states** (layout A, top, mono, release `ghostd` in the sandbox, shell and daemon combined, median of 3 × 60 s, no history warm-up; `[bar.clock] seconds = "covered"`):
+
+| State | Combined, median (runs) | Rss, shell + daemon (KiB) | Target | Outcome |
+|---|---|---|---|---|
+| V1 animating, UPLINK | **2.50 %** (2.51, 2.17, 2.50) | 273 128 | ≤ 2.00 %, ≤ 307 200 KiB | over; accepted by the user |
+| V2, SILICON | **2.65 %** (2.58, 2.77, 2.65) | 274 048 | ≤ 2.00 % | over; accepted by the user |
+| MONITOR | **1.45 %** (1.45, 1.47, 1.44) | 287 268 (one run 348 124, an NVIDIA chunk jump) | ≤ 1.25 % (the user's accepted figure) | over; accepted by the user |
+| Covered, with the bar | **0.29 %** (0.31, 0.29, 0.29) | | ≤ 0.50 % | pass |
+| Covered, layout B, ticker idle | 0.46 % (0.46, 0.62, 0.45) | | ≤ 0.50 % | pass |
+| Covered, layout B, ticker scrolling (fake daemon) | 0.55 % (0.47, 0.55, 0.62) | | ≤ 0.50 % | over; with the real daemon's ≈ 0.22 % about 0.75 % (estimated, not measured) |
+
+- On 2026-10-24 the user approved these overages and asked for them to be recorded. The bar's own share was not separated from baseline drift: with the bar off, the same headless V1 already read 2.14–2.30 % on 2026-10-23, against Plan 2b's 1.60 %, and the user's own desktop was running during every run.
+- The bar clock with `seconds = "always"` (the user's own setting) adds about +0.63 % (V1) and +0.18 % (MONITOR): each bar repaint is a cold wake-up of one more layer-shell surface.
+
+**Per-change deltas:**
+
+| Change | CPU | Rss | Notes |
+|---|---|---|---|
+| Window bridge (KWin script long-poll) | < 0.01 % idle | 0 | click-to-act median 0.5 ms (n = 20, two runs) |
+| Bar with brand, view chip and clock, `seconds = "covered"` | V1 2.14 → 2.18 %, MONITOR 0.92 → 0.95 %, covered 0.04 → 0.14 % (65 frames/60 s) | +3–5 MiB | the covered frames are the clock's seconds |
+| Task icons, 11 pins | none | **+19.0 MiB** (was +21.6 MiB through `image://icon`) | a one-time cost of the icon theme, paid once by any widget that shows app icons: ≈ +14 MiB for the first icon, ≈ +0.6 MiB each after; accepted by the user |
+| Tabs instead of icons (layout C) | +0.075 % | −5.0 MiB | |
+| Ticker, 5 steps/s on its own timer (layout B, covered) | +0.095 % | −0.6 MiB | at the frame clock's 15 fps it cost +0.59 % |
+| Tray | +0.09 % | +3.9 MiB | |
+| Launcher, never opened | none | +0.35 MiB | |
+| Launcher, open | | **+35.0 MiB** | panel-sized surface; the full-screen one read +42–44 MiB |
+| Launcher, after the first close | | **+18.9 MiB** | one-time and flat over repeated opens (NVIDIA driver mappings and the list's caches are not returned); accepted by the user |
+
+**Daemon feeds** (live, read-only): the ticker's failed-units count ≈ 0 s, firewalld state 0.01 s, PackageKit `GetUpdates` 0.82 s wall time.
 
 ## License
 

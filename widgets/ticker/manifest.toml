@@ -1,0 +1,7 @@
+id = "ticker"
+name = "Ticker"
+version = "0.1.0"
+api = 1
+kinds = ["bar"]
+# Dead drives come from disks, which disks.health does not say.
+requires = ["ticker", "host", "net.links", "disks", "weather.alerts"]
