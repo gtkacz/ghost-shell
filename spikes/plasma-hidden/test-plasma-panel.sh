@@ -4,18 +4,23 @@ set -euo pipefail
 # Sandbox test for scripts/plasma-panel.sh: a real plasmashell and kglobalaccel (inside a headless KWin) on private
 # buses, with XDG dirs under /tmp/gs-sbx-3a-t17 seeded with a fake Plasma layout (nothing is copied from the user).
 # It runs retire, checks the screenshot regions, the popup map, the shortcuts and status, refuses a second retire,
-# runs restore, and diffs every backed-up file against the original (expected: identical). It also checks that
+# runs restore, and diffs every backed-up file against the original (expected: identical). Failure paths follow: a
+# retire that prints no "ok", one killed after plasmashell was stopped, a truncated keys backup, a missing popup map,
+# repeated retire/restore cycles and a preflight that fails. It also checks that
 # KGlobalAccel's setInactive on never-registered ghost-shell task-N slots creates no entries (Task 5's carry-forward).
 #   test-plasma-panel.sh                run the test; it builds and removes its own sandbox
 #   test-plasma-panel.sh __plasma-stop|__plasma-start
 #                                       what the test hands plasma-panel.sh to stop and start the sandbox's plasmashell
+#   SANDBOX_ROOT  where the sandbox is built (default: /tmp/gs-sbx 3a-t17, with a space)
 #   TEST_OUT   directory for results and captures, kept afterwards (default: a new temp dir)
 
 spike=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd "$spike/../.." && pwd)
 script=$repo/scripts/plasma-panel.sh
 name=3a-t17
-root=/tmp/gs-sbx-$name
+# The space is deliberate: the script must cope with any path its user's XDG dirs hold.
+root=${SANDBOX_ROOT:-/tmp/gs-sbx $name}
+self=$spike/$(basename "${BASH_SOURCE[0]}")
 wayland_name=ghost-sbx-$name
 
 width=1920
@@ -50,6 +55,7 @@ services=(
 py=(env -u DBUS_SESSION_BUS_ADDRESS -u DBUS_SYSTEM_BUS_ADDRESS uv run --no-project --with dbus-next python -I -B)
 inherited_bus=${DBUS_SESSION_BUS_ADDRESS:-}
 failures=0
+launcher_before=
 
 is_private_bus() {
     [[ $1 == unix:* && $1 != *"/run/user/"* && $1 != "$inherited_bus" ]]
@@ -109,11 +115,19 @@ name_owned() {
 plasma_stop() {
     load_env
     kill "$plasma_pid"
-    wait_for 20 bash -c "! kill -0 $plasma_pid 2> /dev/null" || { echo "plasmashell $plasma_pid did not stop" >&2; return 1; }
+    # A plasmashell stopped moments after it started can ignore TERM; systemd's stop ends it with KILL after a timeout.
+    if ! wait_for 20 bash -c "! kill -0 $plasma_pid 2> /dev/null"; then
+        kill -KILL "$plasma_pid"
+        wait_for 20 bash -c "! kill -0 $plasma_pid 2> /dev/null" || { echo "plasmashell $plasma_pid did not stop" >&2; return 1; }
+    fi
 }
 
 plasma_start() {
     load_env
+    # systemctl start on a running unit does nothing; the script's recovery relies on that.
+    if name_owned org.kde.plasmashell; then
+        return 0
+    fi
     client_env
     # setsid: plasmashell outlives this script; in a background job it execs in place, so $! is plasmashell.
     "${client[@]}" setsid plasmashell --no-respawn > "$root/logs/plasmashell-$(date +%s%N).log" 2>&1 &
@@ -121,6 +135,39 @@ plasma_start() {
     sed -i "/^plasma_pid=/d" "$root/env"
     echo "plasma_pid=$plasma_pid" >> "$root/env"
     wait_for "$ready_deadline_s" name_owned org.kde.plasmashell || { echo "plasmashell never owned its name" >&2; return 1; }
+}
+
+# Faults are files in $root/faults that one stub consumes, so a failure is injected exactly where a test wants it.
+fault_term_at_start() {
+    if [[ -e $root/faults/term-at-start ]]; then
+        rm -- "$root/faults/term-at-start"
+        kill -TERM "$PPID"
+        sleep 2
+        exit 1
+    fi
+}
+
+make_stubs() {
+    local stub=$root/stub-bin
+    # The script's live default stops and starts plasmashell through systemctl; here that must never run.
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s/live-path-used"\nexit 1\n' "$root" > "$stub/systemctl"
+    printf '#!/bin/sh\nexec "%s" __plasma-stop\n' "$self" > "$stub/plasma-stop"
+    printf '#!/bin/sh\nexec "%s" __plasma-start\n' "$self" > "$stub/plasma-start"
+    printf '#!/bin/sh\n[ ! -e "%s/faults/check-fails" ]\n' "$root" > "$stub/plasma-check"
+    # evaluateScript answers without "ok" while the fault is set; everything else reaches the sandbox bus.
+    cat > "$stub/busctl" <<- EOF
+	#!/bin/sh
+	if [ -e "$root/faults/no-ok" ]; then
+	    for arg; do
+	        if [ "\$arg" = evaluateScript ]; then
+	            echo '{"type":"s","data":["the script ran but printed nothing"]}'
+	            exit 0
+	        fi
+	    done
+	fi
+	exec /usr/bin/busctl "\$@"
+	EOF
+    chmod +x "$stub"/*
 }
 
 seed_config() {
@@ -209,7 +256,7 @@ up() {
         echo "$root exists; another run is using it or left it behind" >&2
         exit 1
     fi
-    mkdir -p "$root"/{run,config,data,cache,state,services,logs,stub-bin,before}
+    mkdir -p "$root"/{run,config,data,cache,state,services,logs,stub-bin,before,faults}
     chmod 700 "$root/run"
     seed_config
     for service in "${services[@]}"; do
@@ -217,9 +264,7 @@ up() {
     done
     sed "s|</busconfig>|  <servicedir>$root/services</servicedir>\n</busconfig>|" "$repo/scripts/private-bus.conf" \
         > "$root/session-bus.conf"
-    # The script's live default stops and starts plasmashell through systemctl; here that must never run.
-    printf '#!/bin/sh\necho "systemctl $*" >> "%s/live-path-used"\nexit 1\n' "$root" > "$root/stub-bin/systemctl"
-    chmod +x "$root/stub-bin/systemctl"
+    make_stubs
 
     dbus-daemon --config-file="$repo/scripts/private-bus.conf" --nofork --print-address=3 \
         3> "$root/system.addr" > "$root/logs/system-bus.log" 2>&1 &
@@ -315,8 +360,19 @@ run_script() {
     env -i HOME="$root" PATH="$root/stub-bin:/usr/bin:/bin" XDG_RUNTIME_DIR="$root/run" \
         XDG_CONFIG_HOME="$root/config" XDG_STATE_HOME="$root/state" \
         DBUS_SESSION_BUS_ADDRESS="$session_bus" DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent \
-        GHOST_PLASMA_STOP="$0 __plasma-stop" GHOST_PLASMA_START="$0 __plasma-start" \
+        GHOST_PLASMA_STOP="$root/stub-bin/plasma-stop" GHOST_PLASMA_START="$root/stub-bin/plasma-start" \
+        GHOST_PLASMA_CHECK="$root/stub-bin/plasma-check" \
         "$script" "$@"
+}
+
+# Runs the script, keeps its output in $out/last.txt and its status in $script_rc; a failing script does not stop the test.
+try() {
+    script_rc=0
+    # Backups are named by the second; a retire right after a restore would collide.
+    if [[ $1 == retire ]]; then sleep 1; fi
+    run_script "$@" > "$out/last.txt" 2>&1 || script_rc=$?
+    tee -a "$out/results.txt" < "$out/last.txt"
+    load_env
 }
 
 # The keys of one plasmashell action, as ints joined by spaces.
@@ -389,6 +445,93 @@ popup_map_is_valid() {
     ((lines == $(wc -l <<< "$accepted")))
 }
 
+# After a restore the desktop must be what it was before the first retire, whatever went wrong on the way.
+assert_restored() {
+    check "$1: restore succeeded" test "$script_rc" -eq 0
+    check "$1: files byte-identical to before the first retire" same_files "$root/before" "$root/config"
+    check "$1: status is back to in place" test "$(run_script status)" == "plasma panel in place"
+    check "$1: launcher keys are back" test "$(action_keys "$launcher_action")" == "$launcher_before"
+    check "$1: $task_entry 1 has Meta+1 back" test "$(action_keys "$task_entry 1")" == "$((qt_meta_zero + 1))"
+    check "$1: plasmashell is up" name_owned org.kde.plasmashell
+    check "$1: no popup map or part file left" bash -c '! ls "$1"/plasma-popups* > /dev/null 2>&1' _ "$root/state/ghost-shell"
+    check "$1: the popups' actions are gone" bash -c '! grep -q "^activate widget" <<< "$1"' _ "$(action_names plasmashell)"
+}
+
+latest_backup() {
+    local stamp
+    stamp=$(run_script status | sed -n 's/^retired //p')
+    echo "$root/state/ghost-shell/plasma-backup/$stamp"
+}
+
+hint_names_restore() {
+    grep -qF "$(printf '%q' "$script") restore" "$out/last.txt"
+}
+
+failure_paths() {
+    local backup map=$root/state/ghost-shell/plasma-popups backups_before
+
+    note "== the sandbox path contains a space"
+    check "the sandbox root has a space" bash -c '[[ $1 == *" "* ]]' _ "$root"
+
+    note "== retire whose script prints no ok, then restore"
+    touch "$root/faults/no-ok"
+    try retire
+    rm -- "$root/faults/no-ok"
+    check "retire fails when the script prints no ok" test "$script_rc" -ne 0
+    check "the failure names the restore command" hint_names_restore
+    check "the panel is still marked retired" test "$(run_script status | cut -d' ' -f1)" == retired
+    check "plasmashell is still up" name_owned org.kde.plasmashell
+    try restore
+    assert_restored "no ok"
+
+    note "== retire killed while plasmashell is stopped, then restore"
+    touch "$root/faults/term-at-start"
+    try retire
+    rm -f -- "$root/faults/term-at-start"
+    check "retire dies on the signal" test "$script_rc" -ne 0
+    check "the failure names the restore command" hint_names_restore
+    check "the exit started plasmashell again" wait_for 60 name_owned org.kde.plasmashell
+    check "the panel is marked retired" test "$(run_script status | cut -d' ' -f1)" == retired
+    try restore
+    assert_restored "killed"
+
+    note "== a truncated keys backup is refused by restore (cycle 2)"
+    try retire
+    check "retire succeeds" test "$script_rc" -eq 0
+    backup=$(latest_backup)
+    check "the second backup is byte-identical to the first" same_files "$root/before" "$backup"
+    cp -- "$backup/keys" "$out/keys.full"
+    head -n 5 "$out/keys.full" > "$backup/keys"
+    local pid_before=$plasma_pid
+    try restore
+    check "restore refuses a truncated keys backup" test "$script_rc" -ne 0
+    check "plasmashell was not stopped by the refusal" kill -0 "$pid_before"
+    check "the panel stays marked retired" test "$(run_script status | cut -d' ' -f1)" == retired
+    cp -- "$out/keys.full" "$backup/keys"
+    try restore
+    assert_restored "truncated keys"
+
+    note "== a missing popup map (cycle 3)"
+    try retire
+    check "retire succeeds" test "$script_rc" -eq 0
+    check "the third backup is byte-identical to the first" same_files "$root/before" "$(latest_backup)"
+    mv -- "$map" "$map.part"
+    try restore
+    assert_restored "missing popup map"
+    sleep "$settle_s"
+    check "the files are still identical after plasmashell settled" same_files "$root/before" "$root/config"
+
+    note "== a preflight that fails changes nothing"
+    backups_before=$(ls "$root/state/ghost-shell/plasma-backup" | wc -l)
+    touch "$root/faults/check-fails"
+    try retire
+    rm -- "$root/faults/check-fails"
+    check "retire refuses when the unit does not own plasmashell" test "$script_rc" -ne 0
+    check "no marker was written" test "$(run_script status)" == "plasma panel in place"
+    check "no backup was made" test "$(ls "$root/state/ghost-shell/plasma-backup" | wc -l)" == "$backups_before"
+    check "the files are untouched" same_files "$root/before" "$root/config"
+}
+
 # Task 5's carry-forward: ghostd sends setInactive for every unconfigured task-N slot; it must not create them.
 check_set_inactive() {
     local n
@@ -441,7 +584,7 @@ run_test() {
 
     note "== before retire"
     check "status before retire" test "$(run_script status)" == "plasma panel in place"
-    local panel_before top_before launcher_before key
+    local panel_before top_before key
     for file in "${backed_up_files[@]}"; do
         cp -- "$root/config/$file" "$root/before/"
     done
@@ -454,8 +597,8 @@ run_test() {
     check "the launcher holds bare Meta" grep -qw "$qt_meta" <<< "$launcher_before"
 
     note "== retire"
-    run_script retire 2>&1 | tee -a "$out/results.txt"
-    load_env
+    try retire
+    check "retire succeeds" test "$script_rc" -eq 0
     sleep "$settle_s"
     local stamp backup panel_after top_after launcher_after
     stamp=$(run_script status | sed -n 's/^retired //p')
@@ -489,8 +632,8 @@ run_test() {
     check "a second retire made no second backup" test "$(ls "$root/state/ghost-shell/plasma-backup" | wc -l)" == 1
 
     note "== restore"
-    run_script restore 2>&1 | tee -a "$out/results.txt"
-    load_env
+    try restore
+    check "restore succeeds" test "$script_rc" -eq 0
     note "restored files against the backup, at once:"
     check "the restore is byte-identical at once" same_files "$backup" "$root/config"
     sleep "$settle_s"
@@ -506,6 +649,8 @@ run_test() {
     check "the panel is back" near "$panel_after" "$panel_before" "$change_threshold"
     check "restore without a retire is refused" refuses run_script restore
 
+    failure_paths
+
     check "the live systemctl path was never taken" test ! -e "$root/live-path-used"
     note "failures: $failures"
     ((failures == 0))
@@ -513,7 +658,7 @@ run_test() {
 
 case ${1:-} in
     __plasma-stop) inherited_bus= ; plasma_stop ;;
-    __plasma-start) inherited_bus= ; plasma_start ;;
+    __plasma-start) inherited_bus= ; load_env; fault_term_at_start; plasma_start ;;
     "") run_test ;;
-    *) sed -n '4,11p' "$0" >&2; exit 64 ;;
+    *) awk '/^# /{p=1} p&&!/^#/{exit} p' "$0" >&2; exit 64 ;;
 esac
