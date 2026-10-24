@@ -315,10 +315,14 @@ impl History {
         }
     }
 
-    /// The unread records that arrived after `since_s`.
     /// Notes that a source raised `key`; whether it is new.
     pub fn mark_source_seen(&mut self, key: &str) -> bool {
         self.seen_sources.insert(key.to_owned())
+    }
+
+    /// Takes `key` back, so that the source raises it again at its next update; whether it was there.
+    pub fn forget_source(&mut self, key: &str) -> bool {
+        self.seen_sources.remove(key)
     }
 
     /// Forgets the keys that start with `prefix` and that `keep` refuses; whether any went.
@@ -329,6 +333,7 @@ impl History {
         self.seen_sources.len() != before
     }
 
+    /// The unread records that arrived after `since_s`.
     pub fn unread_since(&self, since_s: u64) -> u32 {
         self.items
             .iter()

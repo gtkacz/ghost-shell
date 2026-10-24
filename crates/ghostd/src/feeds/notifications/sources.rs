@@ -11,12 +11,13 @@ use std::path::Path;
 
 use ghost_proto::{AlertLevel, DiskSnapshot, DriveState, Urgency, WeatherAlert, WeatherAlerts};
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 use tracing::{debug, warn};
 use zbus::{Connection, Variant};
 
 use super::history::History;
 use super::server::{LEVEL_HINT, WARN_LEVEL};
-use crate::notify::{self, Outgoing};
+use crate::notify::{self, NOTIFY_TIMEOUT, Outgoing};
 
 const INMET_PREFIX: &str = "inmet:";
 const DRIVE_PREFIX: &str = "drive:";
@@ -29,7 +30,10 @@ const NEW_NOTIFICATION: u32 = 0;
 
 /// The result of a send that carried an alert, for the loop to take.
 pub struct Sent {
-    alert: String,
+    /// The history key the send raised.
+    key: String,
+    /// The alert it carried, if any.
+    alert: Option<String>,
     /// `None` when the send failed.
     id: Option<u32>,
 }
@@ -104,26 +108,29 @@ impl Sources {
         }
     }
 
-    fn dispatch(&self, outgoing: Outgoing, alert: Option<String>) {
+    /// Sends on a task of its own and reports how it went; `key` is what the send raises.
+    fn dispatch(&self, outgoing: Outgoing, key: String, alert: Option<String>) {
         let Some(helper) = self.helper.clone() else {
-            debug!(
-                summary = outgoing.summary,
-                "no session bus; the notification is not sent"
-            );
             return;
         };
         let sent = self.sent.clone();
         tokio::spawn(async move {
-            let id = notify::send(&helper, &outgoing)
-                .await
-                .inspect_err(|error| {
+            let id = match timeout(NOTIFY_TIMEOUT, notify::send(&helper, &outgoing)).await {
+                Ok(Ok(id)) => Some(id),
+                Ok(Err(error)) => {
                     warn!(%error, summary = outgoing.summary, "cannot send a notification");
-                })
-                .ok();
-            if let Some(alert) = alert {
-                // The loop is gone only while the daemon stops.
-                let _ = sent.send(Sent { alert, id });
-            }
+                    None
+                }
+                Err(_elapsed) => {
+                    warn!(
+                        summary = outgoing.summary,
+                        "the notification server did not answer in time"
+                    );
+                    None
+                }
+            };
+            // The loop is gone only while the daemon stops.
+            let _ = sent.send(Sent { key, alert, id });
         });
     }
 
@@ -146,7 +153,9 @@ impl Sources {
                 body: outgoing.body.clone(),
                 level: alert.level,
             };
-            if history.mark_source_seen(&format!("{INMET_PREFIX}{}", alert.id)) {
+            let key = format!("{INMET_PREFIX}{}", alert.id);
+            // Without a connection a send cannot happen, so the alert stays unraised for later.
+            if self.helper.is_some() && history.mark_source_seen(&key) {
                 changed = true;
                 self.tracked.insert(
                     alert.id.clone(),
@@ -156,7 +165,7 @@ impl Sources {
                         waiting: None,
                     },
                 );
-                self.dispatch(outgoing, Some(alert.id.clone()));
+                self.dispatch(outgoing, key, Some(alert.id.clone()));
             } else if let Some(tracked) = self.tracked.get_mut(&alert.id)
                 && tracked.shown != shown
             {
@@ -167,7 +176,7 @@ impl Sources {
                             replaces_id: id,
                             ..outgoing
                         };
-                        self.dispatch(replacing, Some(alert.id.clone()));
+                        self.dispatch(replacing, key, Some(alert.id.clone()));
                     }
                     None => tracked.waiting = Some(outgoing),
                 }
@@ -185,7 +194,7 @@ impl Sources {
             .filter(|drive| drive.state == DriveState::Dead)
         {
             let key = format!("{DRIVE_PREFIX}{}:{}", drive.id, self.boot_id);
-            if history.mark_source_seen(&key) {
+            if self.helper.is_some() && history.mark_source_seen(&key) {
                 changed = true;
                 self.dispatch(
                     Outgoing {
@@ -200,6 +209,7 @@ impl Sources {
                         app_icon: String::new(),
                         hints: HashMap::new(),
                     },
+                    key,
                     None,
                 );
             }
@@ -207,16 +217,22 @@ impl Sources {
         changed
     }
 
-    /// Takes the answer to a send: remembers the id, and sends what changed in the meantime.
-    pub fn sent(&mut self, sent: Sent) {
-        let Some(tracked) = self.tracked.get_mut(&sent.alert) else {
-            return;
+    /// Takes the answer to a send: remembers the id and sends what changed in the meantime. A first
+    /// send that failed is taken back from the history, so that the next update raises it again.
+    /// Whether the history changed.
+    pub fn sent(&mut self, history: &mut History, sent: Sent) -> bool {
+        let Some(alert) = sent.alert else {
+            return sent.id.is_none() && history.forget_source(&sent.key);
+        };
+        let Some(tracked) = self.tracked.get_mut(&alert) else {
+            return false;
         };
         let Some(id) = sent.id else {
-            if tracked.id.is_none() {
-                self.tracked.remove(&sent.alert);
+            if tracked.id.is_some() {
+                return false;
             }
-            return;
+            self.tracked.remove(&alert);
+            return history.forget_source(&sent.key);
         };
         tracked.id = Some(id);
         if let Some(waiting) = tracked.waiting.take() {
@@ -224,7 +240,8 @@ impl Sources {
                 replaces_id: id,
                 ..waiting
             };
-            self.dispatch(replacing, Some(sent.alert));
+            self.dispatch(replacing, sent.key, Some(alert));
         }
+        false
     }
 }

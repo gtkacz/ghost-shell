@@ -157,7 +157,9 @@ impl State {
 
     /// Takes the answer to a source's send.
     pub fn sent(&mut self, sent: Sent) {
-        self.sources.sent(sent);
+        if self.sources.sent(&mut self.history, sent) {
+            self.mark_dirty();
+        }
     }
 
     pub fn set_inhibited(&mut self, inhibited: bool) {

@@ -18,7 +18,7 @@ const NEW_NOTIFICATION: u32 = 0;
 // -1 leaves how long the popup stays to the notification server.
 const SERVER_DEFAULT_TIMEOUT: i32 = -1;
 // A notification server that hangs must not leave the warning task waiting forever.
-const NOTIFY_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const NOTIFY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// One `Notify` call. The body is markup to the server, so the caller escapes what is not.
 pub struct Outgoing {

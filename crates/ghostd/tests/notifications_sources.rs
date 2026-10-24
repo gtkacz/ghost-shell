@@ -10,8 +10,8 @@ use std::time::Duration;
 use common::bus::{BUS_WAIT, PrivateBus};
 use common::notify_client::{Hints, NotifyClient};
 use ghost_proto::{
-    AlertLevel, DiskSnapshot, Drive, DriveState, ResolvedConfig, WeatherAlert, WeatherAlerts,
-    topics,
+    AlertLevel, DiskSnapshot, Drive, DriveState, NotificationsSnapshot, ResolvedConfig,
+    WeatherAlert, WeatherAlerts, topics,
 };
 use ghostd::feeds::notifications::server::NAME;
 use ghostd::feeds::notifications::{self, Buses, Paths};
@@ -115,6 +115,7 @@ fn paths_in(dir: &Path) -> Paths {
 
 /// The real feed on a private bus standing in for the session bus.
 struct Feed {
+    published: mpsc::UnboundedReceiver<(String, Value)>,
     topics: broadcast::Sender<TopicUpdate>,
     calls: broadcast::Sender<Call>,
     signals: watch::Receiver<Option<u32>>,
@@ -163,6 +164,7 @@ impl Feed {
         let first: Option<(String, Value)> = timeout(BUS_WAIT, published.recv()).await.unwrap();
         assert_eq!(first.unwrap().0, topics::NOTIFICATIONS);
         Self {
+            published,
             topics: topics_sender,
             calls,
             signals,
@@ -212,6 +214,27 @@ impl Feed {
         })
         .await
         .unwrap_or_else(|_| panic!("signals never became {wanted:?}"));
+    }
+
+    /// Reads what the feed publishes until a `notifications` snapshot satisfies `wanted`.
+    async fn snapshot_where(
+        &mut self,
+        wanted: impl Fn(&NotificationsSnapshot) -> bool,
+    ) -> NotificationsSnapshot {
+        timeout(BUS_WAIT, async {
+            loop {
+                let (topic, data) = self.published.recv().await.unwrap();
+                if topic != topics::NOTIFICATIONS {
+                    continue;
+                }
+                let snapshot: NotificationsSnapshot = serde_json::from_value(data).unwrap();
+                if wanted(&snapshot) {
+                    return snapshot;
+                }
+            }
+        })
+        .await
+        .expect("the notifications topic never showed it")
     }
 
     fn stop(self) {
@@ -429,4 +452,73 @@ async fn signals_counts_unread_arrivals_since_lock() {
 
     feed.session(false);
     feed.signals_become(None).await;
+}
+
+#[tokio::test]
+async fn a_failed_send_is_retried_on_the_next_update() {
+    let bus = PrivateBus::start();
+    let dir = TempDir::new().unwrap();
+    let feed = Feed::start(&bus, dir.path(), "boot", false).await;
+    let storm = alert("a1", "STORM", AlertLevel::Warn, &[]);
+    let dead = drive("nvme#S1", "Samsung SSD 990", DriveState::Dead);
+    // Nobody serves the name yet, so both sends fail.
+    feed.weather(vec![storm.clone()]);
+    feed.disks(vec![dead.clone()]);
+    let (_server, mut seen) = fake_server(&bus).await;
+
+    // The samplers publish again and again; the first update after a failure is the retry.
+    let mut summaries = BTreeSet::new();
+    timeout(BUS_WAIT, async {
+        while summaries.len() < 2 {
+            feed.weather(vec![storm.clone()]);
+            feed.disks(vec![dead.clone()]);
+            if let Ok(Some(sent)) = timeout(Duration::from_millis(100), seen.recv()).await {
+                summaries.insert(sent.summary);
+            }
+        }
+    })
+    .await
+    .expect("the failed sends were never retried");
+
+    assert_eq!(
+        summaries,
+        BTreeSet::from([
+            "STORM · YELLOW".to_owned(),
+            "SAMSUNG SSD 990 · CONTROLLER STATE DEAD".to_owned()
+        ])
+    );
+    sleep(QUIET).await;
+    assert!(
+        seen.try_recv().is_err(),
+        "a delivered notification was sent again"
+    );
+}
+
+#[tokio::test]
+async fn sources_reach_ghostds_own_server_without_deadlock() {
+    let bus = PrivateBus::start();
+    let dir = TempDir::new().unwrap();
+    let mut feed = Feed::start(&bus, dir.path(), "boot", true).await;
+
+    feed.weather(vec![alert("a1", "STORM", AlertLevel::Warn, &["WIND"])]);
+    let raised = feed
+        .snapshot_where(|snapshot| snapshot.items.len() == 1)
+        .await;
+    let id = raised.items[0].id;
+    assert_eq!(
+        (raised.items[0].app.as_str(), raised.items[0].body.as_str()),
+        ("WEATHER", "WIND")
+    );
+
+    feed.weather(vec![alert(
+        "a1",
+        "STORM",
+        AlertLevel::Warn,
+        &["WIND", "HAIL"],
+    )]);
+    let replaced = feed
+        .snapshot_where(|snapshot| snapshot.items.iter().any(|item| item.body == "WIND · HAIL"))
+        .await;
+    assert_eq!(replaced.items.len(), 1);
+    assert_eq!(replaced.items[0].id, id);
 }
