@@ -1,9 +1,10 @@
 # shellcheck shell=bash
 # Hands org.freedesktop.Notifications from plasmashell to ghostd and back. Sourced by plasma-panel.sh, which dispatches
 # retire-notifications and restore-notifications to it and prints notifications_status beside the panel's own line.
-# GHOST_SYSTEMD_RELOAD, GHOST_GHOSTD_RESTART, GHOST_GHOSTD_TRY_RESTART and GHOST_GHOSTD_PID_CHECK each name one
-# executable that replaces the systemctl call that reloads the user manager, restarts ghostd, restarts it only if it
-# runs, or prints its main pid (defaults: those systemctl --user calls).
+# GHOST_SYSTEMD_RELOAD, GHOST_GHOSTD_RESTART, GHOST_GHOSTD_TRY_RESTART, GHOST_GHOSTD_PID_CHECK and
+# GHOST_GHOSTD_TYPE_CHECK each name one executable that replaces the systemctl call that reloads the user manager,
+# restarts ghostd, restarts it only if it runs, prints its main pid, or prints its unit's Type (defaults: those
+# systemctl --user calls).
 
 # ghostd requests the name only while this file exists when it starts.
 notifications_marker=$state_dir/notifications-server
@@ -24,10 +25,12 @@ systemd_reload=(systemctl --user daemon-reload)
 ghostd_restart=(systemctl --user restart ghostd)
 ghostd_try_restart=(systemctl --user try-restart ghostd)
 ghostd_pid=(systemctl --user show --property MainPID --value ghostd)
+ghostd_type=(systemctl --user show --property Type --value ghostd)
 if [[ -n ${GHOST_SYSTEMD_RELOAD:-} ]]; then systemd_reload=("$GHOST_SYSTEMD_RELOAD"); fi
 if [[ -n ${GHOST_GHOSTD_RESTART:-} ]]; then ghostd_restart=("$GHOST_GHOSTD_RESTART"); fi
 if [[ -n ${GHOST_GHOSTD_TRY_RESTART:-} ]]; then ghostd_try_restart=("$GHOST_GHOSTD_TRY_RESTART"); fi
 if [[ -n ${GHOST_GHOSTD_PID_CHECK:-} ]]; then ghostd_pid=("$GHOST_GHOSTD_PID_CHECK"); fi
+if [[ -n ${GHOST_GHOSTD_TYPE_CHECK:-} ]]; then ghostd_type=("$GHOST_GHOSTD_TYPE_CHECK"); fi
 
 # Prints the pid of the process that owns bus name $1; fails while nobody does.
 name_owner_pid() {
@@ -36,6 +39,16 @@ name_owner_pid() {
         GetConnectionUnixProcessID s "$1" 2> /dev/null) || return 1
     [[ $reply == u\ * ]] || return 1
     echo "${reply#u }"
+}
+
+# Prints who holds the notification name now, for the error that says it is not who was expected.
+describe_notifications_owner() {
+    local pid
+    if pid=$(name_owner_pid "$notifications_name"); then
+        echo "pid $pid ($(cat "/proc/$pid/comm" 2> /dev/null || echo unknown))"
+    else
+        echo nobody
+    fi
 }
 
 # Polls until the notification name belongs to the pid the rest of the arguments print. $1 names the expected owner.
@@ -49,7 +62,7 @@ wait_for_notifications_owner() {
         fi
         sleep "$poll_s"
     done
-    warn "$notifications_name does not belong to $who after ${plasma_deadline_s} s"
+    warn "$notifications_name does not belong to $who after ${plasma_deadline_s} s; it belongs to $(describe_notifications_owner)"
     return 1
 }
 
@@ -98,6 +111,15 @@ validate_notifyrc_backup() {
     esac
 }
 
+# With an older unit, restart returns before ghostd has settled the name, and plasmashell could win it.
+check_ghostd_waits_for_ready() {
+    local type
+    type=$("${ghostd_type[@]}") || die "could not read the Type of ghostd.service"
+    if [[ $type != notify ]]; then
+        die "ghostd.service is Type=${type:-unset}, not notify; reinstall ghost-shell first (scripts/install.sh)"
+    fi
+}
+
 retire_notifications() {
     local stamp backup bar_position popup_position
     recovery_marker=$notifications_retired
@@ -112,6 +134,7 @@ retire_notifications() {
     if ! "${plasma_check[@]}"; then
         die "$plasma_unit is not active or does not own the running plasmashell; restarting it would not restart plasmashell"
     fi
+    check_ghostd_waits_for_ready
     check_notifications_key_free
     bar_position=$(config_value bar position)
     bar_position=${bar_position:-top}

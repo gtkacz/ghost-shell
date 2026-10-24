@@ -59,7 +59,8 @@ ghostd_start() {
     load_env
     client_env
     log=$root/logs/ghostd-$(date +%s%N).log
-    "${client[@]}" setsid "$ghostd_bin" run --socket "$ghostd_socket" --config "$ghostd_config" \
+    mkdir -p "$root/pipewire"
+    "${client[@]}" PIPEWIRE_REMOTE=/nonexistent PIPEWIRE_RUNTIME_DIR="$root/pipewire" setsid "$ghostd_bin" run --socket "$ghostd_socket" --config "$ghostd_config" \
         --widgets-dir "$repo/widgets" > "$log" 2>&1 &
     echo $! > "$root/ghostd.pid"
     wait_for "$ghostd_log_deadline_s" grep -q 'notifications: ' "$log" || { echo "ghostd said nothing about notifications, see $log" >&2; return 1; }
@@ -72,6 +73,7 @@ latest_ghostd_log() {
 make_notification_stubs() {
     local stub=$root/stub-bin
     printf '#!/bin/sh\necho reload >> "%s/reloads"\n' "$root" > "$stub/systemd-reload"
+    printf '#!/bin/sh\nif [ -e "%s/faults/ghostd-type-old" ]; then echo simple; else echo notify; fi\n' "$root" > "$stub/ghostd-type"
     for mode in restart try-restart pid; do
         printf '#!/bin/sh\nSANDBOX_ROOT="%s" SANDBOX_NAME="%s" exec "%s" __ghostd-%s\n' \
             "$root" "$name" "$notifications_test" "$mode" > "$stub/ghostd-$mode"
@@ -87,7 +89,7 @@ run_script() {
         GHOST_PLASMA_STOP="$root/stub-bin/plasma-stop" GHOST_PLASMA_START="$root/stub-bin/plasma-start" \
         GHOST_PLASMA_CHECK="$root/stub-bin/plasma-check" GHOST_DRM_DIR="$root/drm" \
         GHOST_SYSTEMD_RELOAD="$root/stub-bin/systemd-reload" GHOST_GHOSTD_RESTART="$root/stub-bin/ghostd-restart" \
-        GHOST_GHOSTD_TRY_RESTART="$root/stub-bin/ghostd-try-restart" GHOST_GHOSTD_PID_CHECK="$root/stub-bin/ghostd-pid" \
+        GHOST_GHOSTD_TRY_RESTART="$root/stub-bin/ghostd-try-restart" GHOST_GHOSTD_PID_CHECK="$root/stub-bin/ghostd-pid" GHOST_GHOSTD_TYPE_CHECK="$root/stub-bin/ghostd-type" \
         "$script" "$@"
 }
 
@@ -141,6 +143,15 @@ failure_free_cycle() {
     check "no marker and no drop-in" bash -c '[[ ! -e $1 && ! -e $2 ]]' _ "$marker" "$drop_in"
     check "plasmanotifyrc is untouched" cmp -s "$rc_before" "$notifyrc"
     check "nothing was reloaded" test "$(reload_count)" -eq 0
+
+    note "== an installed ghostd.service that is not Type=notify is refused, with nothing changed"
+    touch "$root/faults/ghostd-type-old"
+    try retire-notifications
+    rm -- "$root/faults/ghostd-type-old"
+    check "retire-notifications refuses an old unit" test "$script_rc" -ne 0
+    check "the refusal says to reinstall" grep -q 'reinstall ghost-shell first (scripts/install.sh)' "$out/last.txt"
+    check "no marker, drop-in or backup" bash -c '[[ ! -e $1 && ! -e $2 && ! -e $3 ]]' _ "$marker" "$drop_in" "$root/state/ghost-shell/plasma-backup"
+    check "plasmanotifyrc is untouched and nothing was reloaded" bash -c 'cmp -s "$1" "$2" && [[ $3 -eq 0 ]]' _ "$rc_before" "$notifyrc" "$(reload_count)"
 
     note "== retire-notifications (top bar)"
     ghostd_before=$(ghostd_pid)
@@ -238,6 +249,7 @@ run_notifications_test() {
     cp -p -- "$notifyrc" "$root/before/plasmanotifyrc"
     ghostd_start
     note "isolation: ghostd runs on the sandbox bus $session_bus (inherited: ${inherited_bus@Q})"
+    check "ghostd cannot reach the user's PipeWire" bash -c 'tr "\0" "\n" < /proc/$1/environ | grep -qxF PIPEWIRE_REMOTE=/nonexistent && tr "\0" "\n" < /proc/$1/environ | grep -qxF "PIPEWIRE_RUNTIME_DIR=$2"' _ "$(ghostd_pid)" "$root/pipewire"
 
     failure_free_cycle
     retire_that_fails_after_plasmashell_stopped
