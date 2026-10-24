@@ -62,15 +62,45 @@ Item {
         syncHold();
     }
 
-    // Polled each second rather than timed to the boundary: Qt timers stop with the monotonic clock during sleep, so a
-    // boundary timer would show the pre-sleep minute for up to a minute after a wake. An unchanged minute emits nothing,
-    // so nothing repaints between boundaries.
+    // Wakes at each minute boundary, which a fixed interval would drift away from.
     Timer {
-        interval: root.millisPerSecond
+        id: minute
+
+        function untilBoundary() {
+            return root.millisPerMinute - Date.now() % root.millisPerMinute;
+        }
+
+        // Qt timers stop with the monotonic clock while the machine sleeps, and the timer is idle while hidden, so the
+        // time and the boundary are both read afresh after either.
+        function resync() {
+            root.minuteMs = Date.now();
+            interval = untilBoundary();
+        }
+
         running: root.visible && !root.showsSeconds
         repeat: true
-        triggeredOnStart: true
-        onTriggered: root.minuteMs = Math.floor(Date.now() / root.millisPerMinute) * root.millisPerMinute
+        onRunningChanged: {
+            if (running) {
+                resync();
+            }
+        }
+        onTriggered: {
+            root.minuteMs = Date.now();
+            interval = untilBoundary();
+        }
+    }
+
+    // The session topic changes when the machine falls asleep and again when it wakes, which is also what the greeting
+    // follows.
+    Connections {
+        target: Data.topic("session")
+
+        function onValueChanged() {
+            minute.resync();
+            if (minute.running) {
+                minute.restart();
+            }
+        }
     }
 
     Text {
