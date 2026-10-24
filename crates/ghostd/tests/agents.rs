@@ -255,16 +255,16 @@ mod sessions {
 
     use super::NOW_S;
 
-    const WAIT: Duration = Duration::from_secs(2);
+    pub(super) const WAIT: Duration = Duration::from_secs(2);
     // Offsets from here keep test times inside the 24 h a pid-less Codex file lives.
     const BASE_S: u64 = NOW_S - 1000;
 
-    struct Sandbox {
-        dir: TempDir,
+    pub(super) struct Sandbox {
+        pub(super) dir: TempDir,
     }
 
     impl Sandbox {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let sb = Self {
                 dir: tempfile::tempdir().unwrap(),
             };
@@ -476,5 +476,163 @@ mod sessions {
             .map(|s| s.provider)
             .collect();
         assert_eq!(providers, ["codex"]);
+    }
+}
+
+mod usage {
+    use std::{collections::BTreeSet, fs, io::Write, path::PathBuf, sync::Arc};
+
+    use ghost_proto::{AgentProvider, AgentsUsage, ResolvedConfig, UsageWindow, topics};
+    use ghostd::feeds::WallClock;
+    use ghostd::feeds::agents::{SEVEN_DAYS_S, UsagePaths, usage_feed_at};
+    use ghostd::server::{FeedContext, Publisher};
+    use serde_json::Value;
+    use tokio::sync::{mpsc, watch};
+    use tokio::time::timeout;
+
+    use super::NOW_S;
+    use super::sessions::{Sandbox, WAIT};
+
+    struct Running {
+        published: mpsc::UnboundedReceiver<(String, Value)>,
+        _demand: watch::Sender<BTreeSet<String>>,
+        _config: watch::Sender<ResolvedConfig>,
+        _task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Running {
+        async fn next(&mut self) -> AgentsUsage {
+            let (topic, data) = timeout(WAIT, self.published.recv())
+                .await
+                .expect("nothing was published in time")
+                .unwrap();
+            assert_eq!(topic, topics::AGENTS_USAGE);
+            serde_json::from_value(data).unwrap()
+        }
+    }
+
+    impl Sandbox {
+        fn write_settings(&self, json: &str) {
+            let dir = self.dir.path().join("claude");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("settings.json"), json).unwrap();
+        }
+
+        /// Replaces by rename, as the tap does, so a watcher never sees a torn file.
+        fn replace_capture(&self, json: &str) {
+            let dir = self.dir.path().join("state/ghost-shell");
+            fs::create_dir_all(&dir).unwrap();
+            let staged = dir.join("claude-statusline.json.tmp");
+            fs::write(&staged, json).unwrap();
+            fs::rename(staged, dir.join("claude-statusline.json")).unwrap();
+        }
+
+        fn append_rollout(&self, rel: &str, text: &str) {
+            let path = self.dir.path().join("codex/sessions").join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .unwrap()
+                .write_all(text.as_bytes())
+                .unwrap();
+        }
+
+        fn clock_at(&self, s: u64) -> WallClock {
+            Arc::new(move || s)
+        }
+
+        async fn start_usage(&self, providers: &[AgentProvider]) -> Running {
+            self.start_usage_with(providers, Arc::new(|| NOW_S)).await
+        }
+
+        async fn start_usage_with(&self, providers: &[AgentProvider], clock: WallClock) -> Running {
+            let (sender, published) = mpsc::unbounded_channel();
+            let (demand, demand_receiver) =
+                watch::channel(BTreeSet::from([topics::AGENTS_USAGE.to_owned()]));
+            let (config, config_receiver) = watch::channel(ResolvedConfig::default());
+            let context = FeedContext {
+                publisher: Publisher::new(move |topic, data| {
+                    sender.send((topic.to_owned(), data)).unwrap();
+                }),
+                demand: demand_receiver,
+                config: config_receiver,
+                calls: tokio::sync::broadcast::channel(64).1,
+            };
+            let path = |sub: &str| -> PathBuf { self.dir.path().join(sub) };
+            let paths = UsagePaths {
+                claude_capture: path("state/ghost-shell/claude-statusline.json"),
+                claude_settings: path("claude/settings.json"),
+                codex_home: path("codex"),
+            };
+            let feed = usage_feed_at(providers.to_vec(), paths, clock);
+            Running {
+                published,
+                _demand: demand,
+                _config: config,
+                _task: tokio::spawn(feed.run(context)),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_new_capture_publishes_claude_usage() {
+        let sb = Sandbox::new();
+        sb.write_settings(include_str!("fixtures/agents/claude-settings-tapped.json"));
+        let mut feed = sb.start_usage(&[AgentProvider::Claude]).await;
+        feed.next().await;
+        assert_eq!(
+            feed.next().await.providers[0].reason.as_deref(),
+            Some("no reading yet")
+        );
+        sb.replace_capture(include_str!("fixtures/agents/claude-statusline.json"));
+        let usage = feed.next().await.providers.remove(0);
+        assert!(usage.available);
+        assert_eq!(usage.windows[1].used_pct, 61.0);
+    }
+
+    #[tokio::test]
+    async fn a_clobbered_status_line_marks_claude_tap_missing() {
+        let sb = Sandbox::new();
+        sb.write_settings(include_str!("fixtures/agents/claude-settings-tapped.json"));
+        sb.replace_capture(include_str!("fixtures/agents/claude-statusline.json"));
+        let mut feed = sb.start_usage(&[AgentProvider::Claude]).await;
+        feed.next().await;
+        feed.next().await;
+        sb.write_settings(include_str!("fixtures/agents/claude-settings-hud.json"));
+        let usage = feed.next().await.providers.remove(0);
+        assert!(!usage.available);
+        assert_eq!(usage.reason.as_deref(), Some("tap"));
+    }
+
+    #[tokio::test]
+    async fn an_expired_window_reads_zero_without_a_reset_and_garbage_does_not_end_the_feed() {
+        let sb = Sandbox::new();
+        sb.append_rollout(
+            "2026/10/23/rollout-a.jsonl",
+            include_str!("fixtures/agents/codex-rollout-tail.jsonl"),
+        );
+        // Exactly the fixture's secondary reset.
+        let clock = sb.clock_at(1_793_018_780);
+        let mut feed = sb.start_usage_with(&[AgentProvider::Codex], clock).await;
+        feed.next().await;
+        let usage = feed.next().await.providers.remove(0);
+        assert_eq!(
+            usage.windows[1],
+            UsageWindow {
+                length_s: SEVEN_DAYS_S,
+                used_pct: 0.0,
+                resets_at_s: None
+            }
+        );
+        sb.append_rollout("2026/10/23/rollout-b.jsonl", "{broken\n");
+        let usage = feed.next().await.providers.remove(0);
+        assert!(!usage.available);
+        sb.append_rollout(
+            "2026/10/23/rollout-c.jsonl",
+            include_str!("fixtures/agents/codex-rollout-tail.jsonl"),
+        );
+        assert!(feed.next().await.providers[0].available);
     }
 }
