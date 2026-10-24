@@ -17,7 +17,7 @@ use ghost_proto::{
 };
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
-use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
+use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep, timeout};
 use tracing::{debug, warn};
 
 use super::{WallClock, unix_now_s, until_unwanted, until_wanted};
@@ -456,16 +456,39 @@ async fn watch_usage(
         return pending().await;
     }
     loop {
-        if events.recv().await.is_none() {
-            return pending().await;
+        let until_reset = next_reset_delay(&published, clock());
+        tokio::select! {
+            event = events.recv() => {
+                if event.is_none() {
+                    return pending().await;
+                }
+                while let Ok(Some(())) = timeout(DEBOUNCE, events.recv()).await {}
+            }
+            // A passed reset changes what the widget must show without touching any watched file.
+            () = async {
+                match until_reset {
+                    Some(delay) => sleep(delay).await,
+                    None => pending().await,
+                }
+            } => {}
         }
-        while let Ok(Some(())) = timeout(DEBOUNCE, events.recv()).await {}
         let usage = read_usage(providers, paths, clock());
         if usage != published {
             publisher.publish(topics::AGENTS_USAGE, &usage);
             published = usage;
         }
     }
+}
+
+/// Time until one second past the earliest reset still ahead of `now_s`.
+fn next_reset_delay(usage: &AgentsUsage, now_s: u64) -> Option<Duration> {
+    usage
+        .providers
+        .iter()
+        .flat_map(|provider| &provider.windows)
+        .filter_map(|window| window.resets_at_s)
+        .min()
+        .map(|reset| Duration::from_secs((reset + 1).saturating_sub(now_s)))
 }
 
 fn publish_usage(

@@ -480,11 +480,12 @@ mod sessions {
 }
 
 mod usage {
-    use std::{collections::BTreeSet, fs, io::Write, path::PathBuf, sync::Arc};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::{collections::BTreeSet, fs, io::Write, path::PathBuf, sync::Arc, time::Duration};
 
     use ghost_proto::{AgentProvider, AgentsUsage, ResolvedConfig, UsageWindow, topics};
     use ghostd::feeds::WallClock;
-    use ghostd::feeds::agents::{SEVEN_DAYS_S, UsagePaths, usage_feed_at};
+    use ghostd::feeds::agents::{FIVE_HOURS_S, SEVEN_DAYS_S, UsagePaths, usage_feed_at};
     use ghostd::server::{FeedContext, Publisher};
     use serde_json::Value;
     use tokio::sync::{mpsc, watch};
@@ -634,5 +635,34 @@ mod usage {
             include_str!("fixtures/agents/codex-rollout-tail.jsonl"),
         );
         assert!(feed.next().await.providers[0].available);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_window_whose_reset_passes_is_republished_as_zero_without_a_file_event() {
+        const PRIMARY_RESET_S: u64 = 1_792_814_950;
+        let sb = Sandbox::new();
+        sb.append_rollout(
+            "2026/10/23/rollout-a.jsonl",
+            include_str!("fixtures/agents/codex-rollout-tail.jsonl"),
+        );
+        let now = Arc::new(AtomicU64::new(PRIMARY_RESET_S - 10));
+        let clock_now = Arc::clone(&now);
+        let clock: WallClock = Arc::new(move || clock_now.load(Ordering::SeqCst));
+        let mut feed = sb.start_usage_with(&[AgentProvider::Codex], clock).await;
+        feed.next().await;
+        let before = feed.next().await.providers.remove(0);
+        assert_eq!(before.windows[0].resets_at_s, Some(PRIMARY_RESET_S));
+        now.store(PRIMARY_RESET_S + 1, Ordering::SeqCst);
+        tokio::time::advance(Duration::from_secs(11)).await;
+        let after = feed.next().await.providers.remove(0);
+        assert_eq!(
+            after.windows[0],
+            UsageWindow {
+                length_s: FIVE_HOURS_S,
+                used_pct: 0.0,
+                resets_at_s: None
+            }
+        );
+        assert_eq!(after.windows[1], before.windows[1]);
     }
 }
