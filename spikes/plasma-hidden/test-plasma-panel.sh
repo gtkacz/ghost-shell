@@ -29,15 +29,26 @@ socket_deadline_s=15
 ready_deadline_s=60
 settle_s=20
 poll_s=0.2
-# The fake panel's thickness, and the bar's strip retire puts the tray and clock under (retire's own figure).
+# The fake panel's thickness; the bar's strip is derived from the shell's own constants, as retire does.
 panel_px=44
-strip_px=52
+shell_lib=$repo/shell/kit/GhostKit/lib
 top_right_px=720
 # The fake desktop's solid wallpaper colour, and how far a region's mean may stray from a colour and still match.
 wallpaper_rgb="30 60 90"
 match_tolerance=6
 # Mean colour distance that counts as a region having changed.
 change_threshold=8
+
+mjs_constant() {
+    sed -n "s/^export const $2 = \([0-9][0-9]*\);\$/\1/p" "$shell_lib/$1"
+}
+strip_px=$(awk -v band="$(mjs_constant layout.mjs BAR_BAND_PX)" -v design="$(mjs_constant scale.mjs DESIGN_WIDTH)" \
+    -v width="$width" 'BEGIN { printf "%d", band * width / design + 0.5 }')
+ghost_config=$root/config/ghost-shell/config.toml
+held_key=$((0x1E000000 + 0x01000030 + 2))
+held_key_text=Meta+Ctrl+Alt+Shift+F3
+# What KWin --virtual calls its one output, and so what Plasma's screenForConnector knows it by.
+sandbox_connector=Virtual-0
 
 layout_file=plasma-org.kde.plasma.desktop-appletsrc
 backed_up_files=("$layout_file" plasmashellrc kglobalshortcutsrc)
@@ -256,7 +267,7 @@ up() {
         echo "$root exists; another run is using it or left it behind" >&2
         exit 1
     fi
-    mkdir -p "$root"/{run,config,data,cache,state,services,logs,stub-bin,before,faults}
+    mkdir -p "$root"/{run,config,data,cache,state,services,logs,stub-bin,before,faults,drm}
     chmod 700 "$root/run"
     seed_config
     for service in "${services[@]}"; do
@@ -361,7 +372,7 @@ run_script() {
         XDG_CONFIG_HOME="$root/config" XDG_STATE_HOME="$root/state" \
         DBUS_SESSION_BUS_ADDRESS="$session_bus" DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent \
         GHOST_PLASMA_STOP="$root/stub-bin/plasma-stop" GHOST_PLASMA_START="$root/stub-bin/plasma-start" \
-        GHOST_PLASMA_CHECK="$root/stub-bin/plasma-check" \
+        GHOST_PLASMA_CHECK="$root/stub-bin/plasma-check" GHOST_DRM_DIR="$root/drm" \
         "$script" "$@"
 }
 
@@ -467,6 +478,41 @@ hint_names_restore() {
     grep -qF "$(printf '%q' "$script") restore" "$out/last.txt"
 }
 
+# "x y width height" of an applet as the layout file saves it.
+applet_geometry() {
+    grep -o "Applet-$1:[0-9.]*,[0-9.]*,[0-9.]*,[0-9.]*" "$root/config/$layout_file" | head -n 1 | sed 's/^[^:]*://; s/,/ /g'
+}
+
+# A monitor whose EDID names it "FakeMon", on the sandbox KWin's only connector.
+make_fake_edid() {
+    mkdir -p "$root/drm/card9-$sandbox_connector"
+    { head -c 72 /dev/zero; printf '\x00\x00\x00\xfc\x00FakeMon\n     '; head -c 38 /dev/zero; } > "$root/drm/card9-$sandbox_connector/edid"
+}
+
+# Where retire put the tray and the clock: along the bar's edge, the strip's height, the bar's side.
+check_placement() {
+    local at_bottom=$1 id geometry x y w h tray_id clock_id
+    local want_y=0
+    if [[ $at_bottom == true ]]; then
+        want_y=$((height - strip_px))
+    fi
+    check "retire asked for a $strip_px px strip at y $want_y" grep -q "strip $strip_px px at y $want_y\$" "$out/last.txt"
+    tray_id=$(awk '$1 == "tray" { print $2 }' "$out/last.txt")
+    clock_id=$(awk '$1 == "clock" { print $2 }' "$out/last.txt")
+    for id in "$tray_id" "$clock_id"; do
+        geometry=$(applet_geometry "$id")
+        read -r x y w h <<< "$geometry"
+        note "  applet $id at $geometry (strip $strip_px px, screen ${width}x${height})"
+        if [[ $at_bottom == true ]]; then
+            # Plasma's desktop moves a widget by up to a few tens of px to fit its grid, so "along the bottom" is one strip.
+            check "applet $id sits along the bottom edge" awk -v y="$y" -v h="$h" -v screen="$height" -v strip="$strip_px" \
+                'BEGIN { exit !(y + h >= screen - strip && y + h <= screen + 1) }'
+        else
+            check "applet $id sits on the top edge" awk -v y="$y" 'BEGIN { exit !(y <= 1) }'
+        fi
+    done
+}
+
 failure_paths() {
     local backup map=$root/state/ghost-shell/plasma-popups backups_before
 
@@ -511,13 +557,19 @@ failure_paths() {
     try restore
     assert_restored "truncated keys"
 
-    note "== a missing popup map (cycle 3)"
+    note "== a bottom bar on a screen picked by model, and a missing popup map (cycle 3)"
+    make_fake_edid
+    mkdir -p "$root/config/ghost-shell"
+    printf '[bar]\nposition = "bottom"\n\n[display]\nmodel = "fakemon"\n' > "$ghost_config"
     try retire
     check "retire succeeds" test "$script_rc" -eq 0
+    sleep "$settle_s"
+    check_placement true
     check "the third backup is byte-identical to the first" same_files "$root/before" "$(latest_backup)"
     mv -- "$map" "$map.part"
     try restore
     assert_restored "missing popup map"
+    rm -- "$ghost_config"
     sleep "$settle_s"
     check "the files are still identical after plasmashell settled" same_files "$root/before" "$root/config"
 
@@ -530,6 +582,22 @@ failure_paths() {
     check "no marker was written" test "$(run_script status)" == "plasma panel in place"
     check "no backup was made" test "$(ls "$root/state/ghost-shell/plasma-backup" | wc -l)" == "$backups_before"
     check "the files are untouched" same_files "$root/before" "$root/config"
+
+    note "== a popup key another action holds is refused, with nothing changed"
+    sbx_busctl call org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel doRegister as 4 ghost-shell-test held-key \
+        ghost-shell-test "Held key" > /dev/null
+    sbx_busctl call org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel setForeignShortcutKeys 'asa(ai)' 4 \
+        ghost-shell-test held-key "" "" 1 4 "$held_key" 0 0 0
+    backups_before=$(ls "$root/state/ghost-shell/plasma-backup" | wc -l)
+    try retire
+    sbx_busctl call org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel unregister ss ghost-shell-test held-key > /dev/null
+    check "retire refuses a taken popup key" test "$script_rc" -ne 0
+    check "the refusal names the key and its holder" bash -c 'grep -q "$1" "$3" && grep -q "$2" "$3"' _ "$held_key_text" "held-key" "$out/last.txt"
+    check "no marker was written" test "$(run_script status)" == "plasma panel in place"
+    check "no backup was made" test "$(ls "$root/state/ghost-shell/plasma-backup" | wc -l)" == "$backups_before"
+    # kglobalshortcutsrc is left out: registering the holder above is what writes to it.
+    check "the layout and plasmashellrc are untouched by the refusal" bash -c \
+        'cmp -s "$1/$3" "$2/$3" && cmp -s "$1/plasmashellrc" "$2/plasmashellrc"' _ "$root/before" "$root/config" "$layout_file"
 }
 
 # Task 5's carry-forward: ghostd sends setInactive for every unconfigured task-N slot; it must not create them.
@@ -600,6 +668,8 @@ run_test() {
     try retire
     check "retire succeeds" test "$script_rc" -eq 0
     sleep "$settle_s"
+    note "== a top bar (no ghost-shell config): the applets sit on the top edge"
+    check_placement false
     local stamp backup panel_after top_after launcher_after
     stamp=$(run_script status | sed -n 's/^retired //p')
     backup=$root/state/ghost-shell/plasma-backup/$stamp

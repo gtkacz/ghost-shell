@@ -56,12 +56,28 @@ keys_per_sequence=4
 action_id_length=4
 # Positions in a KGlobalShortcutInfo as allShortcutInfos returns it.
 info_action_name_at=0
+info_component_at=2
 info_keys_at=6
+# Where ghost-shell keeps what retire needs to place the applets along its bar; absent keys mean ghostd's defaults.
+ghost_config=$config_home/ghost-shell/config.toml
+default_bar_position=top
+default_display_model=
+drm_dir=${GHOST_DRM_DIR:-/sys/class/drm}
+# The shell's own sources hold the bar's height and the design width, so they are read rather than copied.
+shell_lib=$(dirname "${BASH_SOURCE[0]}")/../shell/kit/GhostKit/lib
+# An EDID holds four 18-byte descriptors from byte 54; a monitor-name one starts 00 00 00 FC 00 and ends in 0x0A.
+edid_descriptor_offsets=(54 72 90 108)
+edid_descriptor_length=18
+edid_name_tag=000000fc
+edid_name_skip=5
 tray_plugin=org.kde.plasma.systemtray
 clock_plugin=org.kde.plasma.digitalclock
+# Qt::MetaModifier | ControlModifier | AltModifier | ShiftModifier, and Qt::Key_F1, which F2…F7 follow by one.
+popup_modifiers=$((0x1E000000))
+key_f1=$((0x01000030))
 # The applets ghostd's plasma.popup accepts (POPUP_APPLETS in crates/ghostd/src/feeds/actions.rs), each with the key
 # Plasma registers its "activate widget <id>" action under. ghostd never presses the key, but Plasma registers the
-# action only for a widget that has one. Meta with Ctrl, Alt and Shift is held by nothing in a stock KDE.
+# action only for a widget that has one. Meta with Ctrl, Alt and Shift is held by nothing in a stock KDE; retire checks.
 popups=(
     "org.kde.plasma.networkmanagement Meta+Ctrl+Alt+Shift+F1"
     "org.kde.plasma.bluetooth Meta+Ctrl+Alt+Shift+F2"
@@ -79,8 +95,7 @@ const CLOCK = "org.kde.plasma.digitalclock";
 // The config groups the old panel's tray and clock keep their settings in.
 const TRAY_CONFIG_GROUP = "General";
 const CLOCK_CONFIG_GROUP = "Appearance";
-// The bar's strip at the desktop's 1.15 scale, in logical px: both widgets sit under it.
-const STRIP_HEIGHT = 52;
+// BAR_BAND_PX, DESIGN_WIDTH, BAR_AT_BOTTOM and BAR_CONNECTOR come first, from retire: the bar's own figures and where it is.
 const TRAY_WIDTH = 480;
 const CLOCK_WIDTH = 240;
 // readConfig hands a list back as one comma-joined string, and writeConfig would store that string's characters.
@@ -102,12 +117,19 @@ function copyConfig(from, to, group) {
     return group + ": " + keys.join(",");
 }
 
-const desktop = desktops().filter(function (d) { return d.screen === 0; })[0];
-if (!desktop) {
-    throw new Error("no desktop on screen 0");
+const screen = BAR_CONNECTOR === "" ? 0 : screenForConnector(BAR_CONNECTOR);
+if (screen < 0) {
+    throw new Error("Plasma has no screen " + BAR_CONNECTOR);
 }
-const area = screenGeometry(0);
-lines.push("desktop " + desktop.id + " on a " + area.width + "x" + area.height + " screen");
+const desktop = desktops().filter(function (d) { return d.screen === screen; })[0];
+if (!desktop) {
+    throw new Error("no desktop on screen " + screen);
+}
+const area = screenGeometry(screen);
+// The bar's height is its design band scaled by the screen's width over the design width, as the shell does.
+const STRIP_HEIGHT = Math.round(BAR_BAND_PX * area.width / DESIGN_WIDTH);
+const STRIP_Y = BAR_AT_BOTTOM ? area.height - STRIP_HEIGHT : 0;
+lines.push("desktop " + desktop.id + " on a " + area.width + "x" + area.height + " screen, strip " + STRIP_HEIGHT + " px at y " + STRIP_Y);
 
 let oldTray = null;
 let oldClock = null;
@@ -116,8 +138,8 @@ panels().forEach(function (panel) {
     oldClock = oldClock || panel.widgets(CLOCK)[0] || null;
 });
 
-const tray = desktop.addWidget(TRAY, area.width - CLOCK_WIDTH - TRAY_WIDTH, 0, TRAY_WIDTH, STRIP_HEIGHT);
-const clock = desktop.addWidget(CLOCK, area.width - CLOCK_WIDTH, 0, CLOCK_WIDTH, STRIP_HEIGHT);
+const tray = desktop.addWidget(TRAY, area.width - CLOCK_WIDTH - TRAY_WIDTH, STRIP_Y, TRAY_WIDTH, STRIP_HEIGHT);
+const clock = desktop.addWidget(CLOCK, area.width - CLOCK_WIDTH, STRIP_Y, CLOCK_WIDTH, STRIP_HEIGHT);
 if (oldTray) {
     lines.push("copied the panel tray's " + copyConfig(oldTray, tray, TRAY_CONFIG_GROUP));
 }
@@ -293,6 +315,88 @@ wait_for_keys() {
     return 1
 }
 
+# Prints "<component>/<action>" for each action that holds the key, an int as KGlobalAccel stores it.
+key_holders() {
+    local reply
+    reply=$(session_call --json=short call org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel \
+        globalShortcutsByKey '(ai)(i)' "$keys_per_sequence" "$1" 0 0 0 0) || return 1
+    jq -r --argjson component_at "$info_component_at" --argjson action_at "$info_action_name_at" \
+        '.data[0][] | .[$component_at] + "/" + .[$action_at]' <<< "$reply"
+}
+
+# Refuses before any change if another action already holds one of the popups' keys.
+check_popup_keys_free() {
+    local entry plugin key holders
+    for entry in "${popups[@]}"; do
+        read -r plugin key <<< "$entry"
+        holders=$(key_holders $((popup_modifiers + key_f1 + ${key##*+F} - 1))) || die "could not read who holds $key"
+        if [[ -n $holders ]]; then
+            die "$key, meant for the $plugin popup, is already held by ${holders//$'\n'/, }; free it first"
+        fi
+    done
+}
+
+# Prints the value of <key> in the TOML table <section> of ghost-shell's config, or nothing. Handles the plain
+# key = "value" lines ghostd writes, not inline tables.
+config_value() {
+    [[ -f $ghost_config ]] || return 0
+    awk -v section="$1" -v key="$2" '
+        /^[[:space:]]*\[/ { current = $0; gsub(/^[[:space:]]*\[|\][[:space:]]*(#.*)?$/, "", current); next }
+        current == section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+            value = $0
+            sub(/^[^=]*=[[:space:]]*/, "", value)
+            sub(/[[:space:]]+#.*$/, "", value)
+            gsub(/^["\x27]|["\x27]$/, "", value)
+            print value
+            exit
+        }' "$ghost_config"
+}
+
+# Prints the value of an "export const <name> = <integer>;" line in one of the shell's lib modules.
+shell_constant() {
+    local value
+    value=$(sed -n "s/^export const $2 = \([0-9][0-9]*\);\$/\1/p" "$shell_lib/$1") || return 1
+    [[ -n $value ]] || die "$shell_lib/$1 has no integer constant $2; plasma-panel.sh needs it to size the strip"
+    echo "$value"
+}
+
+# Prints the monitor name an EDID file carries, as the shell's screen model holds it.
+edid_name() {
+    local bytes=() offset i name=
+    mapfile -t bytes < <(od -An -v -tx1 -w1 -N128 -- "$1" | tr -d ' ')
+    for offset in "${edid_descriptor_offsets[@]}"; do
+        if [[ ${bytes[offset]}${bytes[offset + 1]}${bytes[offset + 2]}${bytes[offset + 3]} == "$edid_name_tag" ]]; then
+            for ((i = offset + edid_name_skip; i < offset + edid_descriptor_length; i++)); do
+                if [[ ${bytes[i]} == 0a ]]; then
+                    break
+                fi
+                name+=$(printf "\\x${bytes[i]}")
+            done
+            echo "$name"
+            return 0
+        fi
+    done
+}
+
+# Prints the connector (DP-1) of the first screen whose model contains $1 as the shell's pickScreen matches it, or
+# nothing: no model, or none matching, is screen 0 there too.
+connector_for_model() {
+    local wanted=${1,,} edid name dir
+    if [[ -z $wanted ]]; then
+        return 0
+    fi
+    for edid in "$drm_dir"/card*-*/edid; do
+        [[ -r $edid ]] || continue
+        name=$(edid_name "$edid")
+        if [[ ${name,,} == *"$wanted"* ]]; then
+            dir=${edid%/edid}
+            dir=${dir##*/}
+            echo "${dir#card*-}"
+            return 0
+        fi
+    done
+}
+
 # The desktop saves where its widgets sit a while after they move, not when plasmashell quits; stopped before that, it
 # lays the new ones out again from its top left corner.
 wait_for_geometries() {
@@ -417,7 +521,7 @@ back_up() {
 }
 
 retire() {
-    local stamp backup result tray_id clock_id action key kept=() launcher_keys
+    local stamp backup result tray_id clock_id action key kept=() launcher_keys bar_position model connector at_bottom band_px design_px
     if [[ -e $retired_marker ]]; then
         die "the panel is already retired ($(< "$retired_marker")); run restore before retiring again"
     fi
@@ -434,6 +538,17 @@ retire() {
         action_keys "$action" > /dev/null || die "could not read plasmashell's \"$action\" shortcut; is this Plasma 6?"
     done
     read_launcher_keys
+    check_popup_keys_free
+    bar_position=$(config_value bar position)
+    bar_position=${bar_position:-$default_bar_position}
+    if [[ $bar_position != top && $bar_position != bottom ]]; then
+        die "bar.position in $ghost_config is ${bar_position@Q}, not \"top\" or \"bottom\""
+    fi
+    model=$(config_value display model)
+    connector=$(connector_for_model "${model:-$default_display_model}")
+    [[ $bar_position == bottom ]] && at_bottom=true || at_bottom=false
+    band_px=$(shell_constant layout.mjs BAR_BAND_PX)
+    design_px=$(shell_constant scale.mjs DESIGN_WIDTH)
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     backup=$backup_root/$stamp
     if [[ -e $backup ]]; then
@@ -448,7 +563,8 @@ retire() {
 
     step "removing the panel and putting the System Tray and the Digital Clock on the desktop"
     result=$(session_call --json=short call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript \
-        s "$retire_js" | jq -r '.data[0]')
+        s "const BAR_BAND_PX = $band_px; const DESIGN_WIDTH = $design_px; const BAR_AT_BOTTOM = $at_bottom; const BAR_CONNECTOR = \"$connector\";
+$retire_js" | jq -r '.data[0]')
     printf '    %s\n' "${result//$'\n'/$'\n    '}"
     if [[ $(tail -n 1 <<< "$result") != ok ]]; then
         die "Plasma's script did not finish"
