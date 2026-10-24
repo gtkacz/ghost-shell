@@ -17,7 +17,8 @@ Rectangle {
     readonly property real cellGapPx: 10
     readonly property real tagWidthPx: 34
     readonly property real windowWidthPx: 32
-    readonly property real trackWidthPx: 120
+    // Two usage columns (4 cells of 32 + track + 44 + 80 and 3 gaps of 10) plus the 18 gap and 2 x 12 padding must fit widthPx: 2 x 296 + 18 + 24 = 634 of 640.
+    readonly property real trackWidthPx: 110
     readonly property real trackHeightPx: 6
     readonly property real percentWidthPx: 44
     readonly property real resetWidthPx: 80
