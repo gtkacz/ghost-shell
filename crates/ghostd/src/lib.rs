@@ -10,4 +10,5 @@ pub mod sampler;
 pub mod selfmon;
 pub mod server;
 pub mod sysroot;
+pub mod taps;
 pub mod widgets;

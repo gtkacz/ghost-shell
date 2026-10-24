@@ -666,3 +666,159 @@ mod usage {
         assert_eq!(after.windows[1], before.windows[1]);
     }
 }
+
+mod taps {
+    use std::io::Write;
+    use std::process::{Command, ExitStatus, Stdio};
+    use std::{fs, path::PathBuf, thread, time::Duration};
+
+    use ghost_proto::AgentState;
+    use ghostd::feeds::agents::codex::SessionFile;
+    use ghostd::sysroot::SysRoot;
+    use ghostd::taps::codex::codex_ancestor;
+
+    use super::sessions::Sandbox;
+
+    impl Sandbox {
+        fn write_inner(&self, command: &str) {
+            let dir = self.dir.path().join("config/ghost-shell");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("claude-statusline-inner"), command).unwrap();
+        }
+
+        fn capture_path(&self) -> PathBuf {
+            self.dir
+                .path()
+                .join("state/ghost-shell/claude-statusline.json")
+        }
+
+        fn codex_sessions_dir(&self) -> PathBuf {
+            self.dir.path().join("run/ghost-shell/codex-sessions")
+        }
+
+        fn codex_file(&self, id: &str) -> SessionFile {
+            let path = self.codex_sessions_dir().join(format!("{id}.json"));
+            serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+        }
+    }
+
+    /// Runs a subcommand with `stdin`, every XDG variable pointed into the sandbox, and returns (status, stdout).
+    fn run_tap(sb: &Sandbox, args: &[&str], stdin: &str) -> (ExitStatus, String) {
+        let base = sb.dir.path();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ghostd"))
+            .args(args)
+            .env("HOME", base.join("home"))
+            .env("XDG_STATE_HOME", base.join("state"))
+            .env("XDG_CONFIG_HOME", base.join("config"))
+            .env("XDG_RUNTIME_DIR", base.join("run"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        (output.status, String::from_utf8(output.stdout).unwrap())
+    }
+
+    fn write_proc(root: &std::path::Path, rel: &str, text: &str) {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn the_statusline_tap_captures_atomically_and_forwards_the_inner_command() {
+        let sb = Sandbox::new();
+        sb.write_inner("cat; echo -n tail");
+        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], "{\"a\":1}");
+        assert!(status.success());
+        assert_eq!(out, "{\"a\":1}tail");
+        assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), "{\"a\":1}");
+        assert!(
+            fs::read_dir(sb.capture_path().parent().unwrap())
+                .unwrap()
+                .count()
+                == 1,
+            "no temp file left"
+        );
+    }
+
+    #[test]
+    fn the_statusline_tap_prints_nothing_without_an_inner_command() {
+        let sb = Sandbox::new();
+        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], "x");
+        assert!(status.success() && out.is_empty());
+    }
+
+    #[test]
+    fn the_codex_hook_writes_the_state_per_event_and_keeps_since() {
+        let sb = Sandbox::new();
+        let event = |name: &str| {
+            format!(r#"{{"session_id":"abc-123","hook_event_name":"{name}","cwd":"/home/u/p"}}"#)
+        };
+        let (status, out) = run_tap(&sb, &["codex-hook"], &event("UserPromptSubmit"));
+        assert!(status.success() && out.is_empty());
+        let first = sb.codex_file("abc-123");
+        assert_eq!(
+            (first.state, first.cwd.as_str(), first.pid),
+            (AgentState::Busy, "/home/u/p", None)
+        );
+        thread::sleep(Duration::from_millis(1100));
+        run_tap(&sb, &["codex-hook"], &event("PreToolUse"));
+        assert_eq!(
+            sb.codex_file("abc-123").since_s,
+            first.since_s,
+            "same state keeps since_s"
+        );
+        run_tap(&sb, &["codex-hook"], &event("PermissionRequest"));
+        let waiting = sb.codex_file("abc-123");
+        assert_eq!(
+            (waiting.state, waiting.waiting_for.as_deref()),
+            (AgentState::Waiting, Some("permission prompt"))
+        );
+        assert!(waiting.since_s > first.since_s);
+        run_tap(&sb, &["codex-hook"], &event("SessionEnd"));
+        assert!(!sb.codex_sessions_dir().join("abc-123.json").exists());
+    }
+
+    #[test]
+    fn the_codex_hook_refuses_a_traversing_id_and_swallows_garbage() {
+        let sb = Sandbox::new();
+        let (status, out) = run_tap(
+            &sb,
+            &["codex-hook"],
+            r#"{"session_id":"../../escape","hook_event_name":"SessionStart","cwd":"/"}"#,
+        );
+        assert!(status.success() && out.is_empty());
+        assert!(!sb.codex_sessions_dir().exists());
+        assert!(!sb.dir.path().join("run/escape.json").exists());
+        let (status, out) = run_tap(&sb, &["codex-hook"], "not json");
+        assert!(status.success() && out.is_empty());
+    }
+
+    #[test]
+    fn the_codex_ancestor_is_the_nearest_process_named_codex() {
+        let dir = tempfile::tempdir().unwrap();
+        let stat = |pid: u32, comm: &str, ppid: u32| {
+            format!("{pid} ({comm}) S {ppid} 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 {pid} 0 1 0\n")
+        };
+        write_proc(dir.path(), "proc/30/stat", &stat(30, "sh", 20));
+        write_proc(dir.path(), "proc/20/stat", &stat(20, "codex", 10));
+        write_proc(dir.path(), "proc/10/stat", &stat(10, "codex", 1));
+        write_proc(dir.path(), "proc/1/stat", &stat(1, "systemd", 0));
+        let root = SysRoot::new(dir.path());
+        assert_eq!(codex_ancestor(&root, 30), Some((20, 20)));
+        assert_eq!(
+            codex_ancestor(&root, 20),
+            Some((20, 20)),
+            "the start pid itself counts"
+        );
+        assert_eq!(codex_ancestor(&root, 1), None);
+    }
+}
