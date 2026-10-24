@@ -33,5 +33,6 @@ ClickArea 1.0 ClickArea.qml
 BarPopup 1.0 BarPopup.qml
 OutsideCatcher 1.0 OutsideCatcher.qml
 AppIcon 1.0 AppIcon.qml
+NotificationRows 1.0 NotificationRows.qml
 internal TopicValue TopicValue.qml
 internal HeatBand HeatBand.qml

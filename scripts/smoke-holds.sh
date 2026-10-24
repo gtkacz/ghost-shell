@@ -648,6 +648,13 @@ sleep "$action_gap_s"
 ipc call launcher toggle
 check launcher "opened, then closed" must_log
 
+# The centre holds the frame clock for its cursor while it is open, and gives it back on close.
+begin_phase
+ipc call notifications toggle
+sleep "$action_gap_s"
+ipc call notifications toggle
+check centre "opened, then closed" must_log
+
 stop shell_pid
 stop daemon_pid
 # The shell's last lines, such as its teardown's, reach the log only once it has stopped.

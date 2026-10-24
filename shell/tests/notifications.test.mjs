@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   acceptNotificationsSeq,
   bellState,
+  clampSelection,
   countsLine,
   filterRecords,
   footerLeft,
@@ -12,6 +13,7 @@ import {
   stableActions,
   moveSelection,
   quietSince,
+  rowMarkup,
   rowText,
   toastQueue,
   windowToRaise,
@@ -217,6 +219,19 @@ test('selection moves one row and stays inside the list', () => {
   assert.equal(moveSelection(2, 'Up', 3), 1);
   assert.equal(moveSelection(1, 'Left', 3), 1);
   assert.equal(moveSelection(0, 'Down', 0), 0);
+});
+
+test('selection is clamped to a shorter list and never below the first row', () => {
+  assert.equal(clampSelection(5, 3), 2);
+  assert.equal(clampSelection(1, 3), 1);
+  assert.equal(clampSelection(0, 0), 0);
+  assert.equal(clampSelection(4, 0), 0);
+});
+
+test('a row is one escaped line with the body in its own colour', () => {
+  const row = rowMarkup(record(1, { summary: 'a <b> & c', body_text: 'line one\nline  two' }), '#587170');
+  assert.equal(row, 'a &lt;b&gt; &amp; c<font color="#587170"> \u2014 line one line two</font>');
+  assert.equal(rowMarkup(record(2, { summary: 'only', body_text: '' }), '#587170'), 'only');
 });
 
 test('a countdown body is exactly HH:MM:SS', () => {

@@ -44,4 +44,12 @@ ShellRoot {
             screen: desktop.mainScreen
         }
     }
+
+    LazyLoader {
+        active: barEnabled && desktop.mainScreen !== null
+
+        NotificationCentre {
+            screen: desktop.mainScreen
+        }
+    }
 }

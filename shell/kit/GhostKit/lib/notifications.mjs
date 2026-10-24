@@ -121,6 +121,20 @@ export function moveSelection(index, key, length) {
   return index;
 }
 
+// A dismissed row can leave the selection past the end of a shorter list.
+export function clampSelection(index, length) {
+  return Math.min(index, Math.max(0, length - 1));
+}
+
+const STYLED_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;' };
+
+// One line of Qt styled text: the summary, then the body in `bodyColour`. Neither may inject markup.
+export function rowMarkup(record, bodyColour) {
+  const line = (text) => text.replace(/\s+/g, ' ').trim().replace(/[&<>]/g, (char) => STYLED_ESCAPES[char]);
+  const body = line(record.body_text);
+  return body === '' ? line(record.summary) : `${line(record.summary)}<font color="${bodyColour}"> \u2014 ${body}</font>`;
+}
+
 export function isCountdown(bodyText) {
   return COUNTDOWN.test(bodyText);
 }

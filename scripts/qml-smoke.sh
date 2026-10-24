@@ -173,9 +173,11 @@ apply_smoke_bar() {
 
 # Seconds between the fake daemon's own new notifications; empty for none.
 notify_every=
+# 1 starts the fake daemon with an empty notification history.
+notify_empty=
 
 start_daemon() {
-    GHOST_FAKE_NOTIFY_EVERY_S=$notify_every DBUS_SESSION_BUS_ADDRESS=$daemon_bus "$daemon" run --fake --socket "$socket" --config "$config" \
+    GHOST_FAKE_NOTIFY_EVERY_S=$notify_every GHOST_FAKE_NOTIFY_EMPTY=$notify_empty DBUS_SESSION_BUS_ADDRESS=$daemon_bus "$daemon" run --fake --socket "$socket" --config "$config" \
         --widgets-dir "$repo/widgets" >> "$daemon_log" 2>&1 &
     daemon_pid=$!
 }
@@ -385,14 +387,14 @@ take_stack_shot() {
     magick "$whole" -crop "${stack_region_w}x${stack_region_h}+${x}+${y}" +repage "$1"
 }
 
-# Fails unless the stack differs between the snapshots $1 and $2 in at least stack_min_diff_px pixels.
+# Fails unless the stack differs between the snapshots $1 and $2 in at least $4 (default stack_min_diff_px) pixels.
 expect_stack_changed() {
-    local diff
+    local diff min=${4:-$stack_min_diff_px}
     diff=$(compare -metric AE -fuzz 8% "$1" "$2" null: 2>&1 || true)
     # The metric is a float on some builds.
     diff=${diff%%[. ]*}
-    if ! [[ $diff =~ ^[0-9]+$ ]] || (( diff < stack_min_diff_px )); then
-        echo "smoke: FAIL (toasts: $3: $diff pixels of the stack differ, expected $stack_min_diff_px; snapshots in $state_dir)" >&2
+    if ! [[ $diff =~ ^[0-9]+$ ]] || (( diff < min )); then
+        echo "smoke: FAIL (${shot_phase:-toasts}: $3: $diff pixels differ, expected $min; snapshots in $state_dir)" >&2
         keep_state=1
         exit 1
     fi
@@ -459,6 +461,111 @@ run_toasts_phase() {
     fi
 }
 
+# GHOST_SMOKE_CENTRE=1 drives the notification centre through its debug IPC and looks at it in snapshots (see
+# GHOST_SMOKE_TOASTS for GHOST_SMOKE_SHOT). The fake daemon logs no calls, so a call that reached it shows in what it
+# did: invoking a record it offered a default for removes the record from the history.
+centre=${GHOST_SMOKE_CENTRE:-}
+centre_ipc_s=1
+# Wider and taller than the centre at the test scale (a design pixel is about two physical ones), starting past the bar.
+centre_region_w=900
+centre_region_h=1250
+centre_region_inset=48
+# The dashboard behind moves by about 4500 pixels between snapshots; the panel is as dark as the ground it covers, so it
+# only changes the pixels of its frame and text.
+centre_min_diff_px=15000
+# A filter changes the rows only, which is less than the whole panel but more than the dashboard's motion.
+centre_min_rows_diff_px=8000
+
+centre_ipc() {
+    qs ipc --pid "$shell_pid" call notifications "$@" \
+        || { echo "smoke: FAIL (qs ipc notifications $* failed; see $shell_log)" >&2; exit 1; }
+}
+
+# Runs the debug IPC call and gives the shell a moment to act on it.
+centre_do() {
+    centre_ipc "$@" > /dev/null
+    sleep "$centre_ipc_s"
+}
+
+centre_expect() {
+    if [[ $2 != "$3" ]]; then
+        echo "smoke: FAIL (centre: $1: expected \"$3\", got \"$2\"; see $shell_log)" >&2
+        keep_state=1
+        exit 1
+    fi
+}
+
+centre_log_count() {
+    grep -c -- "qml: $1" "$shell_log" || true
+}
+
+# Writes the part of the screen the centre is in to $1; the centre is right of the bell, or 12 design pixels from the
+# right edge before any click on it.
+take_centre_shot() {
+    local whole=$state_dir/whole.png w h y
+    "$shot_cmd" "$whole" || { echo "smoke: FAIL (GHOST_SMOKE_SHOT failed)" >&2; exit 1; }
+    read -r w h < <(magick identify -format '%w %h\n' "$whole")
+    y=$centre_region_inset
+    if [[ $(sed -n 's/^position = "\(.*\)"/\1/p' "$config" | head -n 1) == bottom ]]; then
+        y=$((h - centre_region_inset - centre_region_h))
+    fi
+    magick "$whole" -crop "${centre_region_w}x${centre_region_h}+$((w - centre_region_w))+${y}" +repage "$1"
+}
+
+run_centre_phase() {
+    local shot_phase=centre before
+    sleep "$settle_s"
+    take_centre_shot "$state_dir/centre-closed.png"
+
+    centre_do toggle
+    centre_expect "opened by toggle" "$(centre_log_count 'centre opened')" 1
+    sleep "$settle_s"
+    take_centre_shot "$state_dir/centre-filled.png"
+    expect_stack_changed "$state_dir/centre-closed.png" "$state_dir/centre-filled.png" "the open centre looks like none" "$centre_min_diff_px"
+
+    centre_do type disc
+    centre_expect "the filter keeps the DISCORD records" "$(centre_ipc status)" "open query=disc index=0 shown=2"
+    sleep "$settle_s"
+    take_centre_shot "$state_dir/centre-filtered.png"
+    expect_stack_changed "$state_dir/centre-filled.png" "$state_dir/centre-filtered.png" "filtering changed nothing" "$centre_min_rows_diff_px"
+
+    centre_do key Down
+    centre_expect "Down moves the selection" "$(centre_ipc status)" "open query=disc index=1 shown=2"
+    # The second DISCORD record offers no default, so the daemon keeps it; the panel still closes.
+    centre_do key Return
+    centre_expect "closed after Enter" "$(centre_log_count 'centre closed')" 1
+
+    # The first DISCORD record offers a default, which the daemon answers by removing the record.
+    centre_do toggle
+    centre_do type disc
+    centre_do key Return
+    centre_expect "closed after the second Enter" "$(centre_log_count 'centre closed')" 2
+    centre_do toggle
+    centre_do type disc
+    centre_expect "the invoked record is gone from the daemon's history" "$(centre_ipc status)" "open query=disc index=0 shown=1"
+    centre_do key Escape
+    centre_expect "closed by Escape" "$(centre_log_count 'centre closed')" 3
+
+    stop daemon_pid
+    notify_empty=1
+    before=$(connect_count)
+    start_daemon
+    wait_for_connects $((before + 1))
+    sleep "$settle_s"
+    centre_do toggle
+    centre_expect "the empty history lists nothing" "$(centre_ipc status)" "open query= index=0 shown=0"
+    sleep "$settle_s"
+    take_centre_shot "$state_dir/centre-empty.png"
+    expect_stack_changed "$state_dir/centre-closed.png" "$state_dir/centre-empty.png" "the empty centre looks like none" "$centre_min_diff_px"
+    centre_do key Escape
+    centre_expect "closed after the empty state" "$(centre_log_count 'centre closed')" 4
+    centre_expect "nothing was dropped or refused" "$(grep -cE 'dropped call|ghostd refused call' "$shell_log" || true)" 0
+
+    if [[ -n ${GHOST_SMOKE_KEEP_SHOTS:-} ]]; then
+        cp -- "$state_dir"/centre-*.png "$GHOST_SMOKE_KEEP_SHOTS"/
+    fi
+}
+
 trap cleanup EXIT
 # Turning signals into a plain exit makes bash run the EXIT trap for them too.
 trap 'exit 130' INT
@@ -483,8 +590,8 @@ state_dir=$(mktemp -d -t ghost-smoke-state.XXXXXX)
 if [[ -n $launcher ]]; then
     make_launcher_fixture
 fi
-if [[ -n $toasts && ( -z $shot_cmd || ! -x $shot_cmd ) ]]; then
-    echo "smoke: FAIL (GHOST_SMOKE_TOASTS needs GHOST_SMOKE_SHOT, an executable that writes a PNG of the output to its argument)" >&2
+if [[ ( -n $toasts || -n $centre ) && ( -z $shot_cmd || ! -x $shot_cmd ) ]]; then
+    echo "smoke: FAIL (GHOST_SMOKE_TOASTS and GHOST_SMOKE_CENTRE need GHOST_SMOKE_SHOT, an executable that writes a PNG of the output to its argument)" >&2
     exit 1
 fi
 # The shell's audio rows and the daemon's spectrum would otherwise read the user's own PipeWire graph,
@@ -500,7 +607,7 @@ owns_socket=1
 : > "$daemon_log"
 start_daemon
 # The greeting would hide the dashboard for its first seconds; GHOST_GREETING=login or auto plays it.
-env ${launcher_env[@]+"${launcher_env[@]}"} ${toasts:+GHOST_DEBUG=1} GHOST_GREETING=${GHOST_GREETING:-off} GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
+env ${launcher_env[@]+"${launcher_env[@]}"} ${toasts:+GHOST_DEBUG=1} ${centre:+GHOST_DEBUG=1} GHOST_GREETING=${GHOST_GREETING:-off} GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
 shell_pid=$!
 
 sleep "$startup_s"
@@ -518,6 +625,9 @@ if [[ -n $launcher ]]; then
 fi
 if [[ -n $toasts ]]; then
     run_toasts_phase
+fi
+if [[ -n $centre ]]; then
+    run_centre_phase
 fi
 
 stop shell_pid

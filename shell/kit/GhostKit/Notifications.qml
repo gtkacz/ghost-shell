@@ -38,6 +38,8 @@ Singleton {
     })
     readonly property var records: core.open ? NotificationsLib.filterRecords(snapshot?.items ?? [], query) : []
 
+    onRecordsChanged: index = NotificationsLib.clampSelection(index, records.length)
+
     function toggle() {
         if (core.open) {
             close();
@@ -53,6 +55,9 @@ Singleton {
         }
         query = "";
         index = 0;
+        // The header scrambles once per opening.
+        FirstWrite.showView("centre");
+        FrameClock.acquire();
         core.open = true;
         console.info("centre opened");
     }
@@ -62,6 +67,7 @@ Singleton {
             return;
         }
         core.open = false;
+        FrameClock.release();
         markAllRead();
         console.info("centre closed");
     }
