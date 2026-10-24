@@ -6,6 +6,7 @@ import {
   dedupe,
   disarm,
   highlight,
+  isActivationRepeat,
   initialPower,
   move,
   power,
@@ -157,12 +158,33 @@ test('power needs a second press within three seconds', () => {
   assert.equal(power(armed.state, 'power', 3 * MS).fire, 'power');
 });
 
-test('key repeat does not confirm', () => {
+test('a second press inside the guard window does not confirm', () => {
   const armed = power(initialPower, 'restart', 0).state;
   const repeated = power(armed, 'restart', 100);
   assert.equal(repeated.fire, null);
   assert.equal(repeated.state.armedAtMs, 0);
+  assert.equal(power(repeated.state, 'restart', 249).fire, null);
   assert.equal(power(repeated.state, 'restart', 250).fire, 'restart');
+});
+
+test('a held Return never confirms, at 0, 30 and 600 ms', () => {
+  let state = initialPower;
+  let fired = null;
+  for (const [atMs, isAutoRepeat] of [[0, false], [30, true], [600, true]]) {
+    if (!isActivationRepeat('Return', isAutoRepeat)) {
+      const result = power(state, 'shutdown', atMs);
+      state = result.state;
+      fired = result.fire ?? fired;
+    }
+  }
+  assert.equal(fired, null);
+  assert.equal(state.armed, 'shutdown');
+});
+
+test('only a repeated Return is an activation repeat', () => {
+  assert.equal(isActivationRepeat('Return', true), true);
+  assert.equal(isActivationRepeat('Return', false), false);
+  assert.equal(isActivationRepeat('Down', true), false);
 });
 
 test('a different action re-arms', () => {

@@ -302,6 +302,14 @@ run_launcher_phase() {
     launcher_ipc_s=0 launcher_ipc power restart
     launcher_ipc power restart
     launcher_expect "key repeat did not fire" "$(launcher_count 'launcher power restart')" 0
+
+    # A held Return on the focused SHUT DOWN button arms it once; its auto-repeats, even after the key-repeat delay, must not confirm.
+    launcher_ipc_s=0 launcher_ipc key Backtab
+    launcher_ipc_s=0 launcher_ipc key Return
+    launcher_ipc_s=0.03 launcher_ipc repeat Return
+    launcher_ipc_s=0.6 launcher_ipc repeat Return
+    launcher_ipc repeat Return
+    launcher_expect "held Return did not confirm" "$(launcher_count 'launcher power shutdown')" 1
     launcher_ipc key Escape
     launcher_expect "Escape closed" "$(launcher_count 'launcher closed')" 3
 

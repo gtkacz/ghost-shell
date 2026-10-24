@@ -333,8 +333,8 @@ Scope {
                 Keys.onPressed: event => {
                     const name = root.keyName(event.key);
                     if (name !== "") {
-                        Launcher.key(name);
-                    } else if (event.text.length === 1 && event.text >= " " && !(event.modifiers & (Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier))) {
+                        Launcher.key(name, event.isAutoRepeat);
+                    } else if (event.text.length === 1 && event.text >= " " && event.text !== "\x7f" && !(event.modifiers & (Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier))) {
                         Launcher.type(event.text);
                     } else {
                         return;

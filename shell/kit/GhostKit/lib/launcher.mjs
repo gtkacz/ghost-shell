@@ -148,6 +148,12 @@ export function power(state, action, nowMs) {
   return { state: { armed: action, armedAtMs: nowMs }, fire: null };
 }
 
+// A held Return repeats after the key-repeat delay, which is longer than the confirm guard, so a repeat must never
+// count as a second press of a row or a power button.
+export function isActivationRepeat(name, isAutoRepeat) {
+  return isAutoRepeat && name === 'Return';
+}
+
 export function disarm() {
   return initialPower;
 }

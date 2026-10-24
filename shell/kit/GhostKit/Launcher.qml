@@ -158,9 +158,9 @@ Singleton {
         core.powerFocus = -1;
     }
 
-    // Takes Qt-style names: Escape, Return, Backspace, Tab, Backtab and the four arrows.
-    function key(name) {
-        if (!core.open || core.burning >= 0) {
+    // Takes Qt-style names: Escape, Return, Backspace, Tab, Backtab and the four arrows. An auto-repeat of Return is dropped here too, so no route confirms a power action from one held press.
+    function key(name, isAutoRepeat) {
+        if (!core.open || core.burning >= 0 || LauncherLib.isActivationRepeat(name, isAutoRepeat === true)) {
             return;
         }
         switch (name) {
@@ -235,7 +235,7 @@ Singleton {
     }
 
     function press(actionId) {
-        if (!core.open) {
+        if (!core.open || !powerActions.some(candidate => candidate.id === actionId)) {
             return;
         }
         const result = LauncherLib.power(core.power, actionId, Date.now());
@@ -342,6 +342,10 @@ Singleton {
 
         function type(text: string): void {
             root.type(text);
+        }
+
+        function repeat(name: string): void {
+            root.key(name, true);
         }
 
         function key(name: string): void {
