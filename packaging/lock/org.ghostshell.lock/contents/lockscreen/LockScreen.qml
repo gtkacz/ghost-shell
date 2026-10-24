@@ -12,9 +12,14 @@ GateScreen {
     property bool locked: false
     property bool viewVisible: false
 
-    adapter: LockAdapter {}
+    // Set once the snapshot is in the Theme, so the primary screen is chosen by the configured display model only.
+    property bool themed: false
+
+    adapter: LockAdapter {
+        driving: root.primary
+    }
     // Until the root is in its window, Screen reads the primary output, which would load the prompt on every screen.
-    primary: Window.window !== null && Screen.name === (ScaleLib.pickScreen(Qt.application.screens, Theme.displayModel) || {}).name
+    primary: themed && Window.window !== null && Screen.name === (ScaleLib.pickScreen(Qt.application.screens, Theme.displayModel) || {}).name
 
     onDone: adapter.finish()
 
@@ -25,5 +30,8 @@ GateScreen {
         location: StandardPaths.writableLocation(StandardPaths.GenericStateLocation) + "/ghost-shell/gate.ini"
     }
 
-    Component.onCompleted: Theme.load(GateLib.readSnapshot((key) => snapshot.value(key)))
+    Component.onCompleted: {
+        Theme.load(GateLib.readSnapshot((key) => snapshot.value(key)));
+        themed = true;
+    }
 }

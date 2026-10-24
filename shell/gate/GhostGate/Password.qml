@@ -35,6 +35,22 @@ Item {
         input.forceActiveFocus();
     }
 
+    // A key typed while another window held the keyboard, edited as the field itself would.
+    function type(event) {
+        if (busy) {
+            return;
+        }
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            input.accepted();
+        } else if (event.key === Qt.Key_Escape) {
+            clear();
+        } else if (event.key === Qt.Key_Backspace) {
+            input.remove(input.text.length - 1, input.text.length);
+        } else if (event.text !== "" && event.text >= " ") {
+            input.insert(input.text.length, event.text);
+        }
+    }
+
     implicitWidth: Theme.d(GateLib.CELLS * cellWidthPx + (GateLib.CELLS - 1) * gapPx)
     implicitHeight: Theme.d(rowHeightPx)
 

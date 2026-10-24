@@ -31,6 +31,10 @@ Item {
         password.focusField();
     }
 
+    function type(event) {
+        password.type(event);
+    }
+
     function raiseAlert() {
         alerted = true;
         alert.restart();
@@ -50,6 +54,11 @@ Item {
 
         function onSucceeded() {
             password.clear();
+        }
+
+        function onReset() {
+            password.clear();
+            root.alerted = false;
         }
 
         // A backend that stops without a verdict must not leave the password behind in the hidden field.

@@ -144,9 +144,9 @@ env -u DBUS_SESSION_BUS_ADDRESS HOME="$root" XDG_DATA_HOME="$root/data" XDG_CONF
     XDG_STATE_HOME="$root/state" XDG_RUNTIME_DIR="$root/run" "$repo/scripts/install.sh" --lock > "$out/install.log" 2>&1 \
     || fail "install.sh --lock failed; see $out/install.log"
 lock_qml=$root/data/plasma/shells/$package/contents/lockscreen/LockScreen.qml
-sed -i -e 's/adapter: LockAdapter {}/adapter: FakeAdapter {}/' \
+sed -i -e 's/adapter: LockAdapter {/adapter: FakeAdapter {/' -e '/driving: root.primary/d' \
     -e 's/onDone: adapter.finish()/onDone: console.info("gate: done at " + Date.now())/' "$lock_qml"
-grep -q 'FakeAdapter {}' "$lock_qml" && grep -q 'gate: done at' "$lock_qml" || fail "could not swap the adapter in $lock_qml"
+grep -q 'FakeAdapter {' "$lock_qml" && grep -q 'gate: done at' "$lock_qml" || fail "could not swap the adapter in $lock_qml"
 
 dbus-daemon --config-file="$repo/scripts/private-bus.conf" --nofork --print-address=3 3> "$root/system.addr" &
 pids+=($!)

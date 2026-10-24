@@ -52,15 +52,16 @@ fn japanese_name(config: &ResolvedConfig) -> String {
         .unwrap_or_default()
 }
 
-pub fn snapshot_ini(config: &ResolvedConfig, host: &str) -> String {
+pub fn snapshot_ini(config: &ResolvedConfig, host: &str, user: &str) -> String {
     let look = &config.appearance;
     let colors = &look.colors;
     let mut ini = String::new();
     let _ = write!(
         ini,
-        "[gate]\nversion={SNAPSHOT_VERSION}\nstyle={}\nhost={}\ndisplay_model={}\n",
+        "[gate]\nversion={SNAPSHOT_VERSION}\nstyle={}\nhost={}\nuser={}\ndisplay_model={}\n",
         style_name(config.lock.style),
         quoted(host),
+        quoted(user),
         quoted(&config.display.model),
     );
     let _ = write!(
@@ -160,9 +161,14 @@ fn snapshot_paths_in(
 }
 
 /// Writes the snapshot at start and again after every config change.
-pub async fn keep(mut updates: watch::Receiver<ResolvedConfig>, host: String, paths: Vec<PathBuf>) {
+pub async fn keep(
+    mut updates: watch::Receiver<ResolvedConfig>,
+    host: String,
+    user: String,
+    paths: Vec<PathBuf>,
+) {
     loop {
-        let ini = snapshot_ini(&updates.borrow_and_update(), &host);
+        let ini = snapshot_ini(&updates.borrow_and_update(), &host, &user);
         for path in &paths {
             if let Err(error) = write_atomic(path, &ini) {
                 warn!(%error, path = %path.display(), "cannot write the gate snapshot");
@@ -184,6 +190,7 @@ mod tests {
         "version=1",
         "style=prompt",
         "host=",
+        "user=",
         "display_model=",
         "[appearance]",
         "font=",
@@ -216,7 +223,7 @@ mod tests {
     ];
 
     fn default_ini() -> String {
-        snapshot_ini(&crate::config::load_str("").unwrap(), "ghost")
+        snapshot_ini(&crate::config::load_str("").unwrap(), "ghost", "gtkacz")
     }
 
     #[test]
@@ -230,7 +237,10 @@ mod tests {
         }
         assert!(ini.contains("\nground=\"#0a0f11\"\n"));
         assert!(ini.contains("\nhost=\"ghost\"\n"));
-        assert!(ini.contains("\nsize_range=2.5\nbrightness=1.6\ncover=0.4\nscale=1\n[scanlines]\nopacity=15\n"));
+        assert!(ini.contains("\nuser=\"gtkacz\"\n"));
+        assert!(ini.contains(
+            "\nsize_range=2.5\nbrightness=1.6\ncover=0.4\nscale=1\n[scanlines]\nopacity=15\n"
+        ));
     }
 
     #[test]
@@ -245,7 +255,7 @@ mod tests {
         let mut config = crate::config::load_str("").unwrap();
         config.lock.style = LockStyle::Idcheck;
         config.appearance.panel_fill = 40;
-        let ini = snapshot_ini(&config, "ghost");
+        let ini = snapshot_ini(&config, "ghost", "gtkacz");
         assert!(ini.contains("\nstyle=idcheck\n"));
         assert!(ini.contains("\npanel_fill=40\n"));
     }

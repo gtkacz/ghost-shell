@@ -34,6 +34,7 @@ test('cells lights one cell per character and parks the cursor on the next one',
 test('parseSnapshot fills the default palette from an empty snapshot', () => {
   const snapshot = parseSnapshot({});
   assert.equal(snapshot.style, 'prompt');
+  assert.equal(snapshot.user, '');
   assert.equal(snapshot.appearance.colors.ground, '#0a0f11');
   assert.equal(snapshot.appearance.colors.signal, '#a3d4cc');
   assert.equal(snapshot.appearance.panel_fill, 55);
@@ -66,7 +67,13 @@ test('parseSnapshot keeps the default for a value it cannot use', () => {
 });
 
 test('readSnapshot asks for every snapshot key as section/key and parses the answers', () => {
-  const ini = { 'gate/display_model': 'M27Q', 'gate/host': 'hal', 'colors/ground': '#112233', 'dots/spacing': '30' };
+  const ini = {
+    'gate/display_model': 'M27Q',
+    'gate/host': 'hal',
+    'gate/user': 'gtkacz',
+    'colors/ground': '#112233',
+    'dots/spacing': '30',
+  };
   const asked = [];
   const snapshot = readSnapshot((key) => {
     asked.push(key);
@@ -74,6 +81,7 @@ test('readSnapshot asks for every snapshot key as section/key and parses the ans
   });
   assert.equal(snapshot.displayModel, 'M27Q');
   assert.equal(snapshot.host, 'hal');
+  assert.equal(snapshot.user, 'gtkacz');
   assert.equal(snapshot.appearance.colors.ground, '#112233');
   assert.equal(snapshot.appearance.dots.spacing, 30);
   assert.equal(snapshot.appearance.panel_fill, 55);

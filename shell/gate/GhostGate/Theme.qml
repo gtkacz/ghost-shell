@@ -19,6 +19,7 @@ QtObject {
 
     property string style: defaults.style
     property string host: defaults.host
+    property string user: defaults.user
     property string displayModel: defaults.displayModel
 
     readonly property int blinkStepMs: GateLib.BLINK_STEP_MS
@@ -56,6 +57,7 @@ QtObject {
         appearance = snapshot.appearance;
         style = snapshot.style;
         host = snapshot.host;
+        user = snapshot.user;
         displayModel = snapshot.displayModel;
     }
 

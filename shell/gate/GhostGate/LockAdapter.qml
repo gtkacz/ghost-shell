@@ -9,9 +9,13 @@ import org.kde.plasma.workspace.keyboardlayout as KeyboardLayouts
 QtObject {
     id: root
 
+    // Every screen has an adapter but they share one authenticator, so only the primary screen's may drive it.
+    property bool driving: false
+
     readonly property string mode: "lock"
-    readonly property var users: [kscreenlocker_userName]
-    readonly property string userName: kscreenlocker_userName
+    // The greeter only knows the full name; the snapshot carries the login name the gate shows.
+    readonly property string userName: Theme.user !== "" ? Theme.user : kscreenlocker_userName
+    readonly property var users: [userName]
     property bool busy: false
     property int attempts: 0
     property string message: ""
@@ -47,11 +51,23 @@ QtObject {
 
     property var retry: Timer {
         interval: root.restartDelayMs
-        onTriggered: authenticator.startAuthenticating()
+        onTriggered: root.start()
+    }
+
+    property var sleep: Connections {
+        target: root.session
+
+        // As the stock screen does: nothing typed survives the machine going to sleep.
+        function onAboutToSuspend() {
+            root.pending = "";
+            root.busy = false;
+            root.reset();
+        }
     }
 
     property var pam: Connections {
         target: authenticator
+        enabled: root.driving
 
         function onPromptForSecretChanged() {
             root.asked = true;
@@ -86,6 +102,12 @@ QtObject {
 
     signal succeeded
     signal failed
+    signal reset
+
+    function start() {
+        console.debug("gate: start authenticating");
+        authenticator.startAuthenticating();
+    }
 
     function respond() {
         const password = pending;
@@ -126,5 +148,11 @@ QtObject {
         Qt.quit();
     }
 
-    Component.onCompleted: authenticator.startAuthenticating()
+    onDrivingChanged: {
+        if (driving) {
+            start();
+        } else {
+            retry.stop();
+        }
+    }
 }

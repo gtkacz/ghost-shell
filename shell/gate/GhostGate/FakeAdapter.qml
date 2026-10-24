@@ -26,6 +26,8 @@ QtObject {
 
     signal succeeded
     signal failed
+    // The typed password and any alert must go, as when the machine is about to sleep.
+    signal reset
 
     function submit(password) {
         submitCount += 1;

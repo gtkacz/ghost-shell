@@ -11,8 +11,56 @@ Item {
     // Emitted once the screen has nothing left to show: after the scan pass at unlock, at once at login.
     signal done
 
-    Component.onCompleted: Theme.fit(width)
+    // Types a key that reached another screen's window into this screen's prompt.
+    function type(event) {
+        if (style.item) {
+            style.item.type(event);
+        }
+    }
+
+    // The keyboard can land on any screen's window, and only the primary one has a field. KWin moves the keyboard on
+    // requestActivate() only after real input, so the first keys are passed on by hand until it has.
+    focus: true
+    Keys.onPressed: (event) => {
+        const target = PrimaryScreen.screen;
+        if (primary || !target) {
+            return;
+        }
+        target.type(event);
+        target.Window.window.requestActivate();
+        event.accepted = true;
+    }
+
+    Component.onCompleted: {
+        Theme.fit(width);
+        if (primary) {
+            PrimaryScreen.screen = root;
+        }
+    }
     onWidthChanged: Theme.fit(width)
+    onPrimaryChanged: {
+        if (primary) {
+            PrimaryScreen.screen = root;
+        } else if (PrimaryScreen.screen === root) {
+            PrimaryScreen.screen = null;
+        }
+    }
+    Component.onDestruction: {
+        if (PrimaryScreen.screen === root) {
+            PrimaryScreen.screen = null;
+        }
+    }
+
+    // Another screen that was primary for a moment gives the slot up empty, so the real one takes it back.
+    Connections {
+        target: PrimaryScreen
+
+        function onScreenChanged() {
+            if (root.primary && PrimaryScreen.screen === null) {
+                PrimaryScreen.screen = root;
+            }
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -29,6 +77,8 @@ Item {
         onClicked: {
             if (style.item) {
                 style.item.refocus();
+            } else if (PrimaryScreen.screen) {
+                PrimaryScreen.screen.Window.window.requestActivate();
             }
         }
     }

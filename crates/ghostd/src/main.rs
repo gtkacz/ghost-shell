@@ -187,6 +187,8 @@ async fn run_daemon(options: RunOptions, socket: PathBuf, config_path: PathBuf) 
         tokio::spawn(gate::keep(
             config.subscribe(),
             server::host_name(),
+            // The login name, as the greeting's name defaults to.
+            env::var("USER").unwrap_or_default(),
             gate::snapshot_paths(),
         ));
     }

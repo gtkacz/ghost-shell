@@ -128,6 +128,19 @@ TestCase {
         compare(password.lit, 0);
     }
 
+    function test_reset_clears_the_field_and_the_alert() {
+        const screen = makeScreen();
+        const password = find(screen, "password");
+        const alert = find(screen, "alert");
+        type("abc");
+        screen.adapter.message = "Account locked";
+        verify(alert.visible);
+        compare(password.lit, 3);
+        screen.adapter.reset();
+        compare(password.lit, 0);
+        verify(!alert.visible);
+    }
+
     function test_full_row_keeps_cursor_off_the_last_cell() {
         const password = find(makeScreen(), "password");
         type("abc");
@@ -166,6 +179,19 @@ TestCase {
         screen.adapter.succeeded();
         wait(1200);
         compare(doneSpy.count, 0);
+    }
+
+    function test_keys_on_a_secondary_screen_reach_the_prompt() {
+        const screen = makeScreen();
+        const password = find(screen, "password");
+        const other = createTemporaryObject(screenComponent, test, { primary: false, adapter: screen.adapter });
+        other.forceActiveFocus();
+        type("abcd");
+        keyClick(Qt.Key_Backspace);
+        compare(password.lit, 3);
+        keyClick(Qt.Key_Return);
+        compare(screen.adapter.submitCount, 1);
+        compare(password.lit, 0);
     }
 
     function test_empty_enter_does_nothing() {

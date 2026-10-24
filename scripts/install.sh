@@ -253,6 +253,15 @@ install_kwin_script() {
     fi
 }
 
+require_tools() {
+    local tool
+    for tool in "$@"; do
+        if ! command -v "$tool" > /dev/null 2>&1; then
+            die "$tool not found in PATH"
+        fi
+    done
+}
+
 daemon_reload() {
     if systemctl --user show-environment > /dev/null 2>&1; then
         systemctl --user daemon-reload
@@ -261,9 +270,14 @@ daemon_reload() {
     fi
 }
 
+lock_dropin_text() {
+    printf '[Service]\nEnvironment=PLASMA_DEFAULT_SHELL=%s\n' "$lock_package_id"
+}
+
 install_lock() {
     local shell_package frag
 
+    require_tools kreadconfig6
     for frag in "$shaders_src"/*.frag; do
         if [[ -e $frag && ! -f $frag.qsb ]]; then
             die "no compiled shader for ${frag##*/}; run make shaders first"
@@ -293,7 +307,7 @@ install_lock() {
     fi
     step "pointing KWin's lock screen at it with $lock_dropin"
     mkdir -p -- "$lock_dropin_dir"
-    printf '[Service]\nEnvironment=PLASMA_DEFAULT_SHELL=%s\n' "$lock_package_id" > "$lock_dropin"
+    lock_dropin_text > "$lock_dropin"
     daemon_reload
 
     if [[ ! -e $lock_snapshot ]]; then
@@ -303,15 +317,20 @@ install_lock() {
 }
 
 remove_lock() {
+    require_tools cmp
     if [[ -e $lock_previous ]] && [[ $(head -n 1 -- "$lock_previous") == present ]]; then
-        step "restoring the previous $lock_dropin"
         mkdir -p -- "$lock_dropin_dir"
         tail -n +2 -- "$lock_previous" > "$lock_dropin"
-    else
-        step "removing $lock_dropin"
+        step "restored $lock_dropin as it was before --lock"
+    elif [[ ! -e $lock_dropin ]]; then
+        step "no $lock_dropin to remove"
+    elif cmp -s -- "$lock_dropin" <(lock_dropin_text); then
         rm -f -- "$lock_dropin"
-        # Fails, harmlessly, when the directory holds another drop-in or does not exist.
+        # Fails, harmlessly, when the directory holds another drop-in.
         rmdir -- "$lock_dropin_dir" 2> /dev/null || true
+        step "removed ghost-shell's $lock_dropin"
+    else
+        warn "left $lock_dropin in place: it is not the one --lock writes"
     fi
     rm -f -- "$lock_previous"
     step "removing $lock_package"

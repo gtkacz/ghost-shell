@@ -22,7 +22,7 @@ const NUMBER = /^\s*-?\d+(\.\d+)?\s*$/;
 
 // Mirrors ghostd's defaults, which apply to every key the snapshot lacks or garbles.
 const DEFAULTS = {
-  gate: { host: '', display_model: '' },
+  gate: { host: '', user: '', display_model: '' },
   appearance: {
     font: 'Kode Mono',
     font_cjk: 'Noto Sans CJK JP',
@@ -92,6 +92,7 @@ export function parseSnapshot(sections) {
   return {
     style: resolveStyle(gate.style),
     host: gate.host ?? DEFAULTS.gate.host,
+    user: gate.user ?? DEFAULTS.gate.user,
     displayModel: gate.display_model ?? DEFAULTS.gate.display_model,
     // Object.assign, not spread: QML's JS engine rejects object spread.
     appearance: Object.assign(appearance, {

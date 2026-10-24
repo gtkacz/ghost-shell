@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Installs the lock part into a headless KWin's sandbox with `install.sh --lock` and runs the real lock greeter on it
-# in test mode. Checks that the gate loads with no QML warning, and that the greeter takes typed keys by sending
+# in test mode on two screens. Checks that the gate loads once with no QML warning, that one screen alone starts PAM,
+# and that the greeter takes typed keys, wherever KWin first sends them, by sending
 # exactly one wrong password through the greeter's real PAM stack, which must answer with one failure. Never more
 # than one: on a machine with pam_faillock repeated failures lock the account. The success path is left to the gate's
 # fake-adapter test and to the user, since it would need the real password.
@@ -14,7 +15,9 @@ package=org.ghostshell.lock
 greeter=/usr/libexec/kscreenlocker_greet
 log=$root/greeter.log
 py=(env -u DBUS_SESSION_BUS_ADDRESS -u DBUS_SYSTEM_BUS_ADDRESS uv run --no-project python -I -B)
-fake_chord=$repo/spikes/bar-bridge/fake_chord.py
+fake_keys=$repo/scripts/fake-keys.py
+# Two screens, so the check covers what only one may do: show the prompt and drive the shared authenticator.
+outputs=2
 
 # evdev codes: a nonsense password, then Enter.
 wrong_password_keys="16 44 45 36 16 44 45 36"
@@ -31,6 +34,7 @@ loaded_line='gate: prompt lock'
 failed_line='gate: failed 1'
 # kscreenlocker's debug line for each password handed to PAM.
 responded_line='PamAuthenticators: responding to interactive authenticator'
+started_line='gate: start authenticating'
 warning_pattern='\.(qml|mjs):[0-9]+|ReferenceError|TypeError|outdated|falling back|Failed to load|Unlocked'
 
 kwin_pid=
@@ -101,7 +105,7 @@ mkdir -p "$root/data/applications"
 printf '[Desktop Entry]\nType=Application\nName=smoke-lock keys\nExec=%s\nNoDisplay=true\nX-KDE-Wayland-Interfaces=org_kde_kwin_fake_input\n' \
     "$python_exe" > "$root/data/applications/gs-smokelock-keys.desktop"
 
-kwin_out=$("$repo/scripts/headless-kwin.sh" "$name")
+kwin_out=$("$repo/scripts/headless-kwin.sh" "$name" "$outputs")
 kwin_pid=$(sed -n 's/^pid=//p' <<< "$kwin_out")
 wayland=$(sed -n 's/^WAYLAND_DISPLAY=//p' <<< "$kwin_out")
 # KWin is not dumpable, so its environ is closed to us; its bus is the socket its sibling dbus-daemon listens on.
@@ -117,13 +121,13 @@ env -u DBUS_SESSION_BUS_ADDRESS HOME="$root" XDG_DATA_HOME="$root/data" XDG_CONF
 
 env -i HOME="$root" PATH=/usr/bin:/bin XDG_RUNTIME_DIR="$root/run" XDG_CONFIG_HOME="$root/config" \
     XDG_DATA_HOME="$root/data" XDG_CACHE_HOME="$root/cache" XDG_STATE_HOME="$root/state" WAYLAND_DISPLAY="$wayland" \
-    QT_QPA_PLATFORM=wayland DBUS_SESSION_BUS_ADDRESS="$bus" QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='kscreenlocker_greet.debug=true' \
+    QT_QPA_PLATFORM=wayland DBUS_SESSION_BUS_ADDRESS="$bus" QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='kscreenlocker_greet.debug=true;qml.debug=true' \
     "$greeter" --testing --shell "$package" > "$log" 2>&1 &
 greeter_pid=$!
 
 wait_for_line "$loaded_line" "$load_budget_s" || fail "no \"$loaded_line\" in $log within $load_budget_s s"
 sleep "$focus_settle_s"
-printf '%s\n' $wrong_password_keys "$enter_key" | "${py[@]}" "$fake_chord" "$wayland" > "$root/keys.log" 2>&1 \
+printf '%s\n' $wrong_password_keys "$enter_key" | "${py[@]}" "$fake_keys" "$wayland" > "$root/keys.log" 2>&1 \
     || fail "typing failed; see $root/keys.log"
 wait_for_line "$failed_line" "$failure_budget_s" || fail "no \"$failed_line\" in $log within $failure_budget_s s"
 # Stopped before its retry starts a new PAM conversation, which the kill would end as one more failure in PAM's eyes.
@@ -131,6 +135,10 @@ stop_greeter
 
 responses=$(grep -acF -- "$responded_line" "$log" || true)
 (( responses == 1 )) || fail "$responses passwords reached PAM in $log, expected 1"
+starts=$(grep -acF -- "$started_line" "$log" || true)
+(( starts == 1 )) || fail "$starts \"$started_line\" lines in $log, expected 1"
+prompts=$(grep -acF -- "$loaded_line" "$log" || true)
+(( prompts == 1 )) || fail "$prompts \"$loaded_line\" lines in $log, expected 1 on $outputs screens"
 failures=$(grep -acF -- 'gate: failed' "$log" || true)
 (( failures == 1 )) || fail "$failures failure lines in $log, expected 1"
 if grep -aqF -- 'gate: succeeded' "$log"; then
