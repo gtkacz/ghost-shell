@@ -62,7 +62,7 @@ The bar and the launcher replace Plasma's panel and Kickoff, while `plasmashell`
 
 ```sh
 scripts/plasma-panel.sh retire    # hand the panel over to the bar
-scripts/plasma-panel.sh status    # "retired <stamp>" or "plasma panel in place"
+scripts/plasma-panel.sh status    # two lines: "retired <stamp>" or "plasma panel in place", then "notifications retired <stamp>" or "plasma serving notifications"
 scripts/plasma-panel.sh restore   # give it back
 ```
 
@@ -77,6 +77,25 @@ scripts/plasma-panel.sh restore   # give it back
 It refuses to run again until `restore` has run. If it fails or is interrupted part way, it starts plasmashell again if it had stopped it and prints the `restore` command, which undoes what it had already changed.
 
 `restore` stops plasmashell, removes the popups' shortcuts and gives the 11 shortcuts their backed-up keys through KGlobalAccel, puts the three files back byte for byte, deletes `plasma-popups`, starts plasmashell and reconfigures KWin. The backups stay in `plasma-backup/`. The script reads `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `DBUS_SESSION_BUS_ADDRESS`, so `spikes/plasma-hidden/test-plasma-panel.sh` can run it against a sandboxed Plasma; that test checks the restore is byte-identical.
+
+#### Handing the notification server to ghostd
+
+```sh
+scripts/plasma-panel.sh retire-notifications    # ghostd serves org.freedesktop.Notifications
+scripts/plasma-panel.sh restore-notifications   # plasmashell serves it again
+```
+
+`retire-notifications` is separate from `retire` and can run with or without it. It prints every change before making it, and refuses if plasmashell is not run by `plasma-plasmashell.service` or if another component than ghost-shell holds `shortcuts.notifications` (default `Meta+N`; a value that is not `Meta+<letter>` is not checked, with a warning). In order, it:
+
+1. backs up `plasmanotifyrc` (or notes that it is absent) into `~/.local/state/ghost-shell/plasma-backup/<UTC stamp>/` with a `notifications-manifest`, and writes `~/.local/state/ghost-shell/notifications-retired`;
+2. writes the marker `~/.local/state/ghost-shell/notifications-server`, which makes ghostd request the name when it starts;
+3. installs the drop-in `~/.config/systemd/user/plasma-plasmashell.service.d/ghost-shell-notifications.conf` (`After=ghostd.service`, `Wants=ghostd.service`, from `packaging/systemd/plasma-plasmashell-after-ghostd.conf`) so that ghostd holds the name from login, and runs `systemctl --user daemon-reload`;
+4. stops plasmashell, sets `PopupPosition` in `plasmanotifyrc` to the corner away from the bar (`BottomRight` under a top bar, `TopRight` under a bottom bar), for the job popups Plasma still draws, restarts ghostd, then starts plasmashell;
+5. waits until the name's owner is ghostd's main pid, and prints it.
+
+`restore-notifications` removes the marker and the drop-in (and the drop-in's directory if it is then empty), reloads systemd, stops plasmashell, puts `plasmanotifyrc` back byte for byte (or deletes it if it did not exist), restarts ghostd only if it is running, starts plasmashell, checks that plasmashell owns the name, and removes `notifications-retired`. It works with ghostd stopped, and undoes everything `retire-notifications` did. As with `retire`, a failure part way starts plasmashell again and prints the restore command.
+
+While nobody owns the name (ghostd crashed after the retire and has not been restarted by systemd yet), an app's notification call can stall for about 25 s and then fail: Plasma's activatable service file for the name starts a process that waits for it and never takes it. `ghostd.service` is `Type=notify` with a 15 s start timeout so that plasmashell starts only once ghostd has settled the name. The environment variables `GHOST_SYSTEMD_RELOAD`, `GHOST_GHOSTD_RESTART`, `GHOST_GHOSTD_TRY_RESTART` and `GHOST_GHOSTD_PID_CHECK` each name one executable that replaces the matching `systemctl --user` call, and `spikes/plasma-hidden/test-plasma-notifications.sh` uses them to run both subcommands in a sandboxed Plasma with a dev ghostd.
 
 ### Terminal theme (optional)
 

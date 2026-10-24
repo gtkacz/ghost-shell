@@ -533,6 +533,7 @@ install_kwin_script
 step "done; start with: systemctl --user start ghostd ghost-shell"
 # Printed, never run: retiring changes the live Plasma session, so it is the user's call.
 step "to hand Plasma's panel over to the bar, run once: $repo/scripts/plasma-panel.sh retire (undo with: $repo/scripts/plasma-panel.sh restore)"
+step "to hand Plasma's notification server over to ghostd, run once: $repo/scripts/plasma-panel.sh retire-notifications (undo with: $repo/scripts/plasma-panel.sh restore-notifications)"
 # The script starts nothing, so the warm-up is left to whoever starts the shell.
 if [[ -n $shaders_changed ]]; then
     step "shaders changed ($(paste -sd ' ' <<< "$shaders_changed")): the shell's first start compiles them and runs about 61 MiB above its steady state until restarted, so once ghost-shell is running, wait ${warm_up_s} s and run once: systemctl --user restart ghost-shell"

@@ -3,6 +3,8 @@ Description=ghost-shell data daemon
 PartOf=graphical-session.target
 
 [Service]
+Type=notify
+TimeoutStartSec=15s
 ExecStart=%h/.local/bin/ghostd run
 Restart=on-failure
 
