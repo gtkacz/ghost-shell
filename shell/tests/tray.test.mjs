@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { networkState, bluetoothState, volumeState, kdeConnectState, brightnessState, showsInline, stepVolume, stepBrightness, cellBrightness, nightLightSwitch, brightnessFloor, displayedBrightness, pendingAfter, wheelTarget, trayOrder, APPLETS } from '../kit/GhostKit/lib/tray.mjs';
+import { networkState, bluetoothState, volumeState, kdeConnectState, brightnessState, showsInline, stepVolume, stepBrightness, cellBrightness, nightLightSwitch, brightnessFloor, displayedBrightness, pendingAfter, wheelTarget, APPLETS } from '../kit/GhostKit/lib/tray.mjs';
 
 const ACTIONS_RS = new URL('../../crates/ghostd/src/feeds/actions.rs', import.meta.url);
+const WIDGET_QML = new URL('../../widgets/tray/Widget.qml', import.meta.url);
 const lan = (state) => ({ iface: 'e0', address: null, speed_mbps: null, state });
 const phone = { id: 'kdeconnect:a', label: 'PHONE', kind: 'phone', pct: 80, charging: false };
 
@@ -125,7 +126,10 @@ test('wheel notches add up from the pending target, not from the last published 
 });
 
 test('the tray ends with the bell before the chevron', () => {
-  const order = trayOrder(['network', 'bluetooth', 'volume', 'kdeconnect', 'brightness'], 2);
-  assert.deepEqual(order, ['network', 'bluetooth', 'volume', 'kdeconnect', 'brightness', 'sni', 'sni', 'bell', 'chevron']);
-  assert.deepEqual(trayOrder(['network'], 0), ['network', 'bell', 'chevron']);
+  const source = readFileSync(WIDGET_QML, 'utf8');
+  const sniItems = source.indexOf('model: SystemTray.items');
+  const bell = source.indexOf('Notifications.bell.glyph');
+  const chevron = source.indexOf('"chevron-up"');
+  assert.ok(sniItems !== -1 && bell !== -1 && chevron !== -1, 'the markers are in Widget.qml');
+  assert.ok(sniItems < bell && bell < chevron);
 });

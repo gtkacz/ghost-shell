@@ -100,9 +100,3 @@ export function pendingAfter(pending, published) {
 export function wheelTarget(pending, published, max, notches) {
   return stepBrightness(pending >= 0 ? pending : published, max, notches);
 }
-
-// The bar's right-to-left reading order: the apps' status items sit between the built-ins and the bell, and the chevron
-// closes the row because it opens the overflow of everything before it.
-export function trayOrder(builtins, sniCount) {
-  return [...builtins, ...Array(sniCount).fill('sni'), 'bell', 'chevron'];
-}

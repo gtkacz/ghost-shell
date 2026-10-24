@@ -5,7 +5,7 @@ import Quickshell.Services.Pipewire
 import Quickshell.Services.SystemTray
 import GhostKit
 
-// The tray: the built-in network, Bluetooth, volume, KDE Connect and brightness icons, then the apps' status items, then a chevron.
+// The tray: the built-in network, Bluetooth, volume, KDE Connect and brightness icons, then the apps' status items, then the notification bell, then a chevron.
 // A click on a built-in but the sun, or on the chevron, opens KDE's own popup for it through the daemon; the sun opens our own.
 Item {
     id: root
