@@ -35,16 +35,24 @@ Panel {
     readonly property bool lookedAt: visible && !Data.covered && !locked
     readonly property string emptyText: !serving ? (Notifications.server === "plasma" ? "PLASMA IS SERVING NOTIFICATIONS" : "NO SERVER") : "NO SIGNALS"
 
+    function report() {
+        if (lookedAt) {
+            Notifications.widgetLooking(root);
+        } else {
+            Notifications.widgetLeft(root);
+        }
+    }
+
     anchors.fill: parent
     label: "Notifications"
     tagKey: "notif"
     meta: Notifications.unread + " NEW"
 
-    // Restarted whenever it becomes true, so every look at the panel gets its whole dwell.
-    onLookedAtChanged: Notifications.widgetVisible = lookedAt
-    Component.onCompleted: Notifications.widgetVisible = lookedAt
-    Component.onDestruction: Notifications.widgetVisible = false
+    onLookedAtChanged: report()
+    Component.onCompleted: report()
+    Component.onDestruction: Notifications.widgetLeft(root)
 
+    // Restarted whenever lookedAt turns true, so every look at the panel gets its whole dwell.
     Timer {
         interval: Notifications.widgetReadDwellMs
         running: root.lookedAt

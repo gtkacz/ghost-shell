@@ -14,8 +14,9 @@ Singleton {
     readonly property bool open: core.open
     property string query: ""
     property int index: 0
-    // Written by the dashboard widget while it is shown and the desktop is uncovered; the toasts stay quiet behind it.
-    property bool widgetVisible: false
+    // True while any dashboard widget is shown with the desktop uncovered; the toasts stay quiet behind it. A print keeps
+    // two pages alive, so each widget reports for itself and none can switch the other off.
+    readonly property bool widgetVisible: core.lookers.length > 0
     // The bell's rect in screen coordinates, which the centre is placed from.
     property rect anchorRect: Qt.rect(0, 0, 0, 0)
     // Seconds, captured once: only what arrives after this shell started may pop up.
@@ -41,6 +42,15 @@ Singleton {
     readonly property var records: core.open ? NotificationsLib.filterRecords(snapshot?.items ?? [], query) : []
 
     onRecordsChanged: index = NotificationsLib.clampSelection(index, records.length)
+    onWidgetVisibleChanged: console.info("notifications: widget " + (widgetVisible ? "looked at" : "not looked at"))
+
+    function widgetLooking(token) {
+        core.lookers = NotificationsLib.withLooker(core.lookers, token, true);
+    }
+
+    function widgetLeft(token) {
+        core.lookers = NotificationsLib.withLooker(core.lookers, token, false);
+    }
 
     function countsLine(items) {
         return NotificationsLib.countsLine(items);
@@ -183,6 +193,7 @@ Singleton {
         id: core
 
         property bool open: false
+        property var lookers: []
         readonly property real startS: Math.floor(Date.now() / 1000)
         // Counts the connections to ghostd, whose first desktop value each is only a baseline.
         property int connection: 0

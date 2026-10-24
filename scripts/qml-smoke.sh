@@ -669,6 +669,14 @@ if (( view_changes != ${#actions[@]} )); then
     echo "smoke: FAIL (${#actions[@]} view actions sent, $view_changes view changes in $shell_log)" >&2
     exit 1
 fi
+# A print keeps the leaving and the arriving page alive together; the flag the toasts read must end up true.
+if (( view_changes > 0 )) && grep -qF -- 'widget = "notifications"' "$config"; then
+    last_widget_line=$(grep -aE -- 'qml: notifications: widget (looked at|not looked at)' "$shell_log" | tail -n 1)
+    if [[ $last_widget_line != *"widget looked at" ]]; then
+        echo "smoke: FAIL (the notifications widget is on screen after the view changes, but its last line in $shell_log is \"${last_widget_line:-none}\")" >&2
+        exit 1
+    fi
+fi
 if (( view_changes > 0 )); then
     grep -oE "$view_change_line" "$shell_log" | sed 's/^qml: /smoke: /'
 fi

@@ -17,6 +17,7 @@ import {
   rowText,
   toastQueue,
   widgetReadDue,
+  withLooker,
   windowToRaise,
 } from '../kit/GhostKit/lib/notifications.mjs';
 
@@ -281,4 +282,15 @@ test('widget marks read only after dwell uncovered and unlocked', () => {
 
 test('greeting leaves signals out while plasma serves', () => {
   assert.equal(greetingSignals({ server: 'plasma', unread: 3 }), 0);
+});
+
+test('a widget that is still looked at keeps the flag when another one leaves', () => {
+  const outgoing = {};
+  const incoming = {};
+  const during = withLooker(withLooker([], outgoing, true), incoming, true);
+  assert.equal(during.length > 0, true);
+  const afterLeaving = withLooker(withLooker(during, outgoing, false), outgoing, false);
+  assert.deepEqual(afterLeaving, [incoming]);
+  assert.deepEqual(withLooker(afterLeaving, incoming, true), [incoming]);
+  assert.deepEqual(withLooker(afterLeaving, incoming, false), []);
 });

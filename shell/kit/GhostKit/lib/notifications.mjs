@@ -161,3 +161,10 @@ export const WIDGET_READ_DWELL_MS = 2000;
 export function widgetReadDue({ visibleMs, covered, greetingPlaying, locked }) {
   return visibleMs >= WIDGET_READ_DWELL_MS && !covered && !greetingPlaying && !locked;
 }
+
+// The widgets looked at, as a new array: a print keeps the leaving and the arriving page alive together, so the flag
+// the toasts read is "any widget is looked at", and reporting the same state twice changes nothing.
+export function withLooker(lookers, token, looking) {
+  const others = lookers.filter((looker) => looker !== token);
+  return looking ? [...others, token] : others;
+}

@@ -123,7 +123,7 @@ Scope {
                 title: titlePrefix + (Data.config ? Data.config.greeting.name : Quickshell.env("USER")),
                 nameStart: titlePrefix.length,
                 subtitle: subtitle
-            },frozen ? () => frozenJitter : Math.random);
+            }, frozen ? () => frozenJitter : Math.random);
         }
         frame = GreetingLib.frameAt(plan, atMs);
         if (frame.scanStep !== null && !revealed) {
