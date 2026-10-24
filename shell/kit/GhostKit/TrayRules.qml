@@ -23,6 +23,14 @@ Singleton {
         return TrayLib.kdeConnectState(batteries);
     }
 
+    function brightness(state) {
+        return TrayLib.brightnessState(state);
+    }
+
+    function showsInline(status) {
+        return TrayLib.showsInline(status);
+    }
+
     function stepVolume(volume, notches) {
         return TrayLib.stepVolume(volume, notches);
     }

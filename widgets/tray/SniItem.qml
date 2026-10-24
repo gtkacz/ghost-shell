@@ -10,6 +10,9 @@ TrayItem {
 
     property bool menuOpen: false
 
+    // Plasma lists a passive item only in its expanded tray, which the chevron opens.
+    visible: TrayRules.showsInline(item.status)
+
     tip: item.tooltipTitle || item.title || item.id
     tipSuppressed: menuOpen
 

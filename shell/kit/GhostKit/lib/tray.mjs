@@ -10,6 +10,7 @@ export const APPLETS = {
   volume: 'org.kde.plasma.volume',
   kdeconnect: 'org.kde.kdeconnect',
   clipboard: 'org.kde.plasma.clipboard',
+  brightness: 'org.kde.plasma.brightness',
   overflow: 'org.kde.plasma.systemtray',
 };
 
@@ -31,7 +32,18 @@ export function kdeConnectState(batteries) {
   return { glyph: 'phone', dim: !anyPhone };
 }
 
+export function brightnessState({ nightLight }) {
+  return { glyph: 'brightness', dim: !nightLight };
+}
+
 export function stepVolume(volume, notches) {
   const stepped = Math.round(volume * NOTCHES_PER_RANGE) + notches;
   return Math.min(NOTCHES_PER_RANGE, Math.max(0, stepped)) / NOTCHES_PER_RANGE;
+}
+
+// Quickshell's SystemTrayItem.Status enum: Passive, Active, NeedsAttention.
+const STATUS_PASSIVE = 0;
+
+export function showsInline(status) {
+  return status !== STATUS_PASSIVE;
 }

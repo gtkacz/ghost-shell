@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { networkState, bluetoothState, volumeState, kdeConnectState, stepVolume, APPLETS } from '../kit/GhostKit/lib/tray.mjs';
+import { networkState, bluetoothState, volumeState, kdeConnectState, brightnessState, showsInline, stepVolume, APPLETS } from '../kit/GhostKit/lib/tray.mjs';
 
 const ACTIONS_RS = new URL('../../crates/ghostd/src/feeds/actions.rs', import.meta.url);
 const lan = (state) => ({ iface: 'e0', address: null, speed_mbps: null, state });
@@ -42,4 +42,18 @@ test('every applet name is one the daemon accepts', () => {
   for (const name of Object.values(APPLETS)) {
     assert.ok(accepted.includes(name), name);
   }
+});
+
+test('brightness is dim while Night Light is not active', () => {
+  assert.deepEqual(brightnessState({ nightLight: false }), { glyph: 'brightness', dim: true });
+  assert.deepEqual(brightnessState({ nightLight: true }), { glyph: 'brightness', dim: false });
+});
+
+test('passive status items stay behind the chevron', () => {
+  const passive = 0;
+  const active = 1;
+  const needsAttention = 2;
+  assert.equal(showsInline(passive), false);
+  assert.equal(showsInline(active), true);
+  assert.equal(showsInline(needsAttention), true);
 });
