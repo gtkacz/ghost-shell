@@ -120,3 +120,27 @@ test('index is two digits', () => {
   assert.equal(pad2(1), '01');
   assert.equal(pad2(12), '12');
 });
+
+test('a pinned app claims the window its entry names by startup class, over a decoy with the same class', () => {
+  const lookups = {
+    hasId: (id) => id === 'thorium-browser' || id === 'thorium-shell',
+    byStartupClass: (cls) => (cls.toLowerCase() === 'thorium' ? 'thorium-shell' : null),
+    heuristic: () => null,
+    pinned: [{ id: 'thorium-browser', startupClass: 'thorium' }],
+  };
+  const thorium = win('1', 'thorium');
+  const tasks = buildTasks({ pinned: ['thorium-browser'], windows: [thorium], findEntry: (window) => matchOrder(window, lookups) });
+  assert.deepEqual(tasks.map((task) => [task.appId, task.pinned, task.windows.length]), [['thorium-browser', true, 1]]);
+});
+
+test('a pinned app also claims a window whose id or lower-cased class equals its id', () => {
+  const lookups = { hasId: () => false, byStartupClass: () => null, heuristic: () => 'other', pinned: [{ id: 'kate', startupClass: '' }] };
+  assert.equal(matchOrder({ app_id: 'Kate', resource_class: 'x' }, lookups), 'kate');
+  assert.equal(matchOrder({ app_id: 'y', resource_class: 'KATE' }, lookups), 'kate');
+});
+
+test('duplicate pins keep first occurrences and do not shift task shortcut indices', () => {
+  const tasks = buildTasks({ pinned: ['a', 'b', 'a', 'c', 'b'], windows: [], findEntry: byAppId });
+  assert.deepEqual(tasks.map((task) => task.appId), ['a', 'b', 'c']);
+  assert.equal(pinnedTask(tasks, 2).appId, 'c');
+});

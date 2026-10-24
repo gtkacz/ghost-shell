@@ -4,7 +4,15 @@ const NO_BADGE = Object.freeze({ count: null, progress: null, urgent: false });
 
 // The app a window belongs to, by the plan's order: its desktop file name, an entry's startup class, the lower-cased
 // resource class, and last the desktop entries' own guess. Lookups are injected so the order is testable.
-export function matchOrder(window, { hasId, byStartupClass, heuristic }) {
+// A pinned app goes first: several entries can share one startup class, and the user's pin is the one they meant.
+export function matchOrder(window, { hasId, byStartupClass, heuristic, pinned = [] }) {
+  const windowClass = window.resource_class.toLowerCase();
+  const claimedBy = pinned.find(({ id, startupClass }) => {
+    return id.toLowerCase() === window.app_id.toLowerCase() || id.toLowerCase() === windowClass || (startupClass !== '' && startupClass.toLowerCase() === windowClass);
+  });
+  if (claimedBy) {
+    return claimedBy.id;
+  }
   if (hasId(window.app_id)) {
     return window.app_id;
   }
@@ -32,7 +40,7 @@ export function buildTasks({ pinned, windows, findEntry }) {
     }
     return byApp.get(appId);
   };
-  for (const appId of pinned) {
+  for (const appId of new Set(pinned)) {
     taskOf(appId, true);
   }
   for (const window of windows) {
