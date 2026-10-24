@@ -522,6 +522,17 @@ fn validate_shortcuts(shortcuts: &Shortcuts) -> Result<(), ConfigError> {
         ));
     }
     taken.push(("launcher".to_owned(), launcher));
+    let notifications = parse("notifications", &shortcuts.notifications)?;
+    if let Some((owner, _)) = taken.iter().find(|(_, other)| *other == notifications) {
+        return Err(invalid(
+            "shortcuts.notifications",
+            format!(
+                "{:?} is the same key as shortcuts.{owner}",
+                shortcuts.notifications
+            ),
+        ));
+    }
+    taken.push(("notifications".to_owned(), notifications));
     for (index, sequence) in shortcuts.tasks.iter().enumerate() {
         let name = format!("tasks[{index}]");
         let key = parse(&name, sequence)?;

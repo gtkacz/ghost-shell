@@ -576,3 +576,77 @@ pub struct NightLight {
     pub inhibited: bool,
     pub running: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Urgency {
+    Low,
+    #[default]
+    Normal,
+    Critical,
+}
+
+/// How loudly the shell treats a record, apart from the sender's own `Urgency`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationLevel {
+    #[default]
+    None,
+    Warn,
+    Crit,
+}
+
+/// Who owns `org.freedesktop.Notifications`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationServer {
+    #[default]
+    None,
+    Plasma,
+    #[serde(rename = "ghost-shell")]
+    GhostShell,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NotificationAction {
+    pub key: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Notification {
+    pub id: u32,
+    pub app: String,
+    pub desktop_entry: String,
+    pub app_icon: String,
+    /// A path to the sender's picture, or `""`.
+    pub image: String,
+    pub summary: String,
+    /// The markup subset left by the sanitiser.
+    pub body: String,
+    pub body_text: String,
+    pub urgency: Urgency,
+    pub level: NotificationLevel,
+    pub actions: Vec<NotificationAction>,
+    pub has_default: bool,
+    /// 0 when unknown.
+    pub pid: u32,
+    pub arrived_s: u64,
+    pub read: bool,
+    pub resident: bool,
+    /// Arrived while the session was locked or inhibited, so it never pops up.
+    pub held: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NotificationsSnapshot {
+    pub server: NotificationServer,
+    /// Newest first.
+    pub items: Vec<Notification>,
+    pub unread: u32,
+    pub unread_crit: u32,
+    pub dnd: bool,
+    pub inhibited: bool,
+    /// Why popups are held back: `""`, `dnd`, `inhibited`, `fullscreen` or `locked`.
+    pub suppressed: String,
+}

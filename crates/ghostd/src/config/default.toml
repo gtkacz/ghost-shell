@@ -176,6 +176,8 @@ swap = "Meta+Shift+M"
 # Open the launcher. A lone Meta stays with the Plasma panel's launcher until that panel is
 # retired, so it may not open ours until then.
 launcher = "Meta"
+# Open the notification centre.
+notifications = "Meta+N"
 # Focus the nth running app in the bar. At most 10 entries, none
 # sharing a key with another shortcut. Meta+0 belongs to KWin, so the default stops at 9.
 tasks = ["Meta+1", "Meta+2", "Meta+3", "Meta+4", "Meta+5", "Meta+6", "Meta+7", "Meta+8", "Meta+9"]
@@ -185,9 +187,12 @@ tasks = ["Meta+1", "Meta+2", "Meta+3", "Meta+4", "Meta+5", "Meta+6", "Meta+7", "
 style = "drop"
 
 [notifications]
-# How many past notifications are kept, and how long a popup stays up in seconds.
+# How many past notifications are kept (unread critical ones are never dropped), how long a popup
+# stays up in seconds, how many show at once, and whether popups show the sender's icon.
 history_limit = 200
 popup_timeout_s = 6
+max_popups = 3
+icons = true
 
 [network]
 # The IPv4 address the network panel pings every 5 s while it is shown, for the round trip it

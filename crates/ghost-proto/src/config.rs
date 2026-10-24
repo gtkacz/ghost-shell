@@ -392,6 +392,8 @@ pub struct Shortcuts {
     pub swap: String,
     /// Open the launcher.
     pub launcher: String,
+    /// Open the notification centre.
+    pub notifications: String,
     /// Focus the nth running app, counted from 1.
     pub tasks: Vec<String>,
 }
@@ -405,6 +407,7 @@ impl Default for Shortcuts {
             monitor: "Meta+M".into(),
             swap: "Meta+Shift+M".into(),
             launcher: "Meta".into(),
+            notifications: "Meta+N".into(),
             tasks: (1..=DEFAULT_TASK_SHORTCUTS)
                 .map(|digit| format!("Meta+{digit}"))
                 .collect(),
@@ -493,6 +496,9 @@ impl Default for Agents {
 pub struct Notifications {
     pub history_limit: u32,
     pub popup_timeout_s: u32,
+    pub max_popups: u32,
+    /// Show the sender's icon in popups.
+    pub icons: bool,
 }
 
 impl Default for Notifications {
@@ -500,6 +506,8 @@ impl Default for Notifications {
         Self {
             history_limit: 200,
             popup_timeout_s: 6,
+            max_popups: 3,
+            icons: true,
         }
     }
 }

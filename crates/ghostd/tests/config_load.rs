@@ -945,3 +945,29 @@ fn usage_thresholds_must_be_ordered() {
         "thresholds: usage_warn (90) must be below usage_crit (85)"
     );
 }
+
+#[test]
+fn notifications_and_shortcut_defaults_apply() {
+    let c = load_str_with_user("", "u").unwrap();
+    assert_eq!(c.notifications.history_limit, 200);
+    assert_eq!(c.notifications.popup_timeout_s, 6);
+    assert_eq!(c.notifications.max_popups, 3);
+    assert!(c.notifications.icons);
+    assert_eq!(c.shortcuts.notifications, "Meta+N");
+}
+
+#[test]
+fn the_notifications_key_must_not_be_shared() {
+    assert_eq!(
+        load_str_with_user("[shortcuts]\nnotifications = \"Meta+M\"\n", "u")
+            .unwrap_err()
+            .message,
+        "shortcuts.notifications: \"Meta+M\" is the same key as shortcuts.monitor"
+    );
+    assert_eq!(
+        load_str_with_user("[shortcuts]\ntasks = [\"Meta+N\"]\n", "u")
+            .unwrap_err()
+            .message,
+        "shortcuts.tasks[0]: \"Meta+N\" is the same key as shortcuts.notifications"
+    );
+}

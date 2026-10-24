@@ -42,11 +42,12 @@ pub mod topics {
     pub const AGENTS_USAGE: &str = "agents.usage";
     pub const AGENTS_SESSIONS: &str = "agents.sessions";
     pub const BRIGHTNESS: &str = "brightness";
+    pub const NOTIFICATIONS: &str = "notifications";
     /// Published by an alerts provider, so it is well known without being built in.
     pub const WEATHER_ALERTS: &str = "weather.alerts";
 
     // Feed topics count as built in too, so no provider can claim one, even before its feed exists.
-    pub const BUILTIN: [&str; 26] = [
+    pub const BUILTIN: [&str; 27] = [
         CPU,
         MEM,
         SENSORS,
@@ -73,6 +74,7 @@ pub mod topics {
         AGENTS_USAGE,
         AGENTS_SESSIONS,
         BRIGHTNESS,
+        NOTIFICATIONS,
     ];
 }
 
@@ -110,8 +112,18 @@ pub mod calls {
     /// `{"app": "<desktop id>"}`
     pub const BAR_PIN: &str = "bar.pin";
     pub const BAR_UNPIN: &str = "bar.unpin";
+    /// `{"id": <id>, "key": "<action key>"}`
+    pub const NOTIFICATIONS_INVOKE: &str = "notifications.invoke";
+    /// `{"id": <id>}`
+    pub const NOTIFICATIONS_DISMISS: &str = "notifications.dismiss";
+    /// `{}`
+    pub const NOTIFICATIONS_CLEAR: &str = "notifications.clear";
+    /// `{"ids": [<id>, …]}` or `{"all": true}`
+    pub const NOTIFICATIONS_READ: &str = "notifications.read";
+    /// `{"on": <bool>}`
+    pub const NOTIFICATIONS_DND: &str = "notifications.dnd";
 
-    pub const ALL: [&str; 14] = [
+    pub const ALL: [&str; 19] = [
         WINDOWS_ACTIVATE,
         WINDOWS_MINIMIZE,
         WINDOWS_CLOSE,
@@ -126,5 +138,10 @@ pub mod calls {
         NIGHTLIGHT_TOGGLE,
         BAR_PIN,
         BAR_UNPIN,
+        NOTIFICATIONS_INVOKE,
+        NOTIFICATIONS_DISMISS,
+        NOTIFICATIONS_CLEAR,
+        NOTIFICATIONS_READ,
+        NOTIFICATIONS_DND,
     ];
 }
