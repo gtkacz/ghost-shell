@@ -86,6 +86,29 @@ make install-term
 
 `scripts/install-term.sh` themes Ghostty, Starship, `eza` and `fast-syntax-highlighting` from the shell's palette, which `scripts/install.sh` never does. It first backs up `~/.zshrc` and the existing terminal configs into `~/.config/term-backup-*.tar.gz`, checks the checksum, and stops without changing anything if that fails. Then it writes the configs under `~/.config/` and adds one marked block to `~/.zshrc`. It needs `uv`, Ghostty and Starship, and it is idempotent. `--dry-run` lists what it would write. The colours come from `crates/ghostd/src/config/default.toml` and `term/palette.toml`, and the palette is checked under a protan and deutan colour-vision simulation before anything is written. Run its tests with `uv run --no-project --with pytest python -I -m pytest scripts/test_term_theme.py`.
 
+### LLM agents (optional)
+
+```sh
+make install-agents
+```
+
+The `agents` chip shows Claude Code and Codex usage meters and the number of running sessions, with a popup for the detail. It is in no preset, so add it to `[layout.bar]` in `~/.config/ghost-shell/config.toml`, here with the default layout-a bar and the chip between `status` and `tray`:
+
+```toml
+[layout.bar]
+left = [{ widget = "brand" }, { widget = "tasks", settings = { style = "icons" } }]
+centre = []
+right = [
+    { widget = "status", settings = { parts = ["cpu", "net", "vpn", "weather"] } },
+    { widget = "agents" },
+    { widget = "tray" },
+    { widget = "view-chip" },
+    { widget = "bar-clock" },
+]
+```
+
+`scripts/install-agents.sh` needs `scripts/install.sh` to have run first. It backs up `~/.claude/settings.json` and `~/.codex/hooks.json` to `<file>.ghost-shell.bak.<timestamp>`, checks each copy with `cmp`, and stops without changing anything if that fails. Then it points Claude's `statusLine` at `ghostd claude-statusline-tap`, which runs your previous status-line command (saved in `~/.config/ghost-shell/claude-statusline-inner`) after saving Claude's JSON, and adds a `ghostd codex-hook` entry for each of eight Codex events. It prints each backup with its `restore: cp` line, and is idempotent. `--dry-run` lists what it would write, and `--uninstall` reverses both edits, with the same backups. Anything that rewrites `statusLine` (a claude-hud update, unsnooze setup) removes the tap, and the chip reads `CC --` until you rerun the installer. A Codex session already running stays invisible until its next prompt or tool call. Usage is read from `~/.claude` only, while sessions come from every `claude_config_dirs` entry. Run its tests with `uv run --no-project --with pytest python -I -m pytest scripts/test_agents_hooks.py`.
+
 ### CPU package power (optional)
 
 The processor panel shows `PKG` (the CPU package's power draw) only when `ghostd` can read the RAPL energy counter, `/sys/class/powercap/intel-rapl:0/energy_uj`. The kernel makes it root-only, so the row stays hidden until you install the udev rule, which `scripts/install.sh` never does:
