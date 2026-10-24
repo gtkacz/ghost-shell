@@ -13,6 +13,8 @@ import {
   minuteDelay,
   nextLayout,
   nextUser,
+  loginUser,
+  clampIndex,
   parseSnapshot,
   readSnapshot,
   resolveStyle,
@@ -190,4 +192,18 @@ test('action labels, session tags and the meta line', () => {
   assert.equal(metaText('lock', new Date(2026, 9, 23, 7, 5)), 'LOCKED 07:05');
   assert.equal(metaText('login', new Date(2026, 9, 23, 17, 45)), '17:45');
   assert.equal(minuteDelay(new Date(2026, 9, 23, 7, 5, 13, 500)), 46_500);
+});
+
+test('loginUser keeps the last user when listed and otherwise falls back to the first', () => {
+  assert.equal(loginUser('b', ['a', 'b']), 'b');
+  assert.equal(loginUser('', ['a', 'b']), 'a');
+  assert.equal(loginUser('gone', ['a', 'b']), 'a');
+  assert.equal(loginUser('', []), '');
+});
+
+test('clampIndex keeps an index inside the list', () => {
+  assert.equal(clampIndex(1, 3), 1);
+  assert.equal(clampIndex(-1, 3), 0);
+  assert.equal(clampIndex(7, 3), 2);
+  assert.equal(clampIndex(0, 0), 0);
 });

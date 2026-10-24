@@ -13,8 +13,10 @@ QtObject {
     property bool driving: false
 
     readonly property string mode: "login"
-    property string userName: userModel.lastUser
-    readonly property var users: names.count > 0 ? names.list() : [userName]
+    // What the user cycled to; empty until then, so the name follows the model.
+    property string chosenUser: ""
+    readonly property string userName: chosenUser !== "" ? chosenUser : GateLib.loginUser(userModel.lastUser, users)
+    readonly property var users: names.count > 0 ? names.list() : []
     property bool busy: false
     property int attempts: 0
     property string message: ""
@@ -22,7 +24,8 @@ QtObject {
     readonly property var layouts: keyboard.layoutsList.map((entry) => entry.shortName)
     readonly property string layout: layouts.length > keyboard.layout ? layouts[keyboard.layout] : ""
     readonly property var sessions: sessionNames.count > 0 ? sessionNames.list() : []
-    property int sessionIndex: sessionModel.lastIndex
+    property int chosenSession: -1
+    readonly property int sessionIndex: GateLib.clampIndex(chosenSession >= 0 ? chosenSession : sessionModel.lastIndex, sessions.length)
     readonly property var allowed: ({
             switchUser: false,
             sleep: sddm.canSuspend,
@@ -82,6 +85,8 @@ QtObject {
         }
     }
 
+    onUserNameChanged: console.debug("gate: user " + userName)
+
     signal succeeded
     signal failed
     signal reset
@@ -93,7 +98,7 @@ QtObject {
     }
 
     function cycleUser() {
-        userName = GateLib.nextUser(users, userName);
+        chosenUser = GateLib.nextUser(users, userName);
     }
 
     function cycleLayout() {
@@ -101,7 +106,7 @@ QtObject {
     }
 
     function chooseSession(index) {
-        sessionIndex = index;
+        chosenSession = index;
     }
 
     function act(name) {

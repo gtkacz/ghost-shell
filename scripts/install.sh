@@ -414,6 +414,9 @@ install_login() {
     printf '  point SDDM at the theme with %s\n' "$login_dropin"
 
     stage=$(mktemp -d)
+    # Global to the trap, which runs after this function has returned or died.
+    login_stage=$stage
+    trap 'rm -rf -- "$login_stage"' EXIT
     # The greeter runs as another user, so what it reads must be world-readable.
     chmod 755 "$stage"
     cp -r -- "$login_theme_src/." "$stage/"

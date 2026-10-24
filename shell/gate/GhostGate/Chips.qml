@@ -101,6 +101,7 @@ Item {
 
         ChipBox {
             objectName: "layoutChip"
+            visible: root.adapter.layout !== ""
             label: root.adapter.layout
             glyph: "keyboard"
             clickable: root.adapter.layouts.length > 1

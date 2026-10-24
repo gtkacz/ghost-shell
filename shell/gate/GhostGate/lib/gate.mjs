@@ -205,3 +205,12 @@ export function metaText(mode, now) {
 export function minuteDelay(now) {
   return MS_PER_MINUTE - (now.getSeconds() * MS_PER_SECOND + now.getMilliseconds());
 }
+
+// SDDM's last user is empty on a fresh install, and a single user shows no chip to pick from, so fall back to the list.
+export function loginUser(last, users) {
+  return users.includes(last) ? last : (users[0] ?? last);
+}
+
+export function clampIndex(index, count) {
+  return Math.max(0, Math.min(index, count - 1));
+}

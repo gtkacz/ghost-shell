@@ -120,6 +120,8 @@ if [[ -n $shot ]]; then
         || fail "spectacle failed; see $root/spectacle.log"
 fi
 
+# Test mode lists one user but has no last one, so a name here proves the fallback.
+grep -aqE -- 'gate: user [^ ]+' "$log" || fail "no non-empty \"gate: user\" line in $log"
 prompts=$(grep -acF -- "$loaded_line" "$log" || true)
 (( prompts == 1 )) || fail "$prompts \"$loaded_line\" lines in $log, expected 1"
 warnings=$(grep -aE -- "$warning_pattern" "$log" || true)

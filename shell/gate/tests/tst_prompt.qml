@@ -244,6 +244,13 @@ TestCase {
         compare(screen.adapter.layout, "us");
     }
 
+    function test_layout_chip_hidden_without_a_layout() {
+        const screen = makeScreen();
+        verify(find(screen, "layoutChip").visible);
+        screen.adapter.layout = "";
+        verify(!find(screen, "layoutChip").visible);
+    }
+
     function test_lock_vs_login_actions() {
         const screen = makeScreen();
         compare(find(screen, "actions").labels, ["SWITCH USER", "SLEEP"]);
