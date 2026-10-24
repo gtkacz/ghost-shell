@@ -49,6 +49,7 @@ smoke-greeting: shaders
 
 smoke-lock: shaders
 	scripts/smoke-lock.sh
+	scripts/smoke-lock.sh grace
 
 smoke-login: shaders
 	scripts/smoke-login.sh

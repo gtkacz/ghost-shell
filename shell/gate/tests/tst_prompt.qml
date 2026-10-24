@@ -103,6 +103,16 @@ TestCase {
         verify(!alert.visible);
     }
 
+    function test_forwarded_control_characters_are_not_inserted() {
+        const screen = makeScreen();
+        const password = find(screen, "password");
+        screen.type({ key: Qt.Key_Delete, text: "\x7f" });
+        screen.type({ key: Qt.Key_Tab, text: "\t" });
+        compare(password.length, 0);
+        screen.type({ key: Qt.Key_A, text: "a" });
+        compare(password.length, 1);
+    }
+
     function test_busy_ignores_keys_and_enter() {
         const screen = makeScreen({ holdBusy: true });
         const password = find(screen, "password");

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# usage: smoke-lock.sh [grace]. With "grace" the greeter runs as ksld starts it after an idle timeout, with a grace window
+# in which PAM refuses to start, and the password is sent after the window ends.
+#
 # Installs the lock part into a headless KWin's sandbox with `install.sh --lock` and runs the real lock greeter on it
 # in test mode on two screens. Checks that the gate loads once with no QML warning, that one screen alone starts PAM,
 # and that the greeter takes typed keys, wherever KWin first sends them, by sending
@@ -18,6 +21,16 @@ py=(env -u DBUS_SESSION_BUS_ADDRESS -u DBUS_SYSTEM_BUS_ADDRESS uv run --no-proje
 fake_keys=$repo/scripts/fake-keys.py
 # Two screens, so the check covers what only one may do: show the prompt and drive the shared authenticator.
 outputs=2
+grace_ms=6000
+# Long enough that the gate has loaded and asked PAM to start inside it; the wait covers the rest plus the restart.
+grace_settle_s=7
+# --testing locks at once and so never has a grace window; without it the shell is chosen the way the drop-in does.
+greeter_args=(--testing --shell "$package")
+greeter_env=()
+if [[ ${1:-} == grace ]]; then
+    greeter_args=(--graceTime "$grace_ms")
+    greeter_env=(PLASMA_DEFAULT_SHELL="$package")
+fi
 
 # evdev codes: a nonsense password, then Enter.
 wrong_password_keys="16 44 45 36 16 44 45 36"
@@ -34,7 +47,8 @@ loaded_line='gate: prompt lock'
 failed_line='gate: failed 1'
 # kscreenlocker's debug line for each password handed to PAM.
 responded_line='PamAuthenticators: responding to interactive authenticator'
-started_line='gate: start authenticating'
+# One per real PAM start, which a start during the grace window is not.
+started_line='PamAuthenticators: starting authenticators'
 warning_pattern='\.(qml|mjs):[0-9]+|ReferenceError|TypeError|outdated|falling back|Failed to load|Unlocked'
 
 kwin_pid=
@@ -122,11 +136,14 @@ env -u DBUS_SESSION_BUS_ADDRESS HOME="$root" XDG_DATA_HOME="$root/data" XDG_CONF
 env -i HOME="$root" PATH=/usr/bin:/bin XDG_RUNTIME_DIR="$root/run" XDG_CONFIG_HOME="$root/config" \
     XDG_DATA_HOME="$root/data" XDG_CACHE_HOME="$root/cache" XDG_STATE_HOME="$root/state" WAYLAND_DISPLAY="$wayland" \
     QT_QPA_PLATFORM=wayland DBUS_SESSION_BUS_ADDRESS="$bus" QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='kscreenlocker_greet.debug=true;qml.debug=true' \
-    "$greeter" --testing --shell "$package" > "$log" 2>&1 &
+    "${greeter_env[@]}" "$greeter" "${greeter_args[@]}" > "$log" 2>&1 &
 greeter_pid=$!
 
 wait_for_line "$loaded_line" "$load_budget_s" || fail "no \"$loaded_line\" in $log within $load_budget_s s"
 sleep "$focus_settle_s"
+if (( ${#greeter_env[@]} > 0 )); then
+    sleep "$grace_settle_s"
+fi
 printf '%s\n' $wrong_password_keys "$enter_key" | "${py[@]}" "$fake_keys" "$wayland" > "$root/keys.log" 2>&1 \
     || fail "typing failed; see $root/keys.log"
 wait_for_line "$failed_line" "$failure_budget_s" || fail "no \"$failed_line\" in $log within $failure_budget_s s"

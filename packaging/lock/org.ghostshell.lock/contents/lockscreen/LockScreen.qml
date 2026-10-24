@@ -17,6 +17,7 @@ GateScreen {
 
     adapter: LockAdapter {
         driving: root.primary
+        locked: root.locked
     }
     // Until the root is in its window, Screen reads the primary output, which would load the prompt on every screen.
     primary: themed && Window.window !== null && Screen.name === (ScaleLib.pickScreen(Qt.application.screens, Theme.displayModel) || {}).name

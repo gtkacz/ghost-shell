@@ -12,6 +12,9 @@ QtObject {
     // Every screen has an adapter but they share one authenticator, so only the primary screen's may drive it.
     property bool driving: false
 
+    // The greeter writes it when the lock really begins; during an idle-lock grace window PAM refuses to start.
+    property bool locked: false
+
     readonly property string mode: "lock"
     // The greeter only knows the full name; the snapshot carries the login name the gate shows.
     readonly property string userName: Theme.user !== "" ? Theme.user : kscreenlocker_userName
@@ -40,6 +43,9 @@ QtObject {
 
     // The stock screen's kind for the password, as opposed to fingerprint or smartcard.
     readonly property int passwordKind: 0
+
+    // PamAuthenticators::AuthenticatorsState::Idle; the enum is not reachable from the context property.
+    readonly property int idleState: 0
 
     property var capsState: KeyboardIndicator.KeyState {
         key: Qt.Key_CapsLock
@@ -82,9 +88,12 @@ QtObject {
 
         // Every busy period ends in exactly one verdict, so the field never keeps a password the gate is not checking.
         function onFailed(kind) {
-            root.asked = false;
             root.retry.restart();
-            if (kind !== root.passwordKind || !root.busy) {
+            if (kind !== root.passwordKind) {
+                return;
+            }
+            root.asked = false;
+            if (!root.busy) {
                 return;
             }
             root.pending = "";
@@ -122,6 +131,8 @@ QtObject {
         pending = password;
         if (asked) {
             respond();
+        } else {
+            start();
         }
     }
 
@@ -148,8 +159,19 @@ QtObject {
         Qt.quit();
     }
 
+    onLockedChanged: {
+        if (driving && locked) {
+            start();
+        }
+    }
+
     onDrivingChanged: {
         if (driving) {
+            // A conversation begun for the screen that drove before is waiting on a prompt this adapter never saw.
+            if (authenticator.state !== idleState) {
+                authenticator.stopAuthenticating();
+                asked = false;
+            }
             start();
         } else {
             retry.stop();

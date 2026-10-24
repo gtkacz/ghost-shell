@@ -46,7 +46,7 @@ Item {
             clear();
         } else if (event.key === Qt.Key_Backspace) {
             input.remove(input.text.length - 1, input.text.length);
-        } else if (event.text !== "" && event.text >= " ") {
+        } else if (event.text !== "" && event.text >= " " && event.text !== "\x7f") {
             input.insert(input.text.length, event.text);
         }
     }
