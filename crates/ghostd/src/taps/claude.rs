@@ -19,13 +19,25 @@ pub fn claude_statusline_tap() -> ExitCode {
             return ExitCode::SUCCESS;
         }
     };
-    if let Err(error) = write_atomic(&capture_path(), &input) {
+    // A session that has not had its first API response renders without limits, and would otherwise
+    // overwrite the reading every other session captured.
+    if has_rate_limits(&input)
+        && let Err(error) = write_atomic(&capture_path(), &input)
+    {
         eprintln!("ghostd claude-statusline-tap: writing the capture failed: {error}");
     }
     if let Err(error) = run_inner(&input) {
         eprintln!("ghostd claude-statusline-tap: the inner command failed: {error}");
     }
     ExitCode::SUCCESS
+}
+
+fn has_rate_limits(input: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|status| {
+        status
+            .get("rate_limits")
+            .is_some_and(serde_json::Value::is_object)
+    })
 }
 
 fn run_inner(input: &[u8]) -> io::Result<()> {

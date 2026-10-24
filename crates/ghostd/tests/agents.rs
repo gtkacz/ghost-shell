@@ -243,9 +243,9 @@ mod sessions {
     use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc, time::Duration};
 
     use ghost_proto::AgentState::{self, Busy, Idle, Waiting};
-    use ghost_proto::{AgentProvider, AgentsSessions, ResolvedConfig, topics};
+    use ghost_proto::{AgentProvider, Agents, AgentsSessions, ResolvedConfig, topics};
     use ghostd::collect::identity;
-    use ghostd::feeds::agents::{SessionPaths, codex, sessions_feed_at};
+    use ghostd::feeds::agents::{SessionPaths, codex, sessions_feed, sessions_feed_at};
     use ghostd::server::{FeedContext, Publisher};
     use ghostd::sysroot::SysRoot;
     use serde_json::Value;
@@ -255,7 +255,7 @@ mod sessions {
 
     use super::NOW_S;
 
-    pub(super) const WAIT: Duration = Duration::from_secs(2);
+    pub(super) const WAIT: Duration = Duration::from_secs(5);
     // Offsets from here keep test times inside the 24 h a pid-less Codex file lives.
     const BASE_S: u64 = NOW_S - 1000;
 
@@ -365,6 +365,12 @@ mod sessions {
     }
 
     impl Running {
+        fn latest(&mut self) -> Option<AgentsSessions> {
+            std::iter::from_fn(|| self.published.try_recv().ok())
+                .last()
+                .map(|(_, data)| serde_json::from_value(data).unwrap())
+        }
+
         async fn next(&mut self) -> AgentsSessions {
             let (topic, data) = timeout(WAIT, self.published.recv())
                 .await
@@ -373,6 +379,89 @@ mod sessions {
             assert_eq!(topic, topics::AGENTS_SESSIONS);
             serde_json::from_value(data).unwrap()
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_pass_runs_while_session_files_change_faster_than_the_window() {
+        let sb = Sandbox::new();
+        sb.claude_session(1, "busy", 100, 10);
+        sb.proc(1, "claude", 100);
+        let mut feed = sb.start(&[AgentProvider::Claude]).await;
+        feed.next().await;
+        feed.next().await;
+        for since_s in 11..15 {
+            sb.claude_session(1, "busy", 100, since_s);
+            // The inotify thread runs in real time, which a paused clock does not wait for.
+            std::thread::sleep(Duration::from_millis(30));
+            tokio::time::advance(Duration::from_millis(100)).await;
+        }
+        tokio::task::yield_now().await;
+        let sessions = feed
+            .latest()
+            .expect("no pass ran while the files kept changing");
+        assert!(sessions.sessions[0].since_s > BASE_S + 10);
+    }
+
+    #[tokio::test]
+    async fn a_config_change_adds_a_provider_without_a_restart() {
+        let sb = Sandbox::new();
+        // `sessions_feed` finds the Codex hook files through the runtime dir.
+        unsafe { std::env::set_var("XDG_RUNTIME_DIR", sb.dir.path().join("run")) };
+        let hook_dir = sb.dir.path().join("run/ghost-shell/codex-sessions");
+        fs::create_dir_all(&hook_dir).unwrap();
+        let now_s = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let file = codex::SessionFile {
+            state: Busy,
+            waiting_for: None,
+            cwd: "/home/u/p".into(),
+            since_s: now_s,
+            pid: None,
+            proc_start: None,
+        };
+        fs::write(
+            hook_dir.join("c1.json"),
+            serde_json::to_string(&file).unwrap(),
+        )
+        .unwrap();
+
+        let (sender, published) = mpsc::unbounded_channel();
+        let (demand, demand_receiver) =
+            watch::channel(BTreeSet::from([topics::AGENTS_SESSIONS.to_owned()]));
+        let resolved = ResolvedConfig {
+            agents: Agents {
+                providers: vec![AgentProvider::Claude],
+                claude_config_dirs: vec![sb.dir.path().join("claude").display().to_string()],
+                codex_home: sb.dir.path().join("codex").display().to_string(),
+            },
+            ..ResolvedConfig::default()
+        };
+        let (config, config_receiver) = watch::channel(resolved);
+        let context = FeedContext {
+            publisher: Publisher::new(move |topic, data| {
+                sender.send((topic.to_owned(), data)).unwrap();
+            }),
+            demand: demand_receiver,
+            config: config_receiver,
+            calls: tokio::sync::broadcast::channel(64).1,
+        };
+        let task = tokio::spawn(sessions_feed(SysRoot::new(sb.root())).run(context));
+        let mut feed = Running {
+            published,
+            _demand: demand,
+            _config: config,
+            _task: task,
+        };
+        feed.next().await;
+        assert!(feed.next().await.sessions.is_empty());
+        feed._config.send_modify(|config| {
+            config.agents.providers = vec![AgentProvider::Claude, AgentProvider::Codex];
+        });
+        let sessions = feed.next().await.sessions;
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "c1");
     }
 
     #[test]
@@ -502,6 +591,12 @@ mod usage {
     }
 
     impl Running {
+        fn latest(&mut self) -> Option<AgentsUsage> {
+            std::iter::from_fn(|| self.published.try_recv().ok())
+                .last()
+                .map(|(_, data)| serde_json::from_value(data).unwrap())
+        }
+
         async fn next(&mut self) -> AgentsUsage {
             let (topic, data) = timeout(WAIT, self.published.recv())
                 .await
@@ -638,6 +733,45 @@ mod usage {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_pass_runs_while_the_capture_changes_faster_than_the_window() {
+        let sb = Sandbox::new();
+        let mut feed = sb.start_usage(&[AgentProvider::Claude]).await;
+        feed.next().await;
+        feed.next().await;
+        for _ in 0..12 {
+            sb.replace_capture(include_str!("fixtures/agents/claude-statusline.json"));
+            // The inotify thread runs in real time, which a paused clock does not wait for.
+            std::thread::sleep(Duration::from_millis(30));
+            tokio::time::advance(Duration::from_millis(100)).await;
+        }
+        let usage = feed
+            .latest()
+            .expect("no pass ran while the capture kept changing");
+        assert!(usage.providers[0].available);
+    }
+
+    #[tokio::test]
+    async fn an_append_to_an_older_day_dir_is_read_as_the_current_rollout() {
+        const LINE: &str = r#"{"timestamp":"2026-10-23T18:05:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total":9},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":9,"window_minutes":300,"resets_at":1792814950},"secondary":{"used_percent":55,"window_minutes":10080,"resets_at":1793018780},"credits":null,"plan_type":"plus","rate_limit_reached_type":null}}}"#;
+        let sb = Sandbox::new();
+        let fixture = include_str!("fixtures/agents/codex-rollout-tail.jsonl");
+        sb.append_rollout("2026/10/22/rollout-old.jsonl", fixture);
+        sb.append_rollout("2026/10/23/rollout-mid.jsonl", fixture);
+        sb.append_rollout("2026/10/24/rollout-new.jsonl", fixture);
+        let mut feed = sb.start_usage(&[AgentProvider::Codex]).await;
+        feed.next().await;
+        assert_eq!(feed.next().await.providers[0].windows[1].used_pct, 14.0);
+        sb.append_rollout(
+            "2026/10/22/rollout-old.jsonl",
+            &format!(
+                "{LINE}
+"
+            ),
+        );
+        assert_eq!(feed.next().await.providers[0].windows[1].used_pct, 55.0);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_window_whose_reset_passes_is_republished_as_zero_without_a_file_event() {
         const PRIMARY_RESET_S: u64 = 1_792_814_950;
         let sb = Sandbox::new();
@@ -678,6 +812,8 @@ mod taps {
     use ghostd::taps::codex::codex_ancestor;
 
     use super::sessions::Sandbox;
+
+    const LIMITED: &str = r#"{"rate_limits":{"five_hour":{"used_percentage":1,"resets_at":1}}}"#;
 
     impl Sandbox {
         fn write_inner(&self, command: &str) {
@@ -736,10 +872,10 @@ mod taps {
     fn the_statusline_tap_captures_atomically_and_forwards_the_inner_command() {
         let sb = Sandbox::new();
         sb.write_inner("cat; echo -n tail");
-        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], "{\"a\":1}");
+        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], LIMITED);
         assert!(status.success());
-        assert_eq!(out, "{\"a\":1}tail");
-        assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), "{\"a\":1}");
+        assert_eq!(out, format!("{LIMITED}tail"));
+        assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), LIMITED);
         assert!(
             fs::read_dir(sb.capture_path().parent().unwrap())
                 .unwrap()
@@ -753,7 +889,7 @@ mod taps {
     fn the_statusline_tap_survives_an_inner_command_that_ignores_its_input() {
         let sb = Sandbox::new();
         sb.write_inner("echo hi");
-        let input = "x".repeat(100_000);
+        let input = format!(r#"{{"rate_limits":{{}},"pad":"{}"}}"#, "x".repeat(100_000));
         let (status, out) = run_tap(&sb, &["claude-statusline-tap"], &input);
         assert!(status.success());
         assert_eq!(out, "hi\n");
@@ -765,9 +901,21 @@ mod taps {
         let sb = Sandbox::new();
         sb.write_inner("cat");
         fs::write(sb.dir.path().join("state"), "not a directory").unwrap();
-        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], "{\"a\":1}");
+        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], LIMITED);
         assert!(status.success());
-        assert_eq!(out, "{\"a\":1}");
+        assert_eq!(out, LIMITED);
+    }
+
+    #[test]
+    fn a_status_line_without_limits_keeps_the_capture_and_still_forwards() {
+        let sb = Sandbox::new();
+        sb.write_inner("cat");
+        run_tap(&sb, &["claude-statusline-tap"], LIMITED);
+        let fresh_session = r#"{"model":{"id":"claude-sonnet-5-5"}}"#;
+        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], fresh_session);
+        assert!(status.success());
+        assert_eq!(out, fresh_session);
+        assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), LIMITED);
     }
 
     #[test]

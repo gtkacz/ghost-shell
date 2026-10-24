@@ -13,17 +13,18 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use ghost_proto::{
-    AgentProvider, AgentState, AgentsSessions, AgentsUsage, ProviderUsage, UsageWindow, topics,
+    AgentProvider, AgentState, Agents, AgentsSessions, AgentsUsage, ProviderUsage, ResolvedConfig,
+    UsageWindow, topics,
 };
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::sync::mpsc;
-use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep, timeout};
+use tokio::sync::{mpsc, watch};
+use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep};
 use tracing::{debug, warn};
 
 use super::{WallClock, unix_now_s, until_unwanted, until_wanted};
 use crate::collect::identity;
 use crate::config::DEBOUNCE;
-use crate::server::{Feed, FeedContext, Publisher};
+use crate::server::{Demand, Feed, FeedContext, Publisher};
 use crate::sysroot::SysRoot;
 
 pub const FIVE_HOURS_S: u64 = 5 * 3600;
@@ -77,23 +78,36 @@ pub fn unavailable(id: &str, label: &str, reason: &str) -> ProviderUsage {
     }
 }
 
-/// Reads `[agents]` from the live config once at start; `~` expands to `$HOME`.
+/// Follows `[agents]` in the live config, restarting its watch when it changes; `~` expands to `$HOME`.
 pub fn sessions_feed(root: SysRoot) -> Feed {
     Feed::new(topics::AGENTS_SESSIONS, move |context| {
-        let agents = context.config.borrow().agents.clone();
-        let home = std::env::var_os(HOME_ENV);
-        let expand = |path: &str| expand_home(path, home.as_deref());
-        let paths = SessionPaths {
-            claude_sessions_dirs: agents
-                .claude_config_dirs
-                .iter()
-                .map(|dir| expand(dir).join(CLAUDE_SESSIONS_SUBDIR))
-                .collect(),
-            codex_sessions_dir: codex::sessions_dir(),
-            codex_home: expand(&agents.codex_home),
-        };
-        run(root, agents.providers, paths, Arc::new(unix_now_s), context)
+        run_following(root, Arc::new(unix_now_s), context)
     })
+}
+
+fn session_paths(agents: &Agents) -> SessionPaths {
+    let home = std::env::var_os(HOME_ENV);
+    let expand = |path: &str| expand_home(path, home.as_deref());
+    SessionPaths {
+        claude_sessions_dirs: agents
+            .claude_config_dirs
+            .iter()
+            .map(|dir| expand(dir).join(CLAUDE_SESSIONS_SUBDIR))
+            .collect(),
+        codex_sessions_dir: codex::sessions_dir(),
+        codex_home: expand(&agents.codex_home),
+    }
+}
+
+/// Resolves with the first `[agents]` that differs from `current`; never resolves once the config sender is gone.
+async fn agents_changed(config: &mut watch::Receiver<ResolvedConfig>, current: &Agents) -> Agents {
+    while config.changed().await.is_ok() {
+        let next = config.borrow_and_update().agents.clone();
+        if next != *current {
+            return next;
+        }
+    }
+    pending().await
 }
 
 pub fn sessions_feed_at(
@@ -127,13 +141,47 @@ async fn run(
     context
         .publisher
         .publish(topics::AGENTS_SESSIONS, &AgentsSessions::default());
+    serve(
+        &root,
+        &providers,
+        &paths,
+        &clock,
+        &mut context.demand,
+        &context.publisher,
+    )
+    .await;
+}
+
+async fn run_following(root: SysRoot, clock: WallClock, mut context: FeedContext) {
+    context
+        .publisher
+        .publish(topics::AGENTS_SESSIONS, &AgentsSessions::default());
+    let mut agents = context.config.borrow_and_update().agents.clone();
     loop {
-        until_wanted(&mut context.demand, topics::AGENTS_SESSIONS).await;
+        let paths = session_paths(&agents);
+        tokio::select! {
+            biased;
+            next = agents_changed(&mut context.config, &agents) => agents = next,
+            () = serve(&root, &agents.providers, &paths, &clock, &mut context.demand, &context.publisher) => {}
+        }
+    }
+}
+
+async fn serve(
+    root: &SysRoot,
+    providers: &[AgentProvider],
+    paths: &SessionPaths,
+    clock: &WallClock,
+    demand: &mut Demand,
+    publisher: &Publisher,
+) {
+    loop {
+        until_wanted(demand, topics::AGENTS_SESSIONS).await;
         // Dropping the watcher inside `watch` is what stops it, so nothing is watched while unwanted.
         tokio::select! {
             biased;
-            () = until_unwanted(&mut context.demand, topics::AGENTS_SESSIONS) => {}
-            () = watch(&root, &providers, &paths, &clock, context.publisher.clone()) => {}
+            () = until_unwanted(demand, topics::AGENTS_SESSIONS) => {}
+            () = watch(root, providers, paths, clock, publisher.clone()) => {}
         }
     }
 }
@@ -190,7 +238,11 @@ async fn watch(
     sweep.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! {
-            _ = events.recv() => while let Ok(Some(())) = timeout(DEBOUNCE, events.recv()).await {},
+            _ = events.recv() => {
+                // A fixed window, not a quiet gap: busy sessions rewrite their files faster than any gap.
+                sleep(DEBOUNCE).await;
+                while events.try_recv().is_ok() {}
+            }
             _ = sweep.tick() => {}
         }
         remove_stale_codex(paths, clock());
@@ -202,20 +254,20 @@ async fn watch(
     }
 }
 
-/// Wakes the receiver for every change to a path `accepts`; `accepts` is the only thing keeping noisy
+/// Sends the changed path for every change to a path `accepts`; `accepts` is the only thing keeping noisy
 /// directories from re-triggering a read.
 fn event_watcher(
     accepts: impl Fn(&Path) -> bool + Send + 'static,
-) -> notify::Result<(RecommendedWatcher, mpsc::UnboundedReceiver<()>)> {
+) -> notify::Result<(RecommendedWatcher, mpsc::UnboundedReceiver<PathBuf>)> {
     let (event_tx, events) = mpsc::unbounded_channel();
     let watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
         // inotify reports our own reads as opens, which would retrigger forever.
         if let Ok(event) = result
             && !matches!(event.kind, EventKind::Access(_))
-            && event.paths.iter().any(|path| accepts(path))
+            && let Some(path) = event.paths.into_iter().find(|path| accepts(path))
         {
             // A send only fails once the feed stopped listening.
-            let _ = event_tx.send(());
+            let _ = event_tx.send(path);
         }
     })?;
     Ok((watcher, events))
@@ -319,7 +371,7 @@ fn json_files(dir: &Path) -> Vec<(PathBuf, String)> {
 fn remove_stale_codex(paths: &SessionPaths, now_s: u64) {
     for (path, text) in json_files(&paths.codex_sessions_dir) {
         let stale = serde_json::from_str::<codex::SessionFile>(&text).is_ok_and(|file| {
-            file.pid.is_none() && file.since_s + UNTRACKED_CODEX_MAX_AGE_S < now_s
+            file.pid.is_none() && file.since_s.saturating_add(UNTRACKED_CODEX_MAX_AGE_S) < now_s
         });
         if stale && let Err(error) = fs::remove_file(&path) {
             warn!(%error, path = %path.display(), "cannot remove a stale Codex session file");
@@ -336,6 +388,14 @@ const ROLLOUT_PREFIX: &str = "rollout-";
 const ROLLOUT_SUFFIX: &str = ".jsonl";
 const NO_READING: &str = "no reading yet";
 const TAP_MISSING: &str = "tap";
+// Also caps how often the 256 KiB rollout tail is re-read while a session streams.
+const USAGE_DEBOUNCE: Duration = Duration::from_secs(1);
+
+fn is_rollout(path: &Path) -> bool {
+    path.file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| name.starts_with(ROLLOUT_PREFIX) && name.ends_with(ROLLOUT_SUFFIX))
+}
 
 pub struct UsagePaths {
     pub claude_capture: PathBuf,
@@ -354,23 +414,25 @@ pub fn capture_path() -> PathBuf {
     base.join(CAPTURE_DIR).join(CAPTURE_FILE)
 }
 
-/// Reads `[agents]` from the live config once at start; `~` expands to `$HOME`.
+/// Follows `[agents]` in the live config, restarting its watch when it changes; `~` expands to `$HOME`.
 pub fn usage_feed() -> Feed {
     Feed::new(topics::AGENTS_USAGE, move |context| {
-        let agents = context.config.borrow().agents.clone();
-        let home = std::env::var_os(HOME_ENV);
-        let expand = |path: &str| expand_home(path, home.as_deref());
-        let claude_dir = agents
-            .claude_config_dirs
-            .first()
-            .map_or_else(PathBuf::new, |dir| expand(dir));
-        let paths = UsagePaths {
-            claude_capture: capture_path(),
-            claude_settings: claude_dir.join(SETTINGS_FILE),
-            codex_home: expand(&agents.codex_home),
-        };
-        run_usage(agents.providers, paths, Arc::new(unix_now_s), context)
+        run_usage_following(Arc::new(unix_now_s), context)
     })
+}
+
+fn usage_paths(agents: &Agents) -> UsagePaths {
+    let home = std::env::var_os(HOME_ENV);
+    let expand = |path: &str| expand_home(path, home.as_deref());
+    let claude_dir = agents
+        .claude_config_dirs
+        .first()
+        .map_or_else(PathBuf::new, |dir| expand(dir));
+    UsagePaths {
+        claude_capture: capture_path(),
+        claude_settings: claude_dir.join(SETTINGS_FILE),
+        codex_home: expand(&agents.codex_home),
+    }
 }
 
 pub fn usage_feed_at(providers: Vec<AgentProvider>, paths: UsagePaths, clock: WallClock) -> Feed {
@@ -388,13 +450,45 @@ async fn run_usage(
     context
         .publisher
         .publish(topics::AGENTS_USAGE, &AgentsUsage::default());
+    serve_usage(
+        &providers,
+        &paths,
+        &clock,
+        &mut context.demand,
+        &context.publisher,
+    )
+    .await;
+}
+
+async fn run_usage_following(clock: WallClock, mut context: FeedContext) {
+    context
+        .publisher
+        .publish(topics::AGENTS_USAGE, &AgentsUsage::default());
+    let mut agents = context.config.borrow_and_update().agents.clone();
     loop {
-        until_wanted(&mut context.demand, topics::AGENTS_USAGE).await;
+        let paths = usage_paths(&agents);
+        tokio::select! {
+            biased;
+            next = agents_changed(&mut context.config, &agents) => agents = next,
+            () = serve_usage(&agents.providers, &paths, &clock, &mut context.demand, &context.publisher) => {}
+        }
+    }
+}
+
+async fn serve_usage(
+    providers: &[AgentProvider],
+    paths: &UsagePaths,
+    clock: &WallClock,
+    demand: &mut Demand,
+    publisher: &Publisher,
+) {
+    loop {
+        until_wanted(demand, topics::AGENTS_USAGE).await;
         // Dropping the watcher inside `watch_usage` is what stops it, so nothing is watched while unwanted.
         tokio::select! {
             biased;
-            () = until_unwanted(&mut context.demand, topics::AGENTS_USAGE) => {}
-            () = watch_usage(&providers, &paths, &clock, context.publisher.clone()) => {}
+            () = until_unwanted(demand, topics::AGENTS_USAGE) => {}
+            () = watch_usage(providers, paths, clock, publisher.clone()) => {}
         }
     }
 }
@@ -412,15 +506,19 @@ async fn watch_usage(
         let name = path.file_name();
         name == capture_name.as_deref()
             || name == Some(OsStr::new(SETTINGS_FILE))
-            || name.and_then(OsStr::to_str).is_some_and(|name| {
-                name.starts_with(ROLLOUT_PREFIX) && name.ends_with(ROLLOUT_SUFFIX)
-            })
+            || is_rollout(path)
     });
     let (mut watcher, mut events) = match watcher {
         Ok(watcher) => watcher,
         Err(error) => {
             warn!(%error, "cannot watch the agent usage; it stays as read once");
-            publish_usage(providers, paths, clock, &publisher);
+            publish_usage(
+                providers,
+                paths,
+                codex::newest_rollout(&paths.codex_home).as_deref(),
+                clock,
+                &publisher,
+            );
             return pending().await;
         }
     };
@@ -451,7 +549,15 @@ async fn watch_usage(
         .count();
 
     // Read after the watches are in place, so a change in between is not lost.
-    let mut published = publish_usage(providers, paths, clock, &publisher);
+    // A resumed or midnight-spanning session writes a rollout that is not the newest by directory.
+    let mut current_rollout = codex::newest_rollout(&paths.codex_home);
+    let mut published = publish_usage(
+        providers,
+        paths,
+        current_rollout.as_deref(),
+        clock,
+        &publisher,
+    );
     if watched == 0 {
         return pending().await;
     }
@@ -459,10 +565,17 @@ async fn watch_usage(
         let until_reset = next_reset_delay(&published, clock());
         tokio::select! {
             event = events.recv() => {
-                if event.is_none() {
+                let Some(first) = event else {
                     return pending().await;
+                };
+                sleep(USAGE_DEBOUNCE).await;
+                let mut changed = vec![first];
+                while let Ok(path) = events.try_recv() {
+                    changed.push(path);
                 }
-                while let Ok(Some(())) = timeout(DEBOUNCE, events.recv()).await {}
+                if let Some(rollout) = changed.into_iter().rev().find(|path| is_rollout(path)) {
+                    current_rollout = Some(rollout);
+                }
             }
             // A passed reset changes what the widget must show without touching any watched file.
             () = async {
@@ -472,7 +585,7 @@ async fn watch_usage(
                 }
             } => {}
         }
-        let usage = read_usage(providers, paths, clock());
+        let usage = read_usage(providers, paths, current_rollout.as_deref(), clock());
         if usage != published {
             publisher.publish(topics::AGENTS_USAGE, &usage);
             published = usage;
@@ -488,27 +601,33 @@ fn next_reset_delay(usage: &AgentsUsage, now_s: u64) -> Option<Duration> {
         .flat_map(|provider| &provider.windows)
         .filter_map(|window| window.resets_at_s)
         .min()
-        .map(|reset| Duration::from_secs((reset + 1).saturating_sub(now_s)))
+        .map(|reset| Duration::from_secs(reset.saturating_add(1).saturating_sub(now_s)))
 }
 
 fn publish_usage(
     providers: &[AgentProvider],
     paths: &UsagePaths,
+    rollout: Option<&Path>,
     clock: &WallClock,
     publisher: &Publisher,
 ) -> AgentsUsage {
-    let usage = read_usage(providers, paths, clock());
+    let usage = read_usage(providers, paths, rollout, clock());
     publisher.publish(topics::AGENTS_USAGE, &usage);
     usage
 }
 
-/// One pass: an entry per enabled provider, in config order.
-pub fn read_usage(providers: &[AgentProvider], paths: &UsagePaths, now_s: u64) -> AgentsUsage {
+/// One pass: an entry per enabled provider, in config order; Codex is read from `rollout`.
+pub fn read_usage(
+    providers: &[AgentProvider],
+    paths: &UsagePaths,
+    rollout: Option<&Path>,
+    now_s: u64,
+) -> AgentsUsage {
     let providers = providers
         .iter()
         .map(|provider| match provider {
             AgentProvider::Claude => read_claude(paths, now_s),
-            AgentProvider::Codex => read_codex(paths, now_s),
+            AgentProvider::Codex => read_codex(rollout, now_s),
         })
         .collect();
     AgentsUsage { providers }
@@ -526,23 +645,22 @@ fn read_claude(paths: &UsagePaths, now_s: u64) -> ProviderUsage {
     }
 }
 
-fn read_codex(paths: &UsagePaths, now_s: u64) -> ProviderUsage {
-    newest_tail(&paths.codex_home).map_or_else(
+fn read_codex(rollout: Option<&Path>, now_s: u64) -> ProviderUsage {
+    rollout.and_then(rollout_tail).map_or_else(
         || unavailable(codex::ID, codex::LABEL, NO_READING),
         |(tail, read_at_s)| codex::parse_rollout_tail(&tail, now_s, read_at_s),
     )
 }
 
-/// The last `TAIL_BYTES` of the newest rollout with its mtime; the file can vanish under a read.
-fn newest_tail(codex_home: &Path) -> Option<(Vec<u8>, u64)> {
-    let path = codex::newest_rollout(codex_home)?;
-    let mut file = File::open(&path).ok()?;
+/// The last `TAIL_BYTES` of a rollout with its mtime; the file can vanish under a read.
+fn rollout_tail(path: &Path) -> Option<(Vec<u8>, u64)> {
+    let mut file = File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
     file.seek(SeekFrom::End(-(len.min(codex::TAIL_BYTES) as i64)))
         .ok()?;
     let mut tail = Vec::new();
     file.read_to_end(&mut tail).ok()?;
-    Some((tail, mtime_s(&path)))
+    Some((tail, mtime_s(path)))
 }
 
 fn mtime_s(path: &Path) -> u64 {
