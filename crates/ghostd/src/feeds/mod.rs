@@ -1,6 +1,7 @@
 //! Built-in topics published from async tasks, each started once by `serve`.
 
 pub mod actions;
+pub mod agents;
 pub mod batteries;
 pub mod desktop;
 pub mod health;

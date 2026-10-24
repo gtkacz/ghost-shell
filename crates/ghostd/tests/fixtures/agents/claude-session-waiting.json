@@ -1,0 +1,12 @@
+{
+  "pid": 4242,
+  "procStart": 123456,
+  "sessionId": "0123456789abcdef-0123-4567-89ab-cdef01234567",
+  "cwd": "/home/u/Codes/proj",
+  "name": "proj-68",
+  "kind": "interactive",
+  "status": "waiting",
+  "waitingFor": "permission prompt",
+  "statusUpdatedAt": 1792797000000,
+  "tmux": "unsnooze-6:@12.%12"
+}

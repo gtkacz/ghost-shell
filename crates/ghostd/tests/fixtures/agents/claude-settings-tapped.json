@@ -1,0 +1,3 @@
+{
+  "statusLine": { "type": "command", "command": "/home/u/.local/bin/ghostd claude-statusline-tap" }
+}
