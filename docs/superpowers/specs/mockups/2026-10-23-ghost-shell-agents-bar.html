@@ -1,0 +1,184 @@
+<h2>Where do usage and sessions live in the bar?</h2>
+<p class="subtitle">Three directions. Each shows the bar slot at 1:1 scale, then the popup that opens from it. Numbers for Codex are the real ones read a minute ago; the Claude ones are placeholders.</p>
+
+<style>
+.gs { --ground:#0a0f11; --hair:#2a3a3d; --hair2:#1a2527; --text:#b7d1cd; --hi:#e4f1ef; --dim:#587170; --sig:#a3d4cc; --warn:#e9a84c; --crit:#ff3b45;
+  font: 500 10px 'Kode Mono', 'JetBrains Mono', monospace; letter-spacing: .08em; color: var(--text); }
+.gs .bar { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: rgba(10,15,17,.96); border: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+.gs .brand { color: var(--sig); font-weight: 700; letter-spacing: .12em; }
+.gs .brand i { color: var(--dim); font-style: normal; }
+.gs .st { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.gs .st b { letter-spacing: .12em; }
+.gs .fill { flex: 1; }
+.gs .dimtxt { color: var(--dim); }
+.gs .warn { color: var(--warn); }
+.gs .crit { color: var(--crit); }
+.gs .hi { color: var(--hi); }
+.gs .seg { display: inline-flex; gap: 2px; vertical-align: middle; }
+.gs .seg i { display: block; width: 4px; height: 9px; background: rgba(163,212,204,.08); }
+.gs .seg i.on { background: var(--sig); }
+.gs .seg.w i.on { background: var(--warn); }
+.gs .seg.c i.on { background: var(--crit); }
+.gs .chip { border: 1px solid var(--hair); padding: 3px 8px; display: flex; align-items: center; gap: 8px; }
+.gs .chip.hot { border-color: var(--warn); }
+.gs .dot { display:inline-block; width:6px; height:6px; margin: 0 1px; background: var(--dim); }
+.gs .dot.busy { background: var(--sig); }
+.gs .dot.wait { background: var(--warn); animation: blink 1s steps(2) infinite; }
+.gs .dot.idle { background: rgba(163,212,204,.25); }
+@keyframes blink { 50% { opacity: .2; } }
+.gs .pop { margin: 8px 0 0 auto; width: 420px; background: rgba(10,15,17,.98); border: 1px solid var(--hair); padding: 10px 12px; position: relative; }
+.gs .pop.wide { width: 640px; }
+.gs .pop .hd { display: flex; justify-content: space-between; color: var(--dim); font-size: 9px; letter-spacing: .22em; margin-bottom: 8px; }
+.gs .pop .hd b { color: var(--hi); }
+.gs .row { display: grid; grid-template-columns: 34px 1fr 110px 70px; gap: 10px; align-items: center; padding: 4px 0; border-top: 1px solid var(--hair2); }
+.gs .row.head { color: var(--dim); font-size: 9px; border-top: 0; letter-spacing: .2em; }
+.gs .row .pv { color: var(--dim); font-weight: 700; }
+.gs .row .nm { color: var(--hi); }
+.gs .row .nm small { color: var(--dim); margin-left: 6px; }
+.gs .row .stt { display:flex; align-items:center; gap:6px; }
+.gs .row .ago { color: var(--dim); text-align: right; }
+.gs .usage { display: grid; grid-template-columns: 34px 32px 1fr 44px 70px; gap: 10px; align-items: center; padding: 4px 0; border-top: 1px solid var(--hair2); }
+.gs .usage .track { height: 6px; background: rgba(163,212,204,.08); position: relative; }
+.gs .usage .track i { position:absolute; left:0; top:0; bottom:0; background: var(--sig); }
+.gs .usage .track i.w { background: var(--warn); }
+.gs .usage .pct { text-align:right; color: var(--hi); }
+.gs .usage .rst { color: var(--dim); text-align:right; }
+.gs .sect { color: var(--dim); font-size: 9px; letter-spacing: .22em; margin: 10px 0 4px; }
+.gs .sect:first-child { margin-top: 0; }
+.gs .big { display:flex; gap: 18px; }
+.gs .big .pvblock { flex:1; }
+.gs .big .pvblock .pvn { color: var(--hi); font-weight:700; letter-spacing:.2em; margin-bottom:6px; }
+.gs .big .pvblock .pvn small { color: var(--dim); font-weight:500; margin-left:8px; letter-spacing:.1em; }
+.note { color: #8a9e9c; font-size: 12px; line-height: 1.55; margin: 8px 0 0; }
+.note strong { color: #e4f1ef; font-weight: 500; }
+.optionwrap { margin-bottom: 36px; }
+</style>
+
+<div class="options">
+
+<div class="option optionwrap" data-choice="a" onclick="toggleSelect(this)">
+  <div class="letter">A</div>
+  <div class="content" style="flex:1">
+    <h3>One AI chip: weekly meters plus a session count</h3>
+    <p>Sits with the other status parts. Weekly is the number that actually gates you, so only it gets a meter in the bar. The chip turns warn when any session waits. One popup carries both halves.</p>
+    <div class="gs" style="margin-top:12px">
+      <div class="bar">
+        <div class="brand">GS<i>//</i>01</div><div class="fill"></div>
+        <div class="st"><b>CPU</b><span>12%</span></div>
+        <div class="st"><b>MEM</b><span>31%</span></div>
+        <div class="st"><b>VPN</b><span>2 UP</span></div>
+        <div class="st chip hot"><b>AI</b>
+          <span class="dimtxt">CC</span><span class="seg w"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></span><span>61%</span>
+          <span class="dimtxt">CX</span><span class="seg"><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span>14%</span>
+          <span class="dimtxt">·</span><span class="hi">18</span><span class="warn">1 WAIT</span>
+        </div>
+        <div class="st"><b>WX</b><span>18° · STORM</span></div>
+        <div class="st dimtxt">23:11</div>
+      </div>
+      <div class="pop wide">
+        <div class="hd"><span><b>AI</b> · USAGE AND SESSIONS</span><span>18 SESSIONS · 1 WAITING</span></div>
+        <div class="big">
+          <div class="pvblock"><div class="pvn">CLAUDE <small>MAX</small></div>
+            <div class="usage"><span class="dimtxt">5H</span><span></span><div class="track"><i style="width:42%"></i></div><span class="pct">42%</span><span class="rst">↻ 2H 14M</span></div>
+            <div class="usage"><span class="dimtxt">7D</span><span></span><div class="track"><i class="w" style="width:61%"></i></div><span class="pct">61%</span><span class="rst">↻ THU 09:00</span></div>
+          </div>
+          <div class="pvblock"><div class="pvn">CODEX <small>PLUS</small></div>
+            <div class="usage"><span class="dimtxt">5H</span><span></span><div class="track"><i style="width:0%"></i></div><span class="pct">0%</span><span class="rst">↻ 4H 59M</span></div>
+            <div class="usage"><span class="dimtxt">7D</span><span></span><div class="track"><i style="width:14%"></i></div><span class="pct">14%</span><span class="rst">↻ TUE 14:33</span></div>
+          </div>
+        </div>
+        <div class="sect">SESSIONS</div>
+        <div class="row head"><span></span><span>NAME · PROJECT</span><span>STATE</span><span style="text-align:right">FOR</span></div>
+        <div class="row"><span class="pv">CC</span><span class="nm">ghost-shell-68<small>ghost-shell</small></span><span class="stt warn"><span class="dot wait"></span>PERMISSION</span><span class="ago">11M</span></div>
+        <div class="row"><span class="pv">CC</span><span class="nm">ghost-shell-65<small>ghost-shell</small></span><span class="stt"><span class="dot busy"></span>BUSY</span><span class="ago">40S</span></div>
+        <div class="row"><span class="pv">CX</span><span class="nm">AGENTS.md draft<small>content-platform</small></span><span class="stt"><span class="dot busy"></span>BUSY</span><span class="ago">3M</span></div>
+        <div class="row"><span class="pv">CC</span><span class="nm">last-bucket-d1<small>last-bucket</small></span><span class="stt dimtxt"><span class="dot idle"></span>IDLE</span><span class="ago">1D</span></div>
+        <div class="row"><span class="pv">CC</span><span class="nm">ppgeec-dc<small>PPGEEC</small></span><span class="stt dimtxt"><span class="dot idle"></span>IDLE</span><span class="ago">15H</span></div>
+        <div class="row"><span class="pv dimtxt">…</span><span class="nm dimtxt">13 more idle</span><span></span><span></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="option optionwrap" data-choice="b" onclick="toggleSelect(this)">
+  <div class="letter">B</div>
+  <div class="content" style="flex:1">
+    <h3>Two parts: a USAGE readout and an AGENTS readout</h3>
+    <p>Usage reads like the CPU and MEM parts, all four numbers in text. Agents is its own part with the waiting count. Each opens its own narrower popup, so you can place them apart or drop one.</p>
+    <div class="gs" style="margin-top:12px">
+      <div class="bar">
+        <div class="brand">GS<i>//</i>01</div><div class="fill"></div>
+        <div class="st"><b>CPU</b><span>12%</span></div>
+        <div class="st"><b>MEM</b><span>31%</span></div>
+        <div class="st"><b>CC</b><span>42</span><span class="dimtxt">/</span><span class="warn">61</span></div>
+        <div class="st"><b>CX</b><span>0</span><span class="dimtxt">/</span><span>14</span></div>
+        <div class="st"><b>VPN</b><span>2 UP</span></div>
+        <div class="st warn"><b>AGENTS</b><span>18 · 1 WAIT</span></div>
+        <div class="st"><b>WX</b><span>18° · STORM</span></div>
+        <div class="st dimtxt">23:11</div>
+      </div>
+      <div style="display:flex; gap:12px; justify-content:flex-end">
+        <div class="pop" style="margin-left:0">
+          <div class="hd"><span><b>USAGE</b> · 5H / 7D</span></div>
+          <div class="sect">CLAUDE · MAX</div>
+          <div class="usage"><span class="dimtxt">5H</span><span></span><div class="track"><i style="width:42%"></i></div><span class="pct">42%</span><span class="rst">↻ 2H 14M</span></div>
+          <div class="usage"><span class="dimtxt">7D</span><span></span><div class="track"><i class="w" style="width:61%"></i></div><span class="pct">61%</span><span class="rst">↻ THU 09:00</span></div>
+          <div class="sect">CODEX · PLUS</div>
+          <div class="usage"><span class="dimtxt">5H</span><span></span><div class="track"><i style="width:0%"></i></div><span class="pct">0%</span><span class="rst">↻ 4H 59M</span></div>
+          <div class="usage"><span class="dimtxt">7D</span><span></span><div class="track"><i style="width:14%"></i></div><span class="pct">14%</span><span class="rst">↻ TUE 14:33</span></div>
+        </div>
+        <div class="pop" style="margin-left:0">
+          <div class="hd"><span><b>AGENTS</b></span><span>18 · 1 WAITING</span></div>
+          <div class="row"><span class="pv">CC</span><span class="nm">ghost-shell-68<small>ghost-shell</small></span><span class="stt warn"><span class="dot wait"></span>PERMISSION</span><span class="ago">11M</span></div>
+          <div class="row"><span class="pv">CC</span><span class="nm">ghost-shell-65<small>ghost-shell</small></span><span class="stt"><span class="dot busy"></span>BUSY</span><span class="ago">40S</span></div>
+          <div class="row"><span class="pv">CX</span><span class="nm">AGENTS.md draft<small>content-platform</small></span><span class="stt"><span class="dot busy"></span>BUSY</span><span class="ago">3M</span></div>
+          <div class="row"><span class="pv">CC</span><span class="nm">last-bucket-d1<small>last-bucket</small></span><span class="stt dimtxt"><span class="dot idle"></span>IDLE</span><span class="ago">1D</span></div>
+          <div class="row"><span class="pv dimtxt">…</span><span class="nm dimtxt">14 more idle</span><span></span><span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="option optionwrap" data-choice="c" onclick="toggleSelect(this)">
+  <div class="letter">C</div>
+  <div class="content" style="flex:1">
+    <h3>Sessions as a dot strip, usage only in the popup</h3>
+    <p>One dot per live session, bright when busy, faint when idle, blinking warn when waiting. You read the whole fleet at a glance and never see a percentage until you open it. Smallest bar footprint.</p>
+    <div class="gs" style="margin-top:12px">
+      <div class="bar">
+        <div class="brand">GS<i>//</i>01</div><div class="fill"></div>
+        <div class="st"><b>CPU</b><span>12%</span></div>
+        <div class="st"><b>MEM</b><span>31%</span></div>
+        <div class="st"><b>VPN</b><span>2 UP</span></div>
+        <div class="st"><b>AI</b>
+          <span class="dot busy"></span><span class="dot busy"></span><span class="dot wait"></span><span class="dot busy"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span><span class="dot idle"></span>
+          <span class="dimtxt">·</span><span class="warn">61%</span>
+        </div>
+        <div class="st"><b>WX</b><span>18° · STORM</span></div>
+        <div class="st dimtxt">23:11</div>
+      </div>
+      <div class="pop wide">
+        <div class="hd"><span><b>AI</b></span><span>CC 42% / <span class="warn">61%</span> · CX 0% / 14%</span></div>
+        <div class="sect">WAITING</div>
+        <div class="row"><span class="pv">CC</span><span class="nm">ghost-shell-68<small>ghost-shell</small></span><span class="stt warn"><span class="dot wait"></span>PERMISSION</span><span class="ago">11M</span></div>
+        <div class="sect">BUSY</div>
+        <div class="row"><span class="pv">CC</span><span class="nm">ghost-shell-65<small>ghost-shell</small></span><span class="stt"><span class="dot busy"></span>BUSY</span><span class="ago">40S</span></div>
+        <div class="row"><span class="pv">CX</span><span class="nm">AGENTS.md draft<small>content-platform</small></span><span class="stt"><span class="dot busy"></span>BUSY</span><span class="ago">3M</span></div>
+        <div class="row"><span class="pv">CC</span><span class="nm">ghost-shell-56<small>ghost-shell</small></span><span class="stt"><span class="dot busy"></span>BUSY</span><span class="ago">1M</span></div>
+        <div class="sect">IDLE · 14</div>
+        <div class="row"><span class="pv">CC</span><span class="nm">last-bucket-d1<small>last-bucket</small></span><span class="stt dimtxt"><span class="dot idle"></span>IDLE</span><span class="ago">1D</span></div>
+        <div class="row"><span class="pv dimtxt">…</span><span class="nm dimtxt">13 more</span><span></span><span></span></div>
+        <div class="sect">LIMITS</div>
+        <div class="usage"><span class="dimtxt">CC</span><span class="dimtxt">5H</span><div class="track"><i style="width:42%"></i></div><span class="pct">42%</span><span class="rst">↻ 2H 14M</span></div>
+        <div class="usage"><span class="dimtxt">CC</span><span class="dimtxt">7D</span><div class="track"><i class="w" style="width:61%"></i></div><span class="pct">61%</span><span class="rst">↻ THU 09:00</span></div>
+        <div class="usage"><span class="dimtxt">CX</span><span class="dimtxt">5H</span><div class="track"><i style="width:0%"></i></div><span class="pct">0%</span><span class="rst">↻ 4H 59M</span></div>
+        <div class="usage"><span class="dimtxt">CX</span><span class="dimtxt">7D</span><div class="track"><i style="width:14%"></i></div><span class="pct">14%</span><span class="rst">↻ TUE 14:33</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<p class="note"><strong>Common to all three:</strong> the reset column shows a countdown under 24 hours and a weekday plus time beyond that. Warn colour starts at a threshold you set, placeholder 60%. Idle sessions sink to the bottom. Click to select, then tell me in the terminal what to change.</p>
