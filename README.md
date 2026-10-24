@@ -1087,6 +1087,8 @@ Headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, private buses, measured 202
 
 **Daemon feeds** (live, read-only): the ticker's failed-units count ≈ 0 s, firewalld state 0.01 s, PackageKit `GetUpdates` 0.82 s wall time.
 
+**Known limits of layout B** (left as they are; layout A is the default): the dock reserves no screen space, so maximised windows run under it; and its 58 px band leaves V1 too short for MEMORY's process rows and STORAGE's second and third drives.
+
 ### Project 2: the lock screen, style A (installed, 2026-10-24)
 
 `kscreenlocker_greet` running the gate's prompt, idle and locked on the M27Q, measured over 60 s from `/proc/<pid>/stat` (budget ≤ 1 %, spec §8.4):
