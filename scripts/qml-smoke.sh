@@ -219,6 +219,8 @@ launcher_launches=
 # Gap between two presses of one power button, longer than the launcher's key-repeat guard.
 launcher_press_gap_s=0.5
 launcher_ipc_s=1
+# Long enough for a new window to map and take the focus.
+launcher_focus_s=4
 
 # name, id, generic name, categories, keywords
 write_launcher_entry() {
@@ -302,6 +304,17 @@ run_launcher_phase() {
     launcher_expect "key repeat did not fire" "$(launcher_count 'launcher power restart')" 0
     launcher_ipc key Escape
     launcher_expect "Escape closed" "$(launcher_count 'launcher closed')" 3
+
+    # Another window taking the keyboard focus closes the launcher, which has no catcher over the screen.
+    launcher_ipc toggle
+    mkdir -p -- "$state_dir/window"
+    printf 'import QtQuick\nimport Quickshell\nShellRoot {\n    FloatingWindow {\n        implicitWidth: 300\n        implicitHeight: 200\n        title: "smoke stand-in"\n    }\n}\n' > "$state_dir/window/shell.qml"
+    env ${launcher_env[@]+"${launcher_env[@]}"} qs --no-color -p "$state_dir/window" > "$state_dir/window.log" 2>&1 &
+    local window_pid=$!
+    sleep "$launcher_focus_s"
+    kill "$window_pid" 2> /dev/null || true
+    wait "$window_pid" 2> /dev/null || true
+    launcher_expect "focus moved to another window closed it" "$(launcher_count 'launcher closed')" 4
     launcher_expect "nothing was dropped or refused" "$(grep -cE 'dropped call|ghostd refused call' "$shell_log" || true)" 0
     # No want for the recent files outlives the panel.
     if grep -F 'qml: wants' "$shell_log" | tail -n 1 | grep -q '"recent"'; then

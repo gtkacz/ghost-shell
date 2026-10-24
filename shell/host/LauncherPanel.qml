@@ -6,9 +6,9 @@ import "../kit/GhostKit/lib/layout.mjs" as Layout
 import "../kit/GhostKit/lib/theme.mjs" as ThemeLib
 import "../kit/GhostKit/lib/views.mjs" as ViewsLib
 
-// The launcher's drop panel under (or over) the bar, at the screen's left edge. One transparent surface covers the
-// whole screen on the Overlay layer, so a click anywhere else closes it even over a fullscreen window, which the
-// outside catcher on the Top layer cannot do.
+// The launcher's drop panel under (or over) the bar, at the screen's left edge, on a surface the size of the panel. It
+// is on the Overlay layer so it opens over a fullscreen window, and closes when it loses keyboard focus, which the
+// outside catcher on the Top layer could not do over a fullscreen window.
 Scope {
     id: root
 
@@ -62,22 +62,21 @@ Scope {
 
             screen: root.screen
             anchors {
-                top: true
-                bottom: true
+                top: !window.atBottom
+                bottom: window.atBottom
                 left: true
-                right: true
             }
+            margins {
+                top: window.atBottom ? 0 : window.bandPx
+                bottom: window.atBottom ? window.bandPx : 0
+            }
+            implicitWidth: Theme.d(root.panelWidthPx)
+            implicitHeight: Theme.d(root.panelHeightPx)
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.namespace: "utility"
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-
-            MouseArea {
-                anchors.fill: parent
-                acceptedButtons: Qt.AllButtons
-                onPressed: Launcher.close()
-            }
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
 
             Item {
                 id: stage
@@ -87,14 +86,8 @@ Scope {
 
                 width: Theme.d(root.panelWidthPx)
                 height: revealed
-                y: window.atBottom ? parent.height - window.bandPx - revealed : window.bandPx
+                y: window.atBottom ? parent.height - revealed : 0
                 clip: true
-
-                // Taken by the panel, so a click on it never reaches the closing area behind.
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.AllButtons
-                }
 
                 Item {
                     id: panelBox
@@ -326,7 +319,17 @@ Scope {
             }
 
             Item {
+                property bool wasActive: false
+
                 focus: true
+                // The surface takes no exclusive focus, so activating anything else, by a click or a new window, closes the launcher.
+                Window.onActiveChanged: {
+                    if (Window.active) {
+                        wasActive = true;
+                    } else if (wasActive) {
+                        Launcher.close();
+                    }
+                }
                 Keys.onPressed: event => {
                     const name = root.keyName(event.key);
                     if (name !== "") {
