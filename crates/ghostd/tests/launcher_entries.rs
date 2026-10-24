@@ -41,6 +41,7 @@ impl RunningLauncher {
             demand: demand_receiver,
             config: config_receiver,
             calls: tokio::sync::broadcast::channel(64).1,
+            topics: tokio::sync::broadcast::channel(1).1,
         };
         let task = tokio::spawn(launcher_entries::feed_on(bus).run(context));
         Self {

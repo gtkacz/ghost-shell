@@ -47,6 +47,7 @@ impl Running {
             demand: demand_receiver,
             config: config_receiver,
             calls: receiver,
+            topics: broadcast::channel(1).1,
         };
         let feed = actions::feed_on(
             Some(session_bus.connect().await),

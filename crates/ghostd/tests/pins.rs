@@ -309,6 +309,7 @@ async fn feed_imports_at_start_then_serves_pin_calls() {
         demand: demand_receiver,
         config: config_receiver,
         calls: receiver,
+        topics: broadcast::channel(1).1,
     };
     let task = tokio::spawn(pins::feed(config.clone(), sandbox.dir.path().to_owned()).run(context));
     let call = |method: &str, args| {

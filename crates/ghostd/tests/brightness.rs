@@ -60,6 +60,7 @@ impl Running {
             demand: demand_receiver,
             config: config_receiver,
             calls: calls_receiver,
+            topics: broadcast::channel(1).1,
         };
         let feed = brightness::feed_on(bus.connect().await);
         Self {
@@ -336,6 +337,7 @@ async fn survives_a_plasma_that_is_not_on_the_bus() {
         demand: demand_receiver,
         config: config_receiver,
         calls: calls_receiver,
+        topics: broadcast::channel(1).1,
     };
     let task = tokio::spawn(brightness::feed_on(bus.connect().await).run(context));
     let (_, data) = timeout(BUS_WAIT, published.recv()).await.unwrap().unwrap();

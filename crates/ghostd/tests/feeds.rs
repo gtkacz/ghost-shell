@@ -126,6 +126,7 @@ async fn first_publish(feed: Feed) -> (String, Value) {
         demand,
         config,
         calls: tokio::sync::broadcast::channel(64).1,
+        topics: tokio::sync::broadcast::channel(1).1,
     };
     let _running = tokio::spawn(feed.run(context));
     timeout(WAIT, values.recv())
@@ -305,6 +306,7 @@ async fn the_fake_spectrum_publishes_only_while_wanted() {
                 demand: demand.clone(),
                 config: config.clone(),
                 calls: tokio::sync::broadcast::channel(64).1,
+                topics: tokio::sync::broadcast::channel(1).1,
             }))
         })
         .collect();

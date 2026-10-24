@@ -109,6 +109,7 @@ impl Running {
             demand: demand_receiver,
             config: config_receiver,
             calls: tokio::sync::broadcast::channel(64).1,
+            topics: tokio::sync::broadcast::channel(1).1,
         };
         let feed = recent::feed_at(sandbox.xbel(), sandbox.home());
         let task = tokio::spawn(feed.run(context));

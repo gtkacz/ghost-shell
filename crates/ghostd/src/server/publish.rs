@@ -41,6 +41,16 @@ pub struct Call {
 /// How many calls a feed may leave unread before it loses the oldest.
 pub(super) const CALL_BACKLOG: usize = 64;
 
+/// How many topic updates a feed may leave unread before it loses the oldest.
+pub(super) const TOPIC_UPDATE_BACKLOG: usize = 256;
+
+/// A value the hub has just published and cached, shared cheaply among every feed that watches.
+#[derive(Debug, Clone)]
+pub struct TopicUpdate {
+    pub topic: Arc<str>,
+    pub value: Arc<Value>,
+}
+
 /// The union of every UI client's subscriptions, sent only when it changes.
 ///
 /// Never hold a `borrow()` of it across [`Publisher::publish`]: the hub updates the demand while
@@ -53,6 +63,8 @@ pub struct FeedContext {
     pub config: watch::Receiver<ResolvedConfig>,
     /// What UI clients ask the daemon to do. A feed that lags behind loses the oldest calls.
     pub calls: broadcast::Receiver<Call>,
+    /// Every value the hub publishes, whatever its source. A feed that lags behind loses the oldest.
+    pub topics: broadcast::Receiver<TopicUpdate>,
 }
 
 type FeedTask = Pin<Box<dyn Future<Output = ()> + Send>>;

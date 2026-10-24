@@ -71,6 +71,7 @@ impl RunningHealth {
             demand: demand_receiver,
             config: config_receiver,
             calls: tokio::sync::broadcast::channel(64).1,
+            topics: tokio::sync::broadcast::channel(1).1,
         };
         let clock = Arc::new(FakeWallClock {
             start: Instant::now(),

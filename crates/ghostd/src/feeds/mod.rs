@@ -31,8 +31,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_core::Stream;
 use ghost_proto::ResolvedConfig;
+use serde_json::Value;
+use tokio::sync::broadcast::{self, error::RecvError};
+use tracing::debug;
 
-use crate::server::Demand;
+use crate::server::{Demand, TopicUpdate};
 
 /// The wall clock in seconds since the Unix epoch, passed in so that tests can move it on its own.
 pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
@@ -98,4 +101,17 @@ pub(crate) async fn next<S: Stream + Unpin>(stream: &mut S) -> Option<S::Item> {
 pub(crate) fn drain<S: Stream + Unpin>(stream: &mut S) {
     let mut context = Context::from_waker(Waker::noop());
     while let Poll::Ready(Some(_)) = Pin::new(&mut *stream).poll_next(&mut context) {}
+}
+
+/// The next value the hub publishes under `name`; it waits for ever if the hub is gone.
+pub async fn next_topic(topics: &mut broadcast::Receiver<TopicUpdate>, name: &str) -> Arc<Value> {
+    loop {
+        match topics.recv().await {
+            Ok(update) if &*update.topic == name => return update.value,
+            Ok(_) => {}
+            Err(RecvError::Lagged(missed)) => debug!(missed, "topic updates lost to a slow feed"),
+            // As in `until_wanted`: the hub holds the sender until it stops.
+            Err(RecvError::Closed) => pending::<()>().await,
+        }
+    }
 }

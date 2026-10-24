@@ -200,6 +200,7 @@ mod tests {
             demand: receiver,
             config,
             calls: tokio::sync::broadcast::channel(64).1,
+            topics: tokio::sync::broadcast::channel(1).1,
         };
         (context, demand, published)
     }

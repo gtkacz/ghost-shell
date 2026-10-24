@@ -336,6 +336,7 @@ mod sessions {
                 demand: demand_receiver,
                 config: config_receiver,
                 calls: tokio::sync::broadcast::channel(64).1,
+                topics: tokio::sync::broadcast::channel(1).1,
             };
             let paths = SessionPaths {
                 claude_sessions_dirs: vec![self.dir.path().join("claude/sessions")],
@@ -560,6 +561,7 @@ mod usage {
                 demand: demand_receiver,
                 config: config_receiver,
                 calls: tokio::sync::broadcast::channel(64).1,
+                topics: tokio::sync::broadcast::channel(1).1,
             };
             let path = |sub: &str| -> PathBuf { self.dir.path().join(sub) };
             let paths = UsagePaths {

@@ -8,7 +8,7 @@ use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, warn};
 
-use super::publish::CALL_BACKLOG;
+use super::publish::{CALL_BACKLOG, TOPIC_UPDATE_BACKLOG, TopicUpdate};
 use super::sampling::Tick;
 use super::{Call, Demand, invalid_topic, line};
 use crate::history::{has_history, history_topic};
@@ -85,6 +85,7 @@ pub(super) struct State {
     next_id: u64,
     demand: watch::Sender<BTreeSet<String>>,
     calls: broadcast::Sender<Call>,
+    topic_updates: broadcast::Sender<TopicUpdate>,
 }
 
 impl State {
@@ -104,6 +105,7 @@ impl State {
             next_id: 0,
             demand: watch::Sender::new(BTreeSet::new()),
             calls: broadcast::Sender::new(CALL_BACKLOG),
+            topic_updates: broadcast::Sender::new(TOPIC_UPDATE_BACKLOG),
         }
     }
 
@@ -148,6 +150,10 @@ impl State {
 
     pub(super) fn calls(&self) -> broadcast::Receiver<Call> {
         self.calls.subscribe()
+    }
+
+    pub(super) fn topics(&self) -> broadcast::Receiver<TopicUpdate> {
+        self.topic_updates.subscribe()
     }
 
     /// Hands a call to the feeds. Nobody listening is no error: the call has nothing to act on.
@@ -310,11 +316,16 @@ impl State {
 
     /// Caches a `Data` message as its topic's last value and queues it for the topic's subscribers.
     fn relay(&mut self, message: &ServerMsg) {
-        let ServerMsg::Data { topic, .. } = message else {
+        let ServerMsg::Data { topic, data, .. } = message else {
             return;
         };
         let line = line(message);
         self.topics.entry(topic.clone()).or_default().last = Some(Arc::clone(&line));
+        // Nobody listening is no error, and a send never waits, so this is safe under the hub lock.
+        let _no_feed_watches = self.topic_updates.send(TopicUpdate {
+            topic: Arc::from(topic.as_str()),
+            value: Arc::new(data.clone()),
+        });
         self.deliver(&line, |client| client.topics.contains(topic));
     }
 
