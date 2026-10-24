@@ -56,6 +56,28 @@ It stops with an error if `cargo`, `fc-list`, `fc-cache`, `kpackagetool6`, `krea
 
 When an install changes a compiled shader, the script says so at the end. The shell's first start after that compiles the shaders into its cache and stays about 61 MiB above its steady state until it is restarted (see Performance). So start or restart `ghost-shell`, wait about 30 s, and run `systemctl --user restart ghost-shell` once.
 
+### Retiring the Plasma panel
+
+The bar and the launcher replace Plasma's panel and Kickoff, while `plasmashell` keeps running for the clipboard, the OSDs, notifications and KDE's applet popups. `scripts/install.sh` only prints this step; run it yourself, once, from the Plasma session, with `ghostd` and `ghost-shell` running:
+
+```sh
+scripts/plasma-panel.sh retire    # hand the panel over to the bar
+scripts/plasma-panel.sh status    # "retired <stamp>" or "plasma panel in place"
+scripts/plasma-panel.sh restore   # give it back
+```
+
+`retire` prints every change before making it, and stops at the first failure. In order, it:
+
+1. backs up `plasma-org.kde.plasma.desktop-appletsrc`, `plasmashellrc` and `kglobalshortcutsrc` from `~/.config`, and the keys of plasmashell's "activate application launcher" and "activate task manager entry 1…10" shortcuts, into `~/.local/state/ghost-shell/plasma-backup/<UTC stamp>/` with a `manifest`, and marks the panel retired;
+2. removes every Plasma panel, and puts a System Tray and a Digital Clock at the desktop's top right, under the bar, with the panel's tray and clock settings;
+3. restarts plasmashell once (`systemctl --user stop|start plasma-plasmashell.service`), giving the tray, the clock and the tray's network, Bluetooth, volume, KDE Connect and clipboard applets a global shortcut each (Meta+Ctrl+Alt+Shift+F1…F7), so that ghostd can open their popups, and writes which widget is which to `~/.local/state/ghost-shell/plasma-popups`;
+4. through KGlobalAccel, takes bare Meta off "activate application launcher" (Alt+F1 and its other keys stay) and clears the keys of "activate task manager entry 1…10", which frees Meta and Meta+1…9 for ghost-shell. Meta+0 is KWin's "Zoom to actual size" and is left alone;
+5. reconfigures KWin.
+
+It refuses to run again until `restore` has run. If it stops part way, `restore` undoes what it had already changed.
+
+`restore` stops plasmashell, removes the popups' shortcuts and gives the 11 shortcuts their backed-up keys through KGlobalAccel, puts the three files back byte for byte, deletes `plasma-popups`, starts plasmashell and reconfigures KWin. The backups stay in `plasma-backup/`. The script reads `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `DBUS_SESSION_BUS_ADDRESS`, so `spikes/plasma-hidden/test-plasma-panel.sh` can run it against a sandboxed Plasma; that test checks the restore is byte-identical.
+
 ### Terminal theme (optional)
 
 ```sh
