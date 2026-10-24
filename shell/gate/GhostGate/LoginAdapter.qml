@@ -85,7 +85,11 @@ QtObject {
         }
     }
 
-    onUserNameChanged: console.debug("gate: user " + userName)
+    onUserNameChanged: {
+        if (userName !== "") {
+            console.debug("gate: user set");
+        }
+    }
 
     signal succeeded
     signal failed
