@@ -62,25 +62,15 @@ Item {
         syncHold();
     }
 
-    // Wakes at each minute boundary, which a fixed interval would drift away from.
+    // Polled each second rather than timed to the boundary: Qt timers stop with the monotonic clock during sleep, so a
+    // boundary timer would show the pre-sleep minute for up to a minute after a wake. An unchanged minute emits nothing,
+    // so nothing repaints between boundaries.
     Timer {
-        id: minute
-
-        function untilBoundary() {
-            return root.millisPerMinute - Date.now() % root.millisPerMinute;
-        }
-
+        interval: root.millisPerSecond
         running: root.visible && !root.showsSeconds
         repeat: true
-        onRunningChanged: {
-            if (running) {
-                interval = untilBoundary();
-            }
-        }
-        onTriggered: {
-            root.minuteMs = Date.now();
-            interval = untilBoundary();
-        }
+        triggeredOnStart: true
+        onTriggered: root.minuteMs = Math.floor(Date.now() / root.millisPerMinute) * root.millisPerMinute
     }
 
     Text {
