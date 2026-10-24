@@ -92,3 +92,37 @@ Type=notify
   ghostd's name there is what "Notification service not available" names.
 - **JobViewServer and kuiserver stay with plasmashell throughout**, owned by whichever plasmashell is current.
 - Not covered: a real KIO client's job, `Type=notify` with a real ghostd (it sends no `READY=1` yet), the real login.
+
+## Desktop-layer keyboard focus (Task 2)
+
+Plan 3b Task 2, for the dashboard Notifications widget's search field. `spikes/desktop-focus/run.sh switch|hover|permanent`
+runs a surface set up like `shell/host/Desktop.qml` (`PanelWindow`, `WlrLayer.Bottom`, namespace `desktop`, anchored to
+all edges, `ExclusionMode.Ignore`, an input mask of only its claiming areas) next to a second `qs` config with an
+ordinary `FloatingWindow` that holds the keyboard first. Both run in a headless KWin 6.7.5 of their own at
+`QT_SCALE_FACTOR=1.15`, with no session bus. Input is KWin's `org_kde_kwin_fake_input`, driven by
+`spikes/desktop-focus/fake_input.py` (it reuses the wire client of `scripts/fake-keys.py` and adds pointer motion and
+button, which that script lacks); every key, click, activation and `keyboardFocus` change is logged from the QML.
+
+| Question | Answer |
+|---|---|
+| Does `keyboardFocus` change at runtime, without a remap? | **Yes.** The new value takes effect on the live surface (None to OnDemand 2 and back) |
+| Does a click on the field then give it key events? | **Yes, but not on the click that changes the value.** Set in the click handler, the surface was still not active: the next keys went to the other window, and only a second click activated it. Set while the pointer hovers the field, the first click activates it and the keys arrive |
+| Does None on Esc hand focus back to the other window? | **No.** The surface stays the active window and keeps the keyboard (no deactivation event), so the next key reaches nobody. Only a click on the other window moves focus |
+| Does unmapping the surface for 200 ms on Esc (`SPIKE_REMAP=1`) hand it back? | **Yes**, in both switch and permanent modes: the other window became active at once and received the next key. Not looked at for a flash of the dashboard |
+| Variant, `OnDemand` permanently: does it steal focus on map? | **No**: with the other window active, mapping the surface left the keyboard with it |
+| Same variant: does a click elsewhere on the dashboard steal focus? | **Yes.** A click on a plain claiming area (no field) made the surface active and the other window inactive, and the next key went to the surface. With None, the same click left the other window active |
+
+What a click on another window does with the mode left at OnDemand: the other window becomes active, the surface's
+window goes inactive and its input loses active focus, but `keyboardFocus` stays at OnDemand until the QML sets it
+back, so the surface must reset it to None on `Window.active` turning false, on Esc, and on the field losing focus.
+
+For Task 13: the field can take focus on demand when `OnDemand` is set before the click lands, so arm it on hover
+(the widget's field hover handler sets OnDemand on enter, None on exit unless the field is focused) and on activation
+of the field. Leaving the field with Esc needs the surface unmapped and mapped again (or another route to activate the
+previous window, for instance the `ghost-shell-desktop` KWin script) to give the keyboard back; None alone does not.
+Permanent `OnDemand` is the worse choice: the whole dashboard then takes the keyboard from the active window on any
+click. The fallback in the plan (a click on the field opens the centre with its field focused) is still open if the
+remap flash is unacceptable.
+
+Not covered: a real KWin on the user's session, several outputs, a fullscreen window, and a `kdialog` as the other
+window (a Quickshell `FloatingWindow` stood in, as the controller allowed).
