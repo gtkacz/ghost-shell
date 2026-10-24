@@ -88,3 +88,16 @@ def test_cli_rejects_malformed_json_without_writing(tmp_path, capsys):
     assert ah.main(["codex-merge", str(hooks), "c"]) == 1
     assert hooks.read_text() == "{nope"
     assert "hooks.json" in capsys.readouterr().err
+
+
+def test_cli_keeps_a_symlinked_config_and_its_mode(tmp_path):
+    target = tmp_path / "dotfiles" / "settings.json"
+    target.parent.mkdir()
+    target.write_text("{}")
+    target.chmod(0o644)
+    link = tmp_path / "settings.json"
+    link.symlink_to(target)
+    ah.main(["claude-wrap", str(link), str(tmp_path / "inner"), "/h/ghostd claude-statusline-tap"])
+    assert link.is_symlink()
+    assert json.loads(target.read_text())["statusLine"]["command"].endswith("claude-statusline-tap")
+    assert target.stat().st_mode & 0o777 == 0o644

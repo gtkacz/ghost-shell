@@ -13,6 +13,7 @@ runs afterwards. codex-merge adds one ghostd hook per event. Both are idempotent
 import copy
 import json
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -109,10 +110,15 @@ def _read(path: Path) -> dict:
 
 
 def _write(path: Path, data: dict) -> None:
+    # Replacing a symlink would swap the link for a regular file, so the file it points at is the one rewritten.
+    path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     # Same directory so os.replace is atomic and a crash never leaves a half-written config.
     with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False) as handle:
         handle.write(json.dumps(data, indent=2) + "\n")
+    # NamedTemporaryFile creates 0600, which would silently tighten a config the user made readable.
+    if path.exists():
+        os.chmod(handle.name, stat.S_IMODE(path.stat().st_mode))
     os.replace(handle.name, path)
 
 
