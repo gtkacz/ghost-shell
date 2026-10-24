@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Bluetooth
 import Quickshell.Services.Pipewire
 import Quickshell.Services.SystemTray
@@ -17,6 +18,7 @@ Item {
     readonly property string linksTopic: "net.links"
     readonly property string brightnessTopic: "brightness"
     readonly property real popupGapPx: 6
+    readonly property string notificationsTopic: "notifications"
 
     property var settings
 
@@ -69,6 +71,14 @@ Item {
         onTriggered: root.wheelPending = -1
     }
 
+    // The centre places itself from the bell's rect in screen coordinates; both bars span the screen from its edge, as in BarPopup.
+    function placeBell() {
+        const win = QsWindow.window;
+        const rect = bell.mapToItem(null, 0, 0, bell.width, bell.height);
+        const top = onBottomBar ? win.screen.height - win.margins.bottom - win.height + rect.y : win.margins.top + rect.y;
+        Notifications.anchorRect = Qt.rect(win.margins.left + rect.x, top, rect.width, rect.height);
+    }
+
     function openPopup(applet) {
         Data.call("plasma.popup", {
             applet: applet
@@ -79,11 +89,13 @@ Item {
         Data.want(linksTopic);
         Data.want(phoneTopic);
         Data.want(brightnessTopic);
+        Data.want(notificationsTopic);
     }
     Component.onDestruction: {
         Data.release(linksTopic);
         Data.release(phoneTopic);
         Data.release(brightnessTopic);
+        Data.release(notificationsTopic);
     }
 
     // Quickshell binds a node's audio only while something holds it.
@@ -194,6 +206,25 @@ Item {
 
                 anchors.verticalCenter: parent.verticalCenter
                 item: modelData
+            }
+        }
+
+        TrayItem {
+            id: bell
+
+            anchors.verticalCenter: parent.verticalCenter
+            glyph: Notifications.bell.glyph
+            glyphColour: Theme[Notifications.bell.colour]
+            badge: Notifications.bell.badge
+            badgeColour: Theme[Notifications.bell.badgeColour]
+            tip: Notifications.bell.tip
+            onClicked: button => {
+                if (button === Qt.LeftButton) {
+                    root.placeBell();
+                    Notifications.toggle();
+                } else if (button === Qt.MiddleButton) {
+                    Notifications.toggleDnd();
+                }
             }
         }
 

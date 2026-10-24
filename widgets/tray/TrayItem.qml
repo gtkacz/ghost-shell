@@ -19,9 +19,20 @@ Item {
     readonly property int tipOpenMs: 300
     // The wheel's delta for one notch, in eighths of a degree.
     readonly property real notchDelta: 120
+    readonly property real badgeTextPx: 8
+    readonly property real badgeLinePx: 10
+    readonly property real badgePadXPx: 3
+    // How far the badge's top-right corner sits beyond the icon's.
+    readonly property real badgeOffsetXPx: 7
+    readonly property real badgeOffsetYPx: 6
 
     property string glyph
     property bool dim: false
+    // The bell is also critical red, which a dim flag cannot say.
+    property color glyphColour: dim ? Theme.dim : Theme.signal
+    // Empty draws no badge.
+    property string badge: ""
+    property color badgeColour: Theme.signal
     property string tip
     // Hides the tip while something else, such as this item's menu, is open beside it.
     property bool tipSuppressed: false
@@ -44,7 +55,34 @@ Item {
         sourceComponent: Glyph {
             name: root.glyph
             size: Theme.d(root.iconPx)
-            color: root.dim ? Theme.dim : Theme.signal
+            color: root.glyphColour
+        }
+    }
+
+    Rectangle {
+        visible: root.badge !== ""
+        anchors {
+            right: parent.right
+            rightMargin: -Theme.d(root.badgeOffsetXPx)
+            top: parent.top
+            topMargin: -Theme.d(root.badgeOffsetYPx)
+        }
+        width: badgeLabel.implicitWidth + Theme.d(2 * root.badgePadXPx)
+        height: Theme.d(root.badgeLinePx)
+        color: root.badgeColour
+
+        Text {
+            id: badgeLabel
+
+            anchors.centerIn: parent
+            text: root.badge
+            textFormat: Text.PlainText
+            color: Theme.ground
+            font {
+                family: Theme.font
+                pixelSize: Theme.d(root.badgeTextPx)
+                weight: Font.Bold
+            }
         }
     }
 

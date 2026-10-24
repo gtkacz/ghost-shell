@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { networkState, bluetoothState, volumeState, kdeConnectState, brightnessState, showsInline, stepVolume, stepBrightness, cellBrightness, nightLightSwitch, brightnessFloor, displayedBrightness, pendingAfter, wheelTarget, APPLETS } from '../kit/GhostKit/lib/tray.mjs';
+import { networkState, bluetoothState, volumeState, kdeConnectState, brightnessState, showsInline, stepVolume, stepBrightness, cellBrightness, nightLightSwitch, brightnessFloor, displayedBrightness, pendingAfter, wheelTarget, trayOrder, APPLETS } from '../kit/GhostKit/lib/tray.mjs';
 
 const ACTIONS_RS = new URL('../../crates/ghostd/src/feeds/actions.rs', import.meta.url);
 const lan = (state) => ({ iface: 'e0', address: null, speed_mbps: null, state });
@@ -122,4 +122,10 @@ test('wheel notches add up from the pending target, not from the last published 
   assert.equal(wheelTarget(-1, 5000, MAX, 1), 5500);
   assert.equal(wheelTarget(5500, 5000, MAX, 1), 6000);
   assert.equal(wheelTarget(150, 5000, MAX, -1), 100);
+});
+
+test('the tray ends with the bell before the chevron', () => {
+  const order = trayOrder(['network', 'bluetooth', 'volume', 'kdeconnect', 'brightness'], 2);
+  assert.deepEqual(order, ['network', 'bluetooth', 'volume', 'kdeconnect', 'brightness', 'sni', 'sni', 'bell', 'chevron']);
+  assert.deepEqual(trayOrder(['network'], 0), ['network', 'bell', 'chevron']);
 });
