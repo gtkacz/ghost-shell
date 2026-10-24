@@ -2,7 +2,7 @@
 //! checked before any pixel is read.
 
 use std::fs::{self, DirBuilder};
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -122,6 +122,27 @@ impl ImageData {
     }
 }
 
+/// Writes the whole PNG to `sink`; a failing sink fails the call instead of leaving a short file.
+fn encode<W: Write>(
+    sink: &mut W,
+    color: png::ColorType,
+    image: &ImageData,
+    pixels: &[u8],
+) -> Result<(), ImageError> {
+    let mut encoder = png::Encoder::new(
+        &mut *sink,
+        image.width.unsigned_abs(),
+        image.height.unsigned_abs(),
+    );
+    encoder.set_color(color);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(pixels)?;
+    // IEND is written here, not on drop, where a failure would go unseen.
+    writer.finish()?;
+    Ok(())
+}
+
 /// Writes `image` to `<dir>/<id>.png`, mode 0600, creating `dir` with mode 0700 when missing.
 pub fn write_png(dir: &Path, id: u32, image: &ImageData) -> Result<PathBuf, ImageError> {
     let (color, pixels) = image.packed()?;
@@ -138,33 +159,34 @@ pub fn write_png(dir: &Path, id: u32, image: &ImageData) -> Result<PathBuf, Imag
         .truncate(true)
         .mode(FILE_MODE)
         .open(&partial)?;
-    let mut encoder = png::Encoder::new(
-        BufWriter::new(file),
-        image.width.unsigned_abs(),
-        image.height.unsigned_abs(),
-    );
-    encoder.set_color(color);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.write_header()?.write_image_data(&pixels)?;
-    fs::rename(&partial, &path)?;
-    Ok(path)
+    let mut sink = BufWriter::new(file);
+    let written = encode(&mut sink, color, image, &pixels)
+        .and_then(|()| sink.flush().map_err(ImageError::from))
+        .and_then(|()| fs::rename(&partial, &path).map_err(ImageError::from));
+    if written.is_err() {
+        // Best effort: a leftover is swept by the next `prune`.
+        let _ = fs::remove_file(&partial);
+    }
+    written.map(|()| path)
 }
 
-/// Removes the PNGs of every id not in `keep`.
+/// Removes the PNGs of every id not in `keep`, and any partial file a crash left behind.
 pub fn prune(dir: &Path, keep: &[u32]) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        let id = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .and_then(|name| name.strip_suffix(&format!(".{EXTENSION}")))
-            .and_then(|stem| stem.parse::<u32>().ok());
-        if id.is_some_and(|id| !keep.contains(&id))
-            && let Err(error) = fs::remove_file(&path)
-        {
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let id_of = |extension: &str| {
+            name.strip_suffix(&format!(".{extension}"))
+                .and_then(|stem| stem.parse::<u32>().ok())
+        };
+        let stale = id_of(PARTIAL_EXTENSION).is_some()
+            || id_of(EXTENSION).is_some_and(|id| !keep.contains(&id));
+        if stale && let Err(error) = fs::remove_file(&path) {
             warn!(%error, path = %path.display(), "cannot remove a stale notification image");
         }
     }
@@ -258,7 +280,7 @@ mod tests {
     #[test]
     fn prune_removes_files_not_in_keep() {
         let dir = tempfile::tempdir().unwrap();
-        for name in ["1.png", "2.png", "3.png", "notes.txt"] {
+        for name in ["1.png", "2.png", "3.png", "4.png.part", "notes.txt"] {
             fs::write(dir.path().join(name), b"x").unwrap();
         }
         prune(dir.path(), &[2]);
@@ -268,5 +290,44 @@ mod tests {
             .collect();
         left.sort();
         assert_eq!(left, ["2.png", "notes.txt"]);
+    }
+
+    /// Accepts `room` bytes, then fails like a full disk.
+    struct FullDisk {
+        room: usize,
+    }
+
+    impl Write for FullDisk {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            if self.room == 0 {
+                return Err(std::io::Error::from_raw_os_error(nix::libc::ENOSPC));
+            }
+            let taken = buffer.len().min(self.room);
+            self.room -= taken;
+            Ok(taken)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_failing_sink_fails_the_encode() {
+        let image = rgba(8, vec![0; 16]);
+        let (color, pixels) = image.packed().unwrap();
+        // Room for the signature and the header chunks, but not the data or the end chunk.
+        let result = encode(&mut FullDisk { room: 40 }, color, &image, &pixels);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn an_unwritable_directory_leaves_no_png() {
+        let dir = tempfile::tempdir().unwrap();
+        let locked = dir.path().join("notify");
+        DirBuilder::new().mode(0o500).create(&locked).unwrap();
+        let result = write_png(&locked, 1, &rgba(8, vec![0; 16]));
+        assert!(matches!(result, Err(ImageError::Io(_))));
+        assert_eq!(fs::read_dir(&locked).unwrap().count(), 0);
     }
 }
