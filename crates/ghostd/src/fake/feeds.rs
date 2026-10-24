@@ -35,6 +35,7 @@ pub fn feeds() -> Vec<Feed> {
         launcher_entries(),
         ticker(),
         recent(),
+        super::notifications::feed(),
     ]
 }
 

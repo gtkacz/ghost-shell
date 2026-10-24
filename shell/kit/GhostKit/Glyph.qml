@@ -110,6 +110,18 @@ Item {
             "scroll": {
                 path: "M3 4.6 6 2.2l3 2.4M3 7.4 6 9.8l3-2.4",
                 filled: false
+            },
+            "bell": {
+                path: "M2.5 9V5.5a3.5 3.5 0 0 1 7 0V9zM1.5 9h9M5 10.5h2",
+                filled: false
+            },
+            "bell-off": {
+                path: "M2.5 9V5.5a3.5 3.5 0 0 1 7 0V9zM1.5 9h9M5 10.5h2M1.5 1.5l9 9",
+                filled: false
+            },
+            "cross": {
+                path: "M3 3l6 6M9 3l-6 6",
+                filled: false
             }
         })
 

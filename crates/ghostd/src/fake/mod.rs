@@ -3,6 +3,7 @@
 //! and an RTX 4080 SUPER. Every value follows a sine over the sample count, so runs repeat exactly.
 
 mod feeds;
+mod notifications;
 mod sampled;
 
 pub use feeds::feeds;
