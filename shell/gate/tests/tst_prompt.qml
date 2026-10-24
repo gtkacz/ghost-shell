@@ -100,6 +100,9 @@ TestCase {
         compare(alert.text, "ACCESS DENIED · ATTEMPT 1");
         compare(password.lit, 0);
         type("x");
+        verify(alert.visible);
+        screen.adapter.holdBusy = true;
+        keyClick(Qt.Key_Return);
         verify(!alert.visible);
     }
 

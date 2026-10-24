@@ -172,11 +172,9 @@ Item {
 
                 objectName: "password"
                 busy: root.adapter.busy
-                onSubmitted: (value) => root.adapter.submit(value)
-                onLengthChanged: {
-                    if (length > 0) {
-                        root.alerted = false;
-                    }
+                onSubmitted: (value) => {
+                    root.alerted = false;
+                    root.adapter.submit(value);
                 }
             }
 
