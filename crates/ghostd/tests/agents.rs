@@ -238,3 +238,243 @@ fn the_newest_rollout_is_found_across_day_dirs() {
     assert_eq!(codex::newest_rollout(dir.path()), Some(new));
     assert_eq!(codex::newest_rollout(&dir.path().join("nowhere")), None);
 }
+
+mod sessions {
+    use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc, time::Duration};
+
+    use ghost_proto::AgentState::{self, Busy, Idle, Waiting};
+    use ghost_proto::{AgentProvider, AgentsSessions, ResolvedConfig, topics};
+    use ghostd::collect::identity;
+    use ghostd::feeds::agents::{SessionPaths, codex, sessions_feed_at};
+    use ghostd::server::{FeedContext, Publisher};
+    use ghostd::sysroot::SysRoot;
+    use serde_json::Value;
+    use tempfile::TempDir;
+    use tokio::sync::{mpsc, watch};
+    use tokio::time::timeout;
+
+    use super::NOW_S;
+
+    const WAIT: Duration = Duration::from_secs(2);
+    // Offsets from here keep test times inside the 24 h a pid-less Codex file lives.
+    const BASE_S: u64 = NOW_S - 1000;
+
+    struct Sandbox {
+        dir: TempDir,
+    }
+
+    impl Sandbox {
+        fn new() -> Self {
+            let sb = Self {
+                dir: tempfile::tempdir().unwrap(),
+            };
+            for sub in ["root", "claude/sessions", "run/codex-sessions", "codex"] {
+                fs::create_dir_all(sb.dir.path().join(sub)).unwrap();
+            }
+            fs::write(sb.dir.path().join("codex/session_index.jsonl"), "").unwrap();
+            sb
+        }
+
+        fn root(&self) -> PathBuf {
+            self.dir.path().join("root")
+        }
+
+        fn proc(&self, pid: u32, comm: &str, start: u64) {
+            let dir = self.root().join(format!("proc/{pid}"));
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join("stat"),
+                format!("{pid} ({comm}) S 7 0 0 0 0 0 0 0 0 0 1 2 0 0 0 0 0 0 {start} 0 8 0\n"),
+            )
+            .unwrap();
+        }
+
+        /// Replaces by rename, as Claude does, so a watcher never sees a torn file.
+        fn claude_session(&self, pid: u32, status: &str, proc_start: u64, since_s: u64) {
+            let waiting = if status == "waiting" {
+                r#","waitingFor":"permission prompt""#
+            } else {
+                ""
+            };
+            let json = format!(
+                r#"{{"pid":{pid},"procStart":{proc_start},"sessionId":"{pid}","cwd":"/home/u/p","name":"s{pid}","kind":"interactive","status":"{status}","statusUpdatedAt":{}{waiting}}}"#,
+                (BASE_S + since_s) * 1000
+            );
+            let dir = self.dir.path().join("claude/sessions");
+            let staged = dir.join(format!("{pid}.json.tmp"));
+            fs::write(&staged, json).unwrap();
+            fs::rename(staged, dir.join(format!("{pid}.json"))).unwrap();
+        }
+
+        fn codex_session(&self, id: &str, state: AgentState, since_s: u64, pid: Option<u32>) {
+            let file = codex::SessionFile {
+                state,
+                waiting_for: None,
+                cwd: "/home/u/p".into(),
+                since_s: BASE_S + since_s,
+                pid,
+                proc_start: None,
+            };
+            fs::write(
+                self.dir
+                    .path()
+                    .join(format!("run/codex-sessions/{id}.json")),
+                serde_json::to_string(&file).unwrap(),
+            )
+            .unwrap();
+        }
+
+        async fn start(&self, providers: &[AgentProvider]) -> Running {
+            let (sender, published) = mpsc::unbounded_channel();
+            let (demand, demand_receiver) =
+                watch::channel(BTreeSet::from([topics::AGENTS_SESSIONS.to_owned()]));
+            let (config, config_receiver) = watch::channel(ResolvedConfig::default());
+            let context = FeedContext {
+                publisher: Publisher::new(move |topic, data| {
+                    sender.send((topic.to_owned(), data)).unwrap();
+                }),
+                demand: demand_receiver,
+                config: config_receiver,
+                calls: tokio::sync::broadcast::channel(64).1,
+            };
+            let paths = SessionPaths {
+                claude_sessions_dirs: vec![self.dir.path().join("claude/sessions")],
+                codex_sessions_dir: self.dir.path().join("run/codex-sessions"),
+                codex_home: self.dir.path().join("codex"),
+            };
+            let feed = sessions_feed_at(
+                SysRoot::new(self.root()),
+                providers.to_vec(),
+                paths,
+                Arc::new(|| NOW_S),
+            );
+            Running {
+                published,
+                _demand: demand,
+                _config: config,
+                _task: tokio::spawn(feed.run(context)),
+            }
+        }
+    }
+
+    struct Running {
+        published: mpsc::UnboundedReceiver<(String, Value)>,
+        _demand: watch::Sender<BTreeSet<String>>,
+        _config: watch::Sender<ResolvedConfig>,
+        _task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Running {
+        async fn next(&mut self) -> AgentsSessions {
+            let (topic, data) = timeout(WAIT, self.published.recv())
+                .await
+                .expect("nothing was published in time")
+                .unwrap();
+            assert_eq!(topic, topics::AGENTS_SESSIONS);
+            serde_json::from_value(data).unwrap()
+        }
+    }
+
+    #[test]
+    fn identity_reads_name_parent_and_start_time() {
+        let sb = Sandbox::new();
+        sb.proc(42, "codex", 555);
+        let root = SysRoot::new(sb.root());
+        let id = identity(&root, 42).unwrap();
+        assert_eq!(
+            (id.name.as_str(), id.ppid, id.start_time),
+            ("codex", 7, 555)
+        );
+        assert!(identity(&root, 43).is_none());
+    }
+
+    #[tokio::test]
+    async fn live_sessions_are_sorted_and_dead_ones_dropped() {
+        let sb = Sandbox::new();
+        sb.claude_session(1, "idle", 100, 10);
+        sb.claude_session(2, "busy", 200, 20);
+        sb.claude_session(3, "waiting", 300, 5);
+        sb.claude_session(4, "busy", 400, 30);
+        sb.proc(1, "claude", 100);
+        sb.proc(2, "claude", 200);
+        sb.proc(3, "claude", 300);
+        sb.proc(4, "claude", 999);
+        sb.codex_session("abc", Busy, 25, None);
+        let mut feed = sb
+            .start(&[AgentProvider::Claude, AgentProvider::Codex])
+            .await;
+        assert!(
+            feed.next().await.sessions.is_empty(),
+            "an empty snapshot comes first"
+        );
+        let snapshot = feed.next().await;
+        let order: Vec<(String, AgentState)> = snapshot
+            .sessions
+            .iter()
+            .map(|s| (s.id.clone(), s.state))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                ("3".into(), Waiting),
+                ("abc".into(), Busy),
+                ("2".into(), Busy),
+                ("1".into(), Idle)
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rewritten_session_file_publishes_and_an_unreadable_stat_is_dead() {
+        let sb = Sandbox::new();
+        sb.claude_session(1, "busy", 100, 10);
+        sb.proc(1, "claude", 100);
+        let mut feed = sb.start(&[AgentProvider::Claude]).await;
+        feed.next().await;
+        feed.next().await;
+        sb.claude_session(1, "waiting", 100, 11);
+        assert_eq!(feed.next().await.sessions[0].state, Waiting);
+        fs::remove_file(sb.root().join("proc/1/stat")).unwrap();
+        sb.claude_session(1, "busy", 100, 12);
+        assert!(feed.next().await.sessions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_pidless_codex_file_a_day_behind_the_clock_is_dropped_and_removed() {
+        let sb = Sandbox::new();
+        sb.codex_session("fresh", Busy, 5, None);
+        sb.codex_session("old", Busy, 5, None);
+        let old = sb.dir.path().join("run/codex-sessions/old.json");
+        let text = fs::read_to_string(&old).unwrap();
+        fs::write(&old, text.replace(&(BASE_S + 5).to_string(), "1")).unwrap();
+        let mut feed = sb.start(&[AgentProvider::Codex]).await;
+        feed.next().await;
+        let ids: Vec<_> = feed
+            .next()
+            .await
+            .sessions
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(ids, ["fresh"]);
+        assert!(!old.exists());
+    }
+
+    #[tokio::test]
+    async fn only_enabled_providers_are_read() {
+        let sb = Sandbox::new();
+        sb.claude_session(1, "busy", 100, 10);
+        sb.proc(1, "claude", 100);
+        sb.codex_session("abc", Busy, 25, None);
+        let mut feed = sb.start(&[AgentProvider::Codex]).await;
+        feed.next().await;
+        let providers: Vec<_> = feed
+            .next()
+            .await
+            .sessions
+            .into_iter()
+            .map(|s| s.provider)
+            .collect();
+        assert_eq!(providers, ["codex"]);
+    }
+}

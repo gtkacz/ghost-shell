@@ -14,7 +14,7 @@ pub use gpu::{GpuCollector, GpuReading, GpuSource, NvmlSource};
 pub use hwmon::SensorCollector;
 pub use mem::MemCollector;
 pub use net::NetCollector;
-pub use procs::{ProcCollector, ProcSample};
+pub use procs::{ProcCollector, ProcIdentity, ProcSample, identity};
 
 use std::time::Duration;
 

@@ -72,6 +72,27 @@ struct StatFields<'a> {
     rss_pages: u64,
 }
 
+/// What `/proc/<pid>/stat` says about one process.
+pub struct ProcIdentity {
+    pub name: String,
+    pub ppid: u32,
+    /// Clock ticks since boot, which tells a live pid from a recycled one.
+    pub start_time: u64,
+}
+
+/// `None` when the process is gone or its stat cannot be read.
+pub fn identity(root: &SysRoot, pid: u32) -> Option<ProcIdentity> {
+    let mut stat = Vec::new();
+    root.read_into(&format!("proc/{pid}/stat"), &mut stat)
+        .ok()?;
+    let fields = parse_stat(&stat)?;
+    Some(ProcIdentity {
+        name: String::from_utf8_lossy(fields.name).into_owned(),
+        ppid: fields.ppid,
+        start_time: fields.start_time,
+    })
+}
+
 pub struct ProcCollector {
     root: SysRoot,
     top_n: usize,
