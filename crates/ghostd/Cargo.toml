@@ -13,6 +13,7 @@ nix = { workspace = true, features = ["feature", "fs", "hostname", "signal", "so
 notify.workspace = true
 nvml-wrapper.workspace = true
 percent-encoding.workspace = true
+png.workspace = true
 pipewire.workspace = true
 quick-xml.workspace = true
 realfft.workspace = true

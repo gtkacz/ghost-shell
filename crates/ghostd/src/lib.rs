@@ -8,6 +8,7 @@ pub mod keyseq;
 pub mod notify;
 pub mod providers;
 pub mod sampler;
+pub mod sdnotify;
 pub mod selfmon;
 pub mod server;
 pub mod sysroot;

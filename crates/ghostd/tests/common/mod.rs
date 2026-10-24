@@ -8,6 +8,7 @@ pub mod calls;
 pub mod disk;
 pub mod kdeconnect;
 pub mod nm;
+pub mod notify_client;
 pub mod server;
 pub mod session;
 pub mod tailscale;
