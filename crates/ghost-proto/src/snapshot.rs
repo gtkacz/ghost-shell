@@ -639,6 +639,9 @@ pub struct Notification {
     pub resident: bool,
     /// Arrived while the session was locked or inhibited, so it never pops up.
     pub held: bool,
+    /// 0 for a new record and one more for each replacement, so a rewrite that changes nothing is still seen.
+    #[serde(default)]
+    pub revision: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

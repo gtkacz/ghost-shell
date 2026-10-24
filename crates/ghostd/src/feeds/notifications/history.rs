@@ -120,6 +120,7 @@ pub(super) fn record(id: u32, incoming: Incoming, arrived_s: u64, held: bool) ->
         read: false,
         resident: incoming.resident,
         held,
+        revision: 0,
     }
 }
 
@@ -211,7 +212,8 @@ impl History {
         let outcome = match existing {
             Some(at) => {
                 let old = &self.items[at];
-                let rewritten = record(old.id, incoming, old.arrived_s, old.held);
+                let mut rewritten = record(old.id, incoming, old.arrived_s, old.held);
+                rewritten.revision = old.revision.saturating_add(1);
                 let id = rewritten.id;
                 self.items[at] = rewritten;
                 Outcome {
@@ -566,6 +568,39 @@ mod tests {
             seen_sources: Cow::default(),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn replacement_bumps_the_revision_even_when_identical() {
+        let mut history = History::new();
+        history.notify(incoming("a"), 5_000, false, LIMIT).unwrap();
+        assert_eq!(history.get(1).unwrap().revision, 0);
+        let again = Incoming {
+            replaces_id: 1,
+            ..incoming("a")
+        };
+        history.notify(again.clone(), 50_000, false, LIMIT).unwrap();
+        assert_eq!(history.get(1).unwrap().revision, 1);
+        history.notify(again, 90_000, false, LIMIT).unwrap();
+        assert_eq!(history.get(1).unwrap().revision, 2);
+        let restored = History::from_json(&history.to_json()).unwrap();
+        assert_eq!(restored.get(1).unwrap().revision, 2);
+    }
+
+    #[test]
+    fn a_record_saved_before_revisions_loads_as_revision_zero() {
+        let mut item = serde_json::to_value(Notification {
+            id: 1,
+            ..Notification::default()
+        })
+        .unwrap();
+        item.as_object_mut().unwrap().remove("revision");
+        let json = serde_json::json!({
+            "version": 1, "next_id": 2, "dnd": false, "items": [item]
+        })
+        .to_string();
+        let history = History::from_json(&json).unwrap();
+        assert_eq!(history.items()[0].revision, 0);
     }
 
     #[test]
