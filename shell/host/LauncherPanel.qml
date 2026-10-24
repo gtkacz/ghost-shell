@@ -15,7 +15,6 @@ Scope {
     // Design pixels, from the launcher mockup's .panel, .dA, .search and .power.
     readonly property real panelWidthPx: 392
     readonly property real panelHeightPx: 560
-    readonly property real fillPct: 94
     readonly property real searchMarginTopPx: 2
     readonly property real searchMarginSidePx: 14
     readonly property real searchMarginBottomPx: 4
@@ -104,7 +103,8 @@ Scope {
 
                     Panel {
                         anchors.fill: parent
-                        fill: ThemeLib.withAlpha(Theme.ground, root.fillPct)
+                        // Opaque: at the mockup's 94 % the dashboard's bright text still ghosts through, because here the panel sits over the dashboard rather than a window.
+                        fill: Theme.ground
                         label: "LAUNCH"
                         tagKey: "launch"
                         meta: Launcher.appCount + " APPS"
