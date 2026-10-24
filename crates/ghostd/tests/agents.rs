@@ -750,6 +750,27 @@ mod taps {
     }
 
     #[test]
+    fn the_statusline_tap_survives_an_inner_command_that_ignores_its_input() {
+        let sb = Sandbox::new();
+        sb.write_inner("echo hi");
+        let input = "x".repeat(100_000);
+        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], &input);
+        assert!(status.success());
+        assert_eq!(out, "hi\n");
+        assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), input);
+    }
+
+    #[test]
+    fn a_failed_capture_write_does_not_stop_the_inner_command() {
+        let sb = Sandbox::new();
+        sb.write_inner("cat");
+        fs::write(sb.dir.path().join("state"), "not a directory").unwrap();
+        let (status, out) = run_tap(&sb, &["claude-statusline-tap"], "{\"a\":1}");
+        assert!(status.success());
+        assert_eq!(out, "{\"a\":1}");
+    }
+
+    #[test]
     fn the_statusline_tap_prints_nothing_without_an_inner_command() {
         let sb = Sandbox::new();
         let (status, out) = run_tap(&sb, &["claude-statusline-tap"], "x");
@@ -766,9 +787,11 @@ mod taps {
         assert!(status.success() && out.is_empty());
         let first = sb.codex_file("abc-123");
         assert_eq!(
-            (first.state, first.cwd.as_str(), first.pid),
-            (AgentState::Busy, "/home/u/p", None)
+            (first.state, first.cwd.as_str()),
+            (AgentState::Busy, "/home/u/p")
         );
+        // The ancestor walk reads the host /proc, so whether a codex is found depends on the runner.
+        assert_eq!(first.pid.is_some(), first.proc_start.is_some());
         thread::sleep(Duration::from_millis(1100));
         run_tap(&sb, &["codex-hook"], &event("PreToolUse"));
         assert_eq!(
