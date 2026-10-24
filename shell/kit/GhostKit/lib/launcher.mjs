@@ -1,7 +1,5 @@
 export const PIN_COLUMNS = 6;
 export const ARM_WINDOW_MS = 3000;
-// Shorter than a key repeat or a double-click takes to come round again, so neither confirms an armed action.
-export const CONFIRM_DELAY_MS = 250;
 
 const FLATPAK_EXPORTS = '/flatpak/exports/';
 const ORIGIN_USER = 0;
@@ -132,13 +130,14 @@ export function move({ index, pinCount, total }, key) {
   }
 }
 
-export function power(state, action, nowMs) {
+// A second press sooner than the system's double-click interval is the other half of a double-click, so it never confirms.
+export function power(state, action, nowMs, doubleClickMs) {
   if (action === 'lock') {
     return { state: initialPower, fire: action };
   }
   if (state.armed === action) {
     const sinceMs = nowMs - state.armedAtMs;
-    if (sinceMs < CONFIRM_DELAY_MS) {
+    if (sinceMs < doubleClickMs) {
       return { state, fire: null };
     }
     if (sinceMs <= ARM_WINDOW_MS) {

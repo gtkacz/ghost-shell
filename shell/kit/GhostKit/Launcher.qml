@@ -238,7 +238,7 @@ Singleton {
         if (!core.open || !powerActions.some(candidate => candidate.id === actionId)) {
             return;
         }
-        const result = LauncherLib.power(core.power, actionId, Date.now());
+        const result = LauncherLib.power(core.power, actionId, Date.now(), Qt.styleHints.mouseDoubleClickInterval);
         core.power = result.state;
         if (result.fire !== null) {
             armTimer.stop();

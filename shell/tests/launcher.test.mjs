@@ -146,25 +146,34 @@ test('down in a grid with no list after it stays put', () => {
 });
 
 const MS = 1000;
+const DOUBLE_CLICK_MS = 400;
 test('power needs a second press within three seconds', () => {
-  const armed = power(initialPower, 'power', 0);
+  const armed = power(initialPower, 'power', 0, DOUBLE_CLICK_MS);
   assert.equal(armed.fire, null);
   assert.equal(armed.state.armed, 'power');
-  assert.equal(power(armed.state, 'power', 2999).fire, 'power');
-  const late = power(armed.state, 'power', 3001);
+  assert.equal(power(armed.state, 'power', 2999, DOUBLE_CLICK_MS).fire, 'power');
+  const late = power(armed.state, 'power', 3001, DOUBLE_CLICK_MS);
   assert.equal(late.fire, null);
   assert.equal(late.state.armed, 'power');
   assert.equal(late.state.armedAtMs, 3001);
-  assert.equal(power(armed.state, 'power', 3 * MS).fire, 'power');
+  assert.equal(power(armed.state, 'power', 3 * MS, DOUBLE_CLICK_MS).fire, 'power');
 });
 
-test('a second press inside the guard window does not confirm', () => {
-  const armed = power(initialPower, 'restart', 0).state;
-  const repeated = power(armed, 'restart', 100);
-  assert.equal(repeated.fire, null);
-  assert.equal(repeated.state.armedAtMs, 0);
-  assert.equal(power(repeated.state, 'restart', 249).fire, null);
-  assert.equal(power(repeated.state, 'restart', 250).fire, 'restart');
+test('a second press inside the double-click interval does not confirm', () => {
+  const armed = power(initialPower, 'restart', 0, DOUBLE_CLICK_MS).state;
+  for (const atMs of [100, 300, 399]) {
+    const repeated = power(armed, 'restart', atMs, DOUBLE_CLICK_MS);
+    assert.equal(repeated.fire, null);
+    assert.equal(repeated.state.armedAtMs, 0);
+  }
+  assert.equal(power(armed, 'restart', 401, DOUBLE_CLICK_MS).fire, 'restart');
+});
+
+test('a press after the confirm window re-arms', () => {
+  const armed = power(initialPower, 'restart', 0, DOUBLE_CLICK_MS).state;
+  const late = power(armed, 'restart', 3001, DOUBLE_CLICK_MS);
+  assert.equal(late.fire, null);
+  assert.equal(late.state.armedAtMs, 3001);
 });
 
 test('a held Return never confirms, at 0, 30 and 600 ms', () => {
@@ -172,7 +181,7 @@ test('a held Return never confirms, at 0, 30 and 600 ms', () => {
   let fired = null;
   for (const [atMs, isAutoRepeat] of [[0, false], [30, true], [600, true]]) {
     if (!isActivationRepeat('Return', isAutoRepeat)) {
-      const result = power(state, 'shutdown', atMs);
+      const result = power(state, 'shutdown', atMs, DOUBLE_CLICK_MS);
       state = result.state;
       fired = result.fire ?? fired;
     }
@@ -188,28 +197,28 @@ test('only a repeated Return is an activation repeat', () => {
 });
 
 test('a different action re-arms', () => {
-  const armed = power(initialPower, 'restart', 0).state;
-  const other = power(armed, 'power', 100);
+  const armed = power(initialPower, 'restart', 0, DOUBLE_CLICK_MS).state;
+  const other = power(armed, 'power', 100, DOUBLE_CLICK_MS);
   assert.equal(other.fire, null);
   assert.equal(other.state.armed, 'power');
 });
 
 test('lock fires at once', () => {
-  const result = power(initialPower, 'lock', 0);
+  const result = power(initialPower, 'lock', 0, DOUBLE_CLICK_MS);
   assert.equal(result.fire, 'lock');
   assert.equal(result.state.armed, null);
 });
 
 test('firing disarms', () => {
-  const fired = power(power(initialPower, 'logout', 0).state, 'logout', 500);
+  const fired = power(power(initialPower, 'logout', 0, DOUBLE_CLICK_MS).state, 'logout', 500, DOUBLE_CLICK_MS);
   assert.equal(fired.fire, 'logout');
   assert.equal(fired.state.armed, null);
 });
 
 test('closing disarms', () => {
-  const armed = power(initialPower, 'power', 0).state;
+  const armed = power(initialPower, 'power', 0, DOUBLE_CLICK_MS).state;
   const reopened = disarm(armed);
-  assert.equal(power(reopened, 'power', 1000).fire, null);
+  assert.equal(power(reopened, 'power', 1000, DOUBLE_CLICK_MS).fire, null);
 });
 
 test('highlight splits the matched part of a name', () => {
