@@ -1,0 +1,12 @@
+{"timestamp":"2026-10-23T17:50:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}
+{"timestamp":"2026-10-23T17:50:01.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Reading the repository layout first."}}
+{"timestamp":"2026-10-23T17:50:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}}
+{"timestamp":"2026-10-23T17:50:03.000Z","type":"event_msg","payload":{"type":"token_count","info":null}}
+{"timestamp":"2026-10-23T18:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total":1200},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":3,"window_minutes":300,"resets_at":1792810000},"secondary":{"used_percent":11,"window_minutes":10080,"resets_at":1793010000},"credits":null,"plan_type":"plus","rate_limit_reached_type":null}}}
+{"timestamp":"2026-10-23T17:55:00.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Now drafting the change to the parser."}}
+{"timestamp":"2026-10-23T17:55:01.000Z","type":"response_item","payload":{"type":"function_call","name":"shell"}}
+{"timestamp":"2026-10-23T17:55:02.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t2"}}
+{"timestamp":"2026-10-23T17:56:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total":2000}}}
+{"timestamp":"2026-10-23T18:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total":2400},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":0,"window_minutes":300,"resets_at":1792814950},"secondary":{"used_percent":14,"window_minutes":10080,"resets_at":1793018780},"credits":null,"plan_type":"plus","rate_limit_reached_type":null}}}
+{"timestamp":"2026-10-23T18:00:01.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Done."}}
+{"timestamp":"2026-10-23T18:00:02.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total":2500}}}

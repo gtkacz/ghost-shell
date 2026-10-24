@@ -1,6 +1,7 @@
 //! Usage windows and sessions of the LLM coding agents, one submodule per provider.
 
 pub mod claude;
+pub mod codex;
 
 use ghost_proto::{ProviderUsage, UsageWindow};
 

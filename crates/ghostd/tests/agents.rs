@@ -1,5 +1,11 @@
+use std::{
+    fs,
+    fs::File,
+    time::{Duration, UNIX_EPOCH},
+};
+
 use ghost_proto::{AgentState, UsageWindow};
-use ghostd::feeds::agents::{FIVE_HOURS_S, SEVEN_DAYS_S, claude};
+use ghostd::feeds::agents::{FIVE_HOURS_S, SEVEN_DAYS_S, claude, codex};
 
 const NOW_S: u64 = 1_792_797_010;
 
@@ -108,4 +114,127 @@ fn the_tap_is_recognised_by_its_command_suffix() {
         "fixtures/agents/claude-settings-hud.json"
     )));
     assert!(!claude::tap_installed("{}"));
+}
+
+#[test]
+fn the_newest_token_count_line_gives_both_codex_windows() {
+    let usage = codex::parse_rollout_tail(
+        include_bytes!("fixtures/agents/codex-rollout-tail.jsonl"),
+        NOW_S,
+        9,
+    );
+    assert!(usage.available);
+    assert_eq!(usage.plan.as_deref(), Some("plus"));
+    assert_eq!(
+        usage.windows[0],
+        UsageWindow {
+            length_s: FIVE_HOURS_S,
+            used_pct: 0.0,
+            resets_at_s: Some(1_792_814_950)
+        }
+    );
+    assert_eq!(
+        usage.windows[1],
+        UsageWindow {
+            length_s: SEVEN_DAYS_S,
+            used_pct: 14.0,
+            resets_at_s: Some(1_793_018_780)
+        }
+    );
+}
+
+#[test]
+fn a_tail_cut_mid_line_still_finds_the_last_complete_reading() {
+    let whole = include_bytes!("fixtures/agents/codex-rollout-tail.jsonl");
+    let cut = &whole[whole.len() / 3..];
+    assert_eq!(
+        codex::parse_rollout_tail(cut, NOW_S, 0).windows,
+        codex::parse_rollout_tail(whole, NOW_S, 0).windows
+    );
+    assert!(
+        !codex::parse_rollout_tail(
+            b"{\"type\":\"event_msg\",\"payload\":{\"type\":\"agent_message\"}}\n",
+            NOW_S,
+            0
+        )
+        .available
+    );
+}
+
+#[test]
+fn thread_names_take_the_last_line_per_id_and_skip_garbage() {
+    let names = codex::thread_names(include_str!("fixtures/agents/codex-session-index.jsonl"));
+    assert_eq!(names.len(), 3);
+    assert_eq!(names["aaaaaaaa-0000"], "AGENTS.md draft");
+}
+
+#[test]
+fn a_codex_session_is_named_from_the_index_or_its_cwd() {
+    let names = codex::thread_names(include_str!("fixtures/agents/codex-session-index.jsonl"));
+    let file = codex::SessionFile {
+        state: AgentState::Busy,
+        waiting_for: None,
+        cwd: "/home/u/Codes/content-platform".into(),
+        since_s: 5,
+        pid: Some(7),
+        proc_start: Some(8),
+    };
+    assert_eq!(
+        codex::session("aaaaaaaa-0000", &file, &names).name,
+        "AGENTS.md draft"
+    );
+    let unnamed = codex::session("zzzzzzzz-9999-1234", &file, &names);
+    assert_eq!(
+        (
+            unnamed.name.as_str(),
+            unnamed.provider.as_str(),
+            unnamed.pid
+        ),
+        ("content-platform-zzzzzzzz", "codex", Some(7))
+    );
+}
+
+#[test]
+fn hook_events_map_to_states() {
+    use codex::HookEffect::*;
+    assert!(matches!(
+        codex::hook_effect("PermissionRequest"),
+        Some(Set {
+            state: AgentState::Waiting,
+            waiting_for: Some("permission prompt")
+        })
+    ));
+    assert!(matches!(
+        codex::hook_effect("PostToolUse"),
+        Some(Set {
+            state: AgentState::Busy,
+            waiting_for: None
+        })
+    ));
+    assert!(matches!(
+        codex::hook_effect("Interrupt"),
+        Some(Set {
+            state: AgentState::Idle,
+            ..
+        })
+    ));
+    assert!(matches!(codex::hook_effect("SessionEnd"), Some(Remove)));
+    assert!(codex::hook_effect("PreCompact").is_none());
+}
+
+#[test]
+fn the_newest_rollout_is_found_across_day_dirs() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = dir.path().join("sessions/2026/10/22/rollout-a.jsonl");
+    let new = dir.path().join("sessions/2026/10/23/rollout-b.jsonl");
+    for (path, mtime) in [(&old, 1_700_000_000), (&new, 1_700_000_100)] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "").unwrap();
+        File::open(path)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+            .unwrap();
+    }
+    assert_eq!(codex::newest_rollout(dir.path()), Some(new));
+    assert_eq!(codex::newest_rollout(&dir.path().join("nowhere")), None);
 }
