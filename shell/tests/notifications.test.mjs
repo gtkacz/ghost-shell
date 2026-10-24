@@ -81,10 +81,41 @@ test('records already shown or ended never toast again', () => {
 test('at most max popups, criticals are never pushed out', () => {
   const normals = [record(1), record(2), record(3), record(4)];
   assert.deepEqual(queue(newestFirst(...normals)), { show: [3, 2, 1], waiting: 1 });
-  const withCritical = queue(newestFirst(...normals, critical(5)));
-  assert.deepEqual(withCritical, { show: [5, 2, 1], waiting: 2 });
+  assert.deepEqual(queue(newestFirst(...normals, critical(5))), { show: [5, 2, 1], waiting: 2 });
   const manyCriticals = queue(newestFirst(critical(1), critical(2), critical(3), critical(4), record(5)));
   assert.deepEqual(manyCriticals, { show: [3, 2, 1], waiting: 2 });
+});
+
+test('oldest visible normal yields to a critical', () => {
+  const items = newestFirst(record(1), record(2), record(3), critical(4));
+  assert.deepEqual(queue(items, { visible: [3, 2, 1] }), { show: [4, 3, 2], waiting: 1 });
+});
+
+test('two criticals over three normals', () => {
+  const items = newestFirst(record(1), record(2), record(3), critical(4), critical(5));
+  assert.deepEqual(queue(items, { visible: [3, 2, 1] }), { show: [5, 4, 3], waiting: 2 });
+});
+
+test('a critical on screen is never the one that yields', () => {
+  const items = newestFirst(critical(1), record(2), record(3), critical(4));
+  assert.deepEqual(queue(items, { visible: [3, 2, 1] }), { show: [4, 3, 1], waiting: 1 });
+});
+
+test('replacement of a visible record keeps its slot', () => {
+  const replaced = record(1, { arrived_s: SHELL_START_S + 10 });
+  const items = newestFirst(replaced, record(2), record(3), record(4));
+  assert.deepEqual(queue(items, { visible: [3, 2, 1] }), { show: [1, 3, 2], waiting: 1 });
+});
+
+test('a freed slot goes to the oldest waiting record, criticals first', () => {
+  const items = newestFirst(record(1), record(2), record(3), record(4), critical(5));
+  assert.deepEqual(queue(items, { visible: [2, 1], maxPopups: 3 }), { show: [5, 2, 1], waiting: 2 });
+});
+
+test('zero or invalid max popups shows nothing', () => {
+  for (const maxPopups of [0, -1, 1.5, NaN, undefined, '3']) {
+    assert.deepEqual(queue([record(1), record(2)], { maxPopups }), { show: [], waiting: 2 }, String(maxPopups));
+  }
 });
 
 test('a critical shows ahead of an older normal when slots are short', () => {
@@ -197,6 +228,7 @@ test('greeting signals are the unread count only while ghost-shell serves', () =
   assert.equal(greetingSignals({ server: 'ghost-shell', unread: 3 }), 3);
   assert.equal(greetingSignals({ server: 'plasma', unread: 3 }), 0);
   assert.equal(greetingSignals(null), 0);
+  assert.equal(greetingSignals({ server: 'ghost-shell' }), 0);
 });
 
 test('only web and mail links open', () => {

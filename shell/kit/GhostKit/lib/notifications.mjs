@@ -23,22 +23,38 @@ export function bellState({ server, unread, unreadCrit, dnd }) {
   return { glyph: 'bell', colour, badge, badgeColour: colour, tip };
 }
 
-// Stateless over the topic: `shown` holds the ids whose toast has ended, so what is still on screen is simply what
-// this returns again. Criticals take the slots first, so one never waits while a normal shows; both go oldest first.
-export function toastQueue({ items, shown, shellStartS, maxPopups, suppressed }) {
+// Stateless over the topic: `shown` holds the ids whose toast has ended and `visible` the ids on screen now. A visible
+// record keeps its slot, free slots go to the waiting ones oldest first with criticals ahead, and when a critical still
+// waits with no slot free the oldest visible normal gives way, so a critical never waits while a normal shows.
+export function toastQueue({ items, shown, visible = [], shellStartS, maxPopups, suppressed }) {
   const eligible = items.filter((item) => !item.held && item.arrived_s >= shellStartS && !shown.has(item.id)).reverse();
-  if (suppressed !== '') {
+  const slots = Number.isInteger(maxPopups) && maxPopups > 0 ? maxPopups : 0;
+  if (suppressed !== '' || slots === 0) {
     return { show: [], waiting: eligible.length };
   }
   const isCritical = (item) => item.urgency === 'critical';
-  const ranked = [...eligible.filter(isCritical), ...eligible.filter((item) => !isCritical(item))];
-  const visible = new Set(ranked.slice(0, maxPopups));
+  const onScreen = new Set(visible);
+  const chosen = new Set(eligible.filter((item) => onScreen.has(item.id)).slice(0, slots));
+  const waiting = eligible.filter((item) => !chosen.has(item) && !onScreen.has(item.id));
+  const waitingFirst = [...waiting.filter(isCritical), ...waiting.filter((item) => !isCritical(item))];
+  for (const item of waitingFirst) {
+    if (chosen.size < slots) {
+      chosen.add(item);
+      continue;
+    }
+    const yielding = isCritical(item) ? eligible.find((candidate) => chosen.has(candidate) && !isCritical(candidate)) : undefined;
+    if (yielding === undefined) {
+      break;
+    }
+    chosen.delete(yielding);
+    chosen.add(item);
+  }
   return {
     show: eligible
-      .filter((item) => visible.has(item))
+      .filter((item) => chosen.has(item))
       .map((item) => item.id)
       .reverse(),
-    waiting: eligible.length - visible.size,
+    waiting: eligible.length - chosen.size,
   };
 }
 
@@ -110,7 +126,7 @@ export function isCountdown(bodyText) {
 }
 
 export function greetingSignals(topicValue) {
-  return topicValue?.server === SERVER ? topicValue.unread : 0;
+  return topicValue?.server === SERVER ? (topicValue.unread ?? 0) : 0;
 }
 
 export function isOpenableLink(url) {
