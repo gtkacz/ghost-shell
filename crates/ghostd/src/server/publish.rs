@@ -30,10 +30,6 @@ impl Publisher {
     }
 }
 
-/// The union of every UI client's subscriptions, sent only when it changes.
-///
-/// Never hold a `borrow()` of it across [`Publisher::publish`]: the hub updates the demand while
-/// holding the lock that publishing takes, so the two would deadlock.
 /// A client's request, already checked to name a method in [`ghost_proto::calls::ALL`]; its
 /// arguments are for the feed that handles it to check.
 #[derive(Debug, Clone)]
@@ -45,6 +41,10 @@ pub struct Call {
 /// How many calls a feed may leave unread before it loses the oldest.
 pub(super) const CALL_BACKLOG: usize = 64;
 
+/// The union of every UI client's subscriptions, sent only when it changes.
+///
+/// Never hold a `borrow()` of it across [`Publisher::publish`]: the hub updates the demand while
+/// holding the lock that publishing takes, so the two would deadlock.
 pub type Demand = watch::Receiver<BTreeSet<String>>;
 
 pub struct FeedContext {
