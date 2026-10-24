@@ -34,4 +34,16 @@ Singleton {
     function stepVolume(volume, notches) {
         return TrayLib.stepVolume(volume, notches);
     }
+
+    function stepBrightness(brightness, max, notches) {
+        return TrayLib.stepBrightness(brightness, max, notches);
+    }
+
+    function cellBrightness(x, cells, cellStep, max) {
+        return TrayLib.cellBrightness(x, cells, cellStep, max);
+    }
+
+    function nightLightSwitch(nightLight) {
+        return TrayLib.nightLightSwitch(nightLight);
+    }
 }

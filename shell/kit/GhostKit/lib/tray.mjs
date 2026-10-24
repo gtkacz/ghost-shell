@@ -3,6 +3,8 @@ const PHONE = 'phone';
 const PERCENT = 100;
 // Twenty notches span the range, so a step is five percent.
 const NOTCHES_PER_RANGE = 20;
+// A backlight at zero can be fully dark, with nothing on screen to turn it back up.
+const MIN_BRIGHTNESS = 1;
 
 export const APPLETS = {
   network: 'org.kde.plasma.networkmanagement',
@@ -10,7 +12,6 @@ export const APPLETS = {
   volume: 'org.kde.plasma.volume',
   kdeconnect: 'org.kde.kdeconnect',
   clipboard: 'org.kde.plasma.clipboard',
-  brightness: 'org.kde.plasma.brightness',
   overflow: 'org.kde.plasma.systemtray',
 };
 
@@ -46,4 +47,24 @@ const STATUS_PASSIVE = 0;
 
 export function showsInline(status) {
   return status !== STATUS_PASSIVE;
+}
+
+export function stepBrightness(brightness, max, notches) {
+  const step = Math.max(1, Math.round(max / NOTCHES_PER_RANGE));
+  return Math.min(max, Math.max(MIN_BRIGHTNESS, brightness + notches * step));
+}
+
+// The slider is cells, so a press anywhere in a cell sets the brightness that lights the row up to and including it.
+export function cellBrightness(x, cells, cellStep, max) {
+  if (cells <= 0) {
+    return MIN_BRIGHTNESS;
+  }
+  const cell = Math.min(cells, Math.max(1, Math.floor(x / cellStep) + 1));
+  return Math.max(MIN_BRIGHTNESS, Math.round((cell / cells) * max));
+}
+
+// KWin's toggle suspends and resumes Night Light, so the switch shows whether it runs and works only while it is enabled.
+export function nightLightSwitch(nightLight) {
+  const usable = Boolean(nightLight?.available && nightLight?.enabled);
+  return { on: usable && Boolean(nightLight.running), usable };
 }

@@ -4,8 +4,8 @@ import Quickshell.Services.Pipewire
 import Quickshell.Services.SystemTray
 import GhostKit
 
-// The tray: the built-in network, Bluetooth, volume, KDE Connect and Brightness and Color icons, then the apps' status items, then a chevron.
-// A click on a built-in or on the chevron opens KDE's own popup for it through the daemon.
+// The tray: the built-in network, Bluetooth, volume, KDE Connect and brightness icons, then the apps' status items, then a chevron.
+// A click on a built-in but the sun, or on the chevron, opens KDE's own popup for it through the daemon; the sun opens our own.
 Item {
     id: root
 
@@ -15,6 +15,8 @@ Item {
     readonly property real gapPx: 10
     readonly property string phoneTopic: "batteries"
     readonly property string linksTopic: "net.links"
+    readonly property string brightnessTopic: "brightness"
+    readonly property real popupGapPx: 6
 
     property var settings
 
@@ -24,10 +26,12 @@ Item {
     readonly property var bluetooth: TrayRules.bluetooth({
         enabled: adapter !== null && adapter.enabled
     })
-    // No feed carries Night Light yet, so the icon stays lit.
+    readonly property var displaysTopic: Data.topic(brightnessTopic)
+    readonly property var displays: displaysTopic.value !== null ? displaysTopic.value.displays : []
     readonly property var brightness: TrayRules.brightness({
-        nightLight: true
+        nightLight: TrayRules.nightLightSwitch(displaysTopic.value !== null ? displaysTopic.value.night_light : null).on
     })
+    property bool brightnessOpen: false
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property bool sinkReady: sink !== null && sink.ready && sink.audio !== null
     readonly property var volume: TrayRules.volume({
@@ -38,6 +42,17 @@ Item {
 
     implicitWidth: row.implicitWidth
 
+    function stepFirstDisplay(notches) {
+        if (displays.length === 0) {
+            return;
+        }
+        const first = displays[0];
+        Data.call("brightness.set", {
+            display: first.id,
+            value: TrayRules.stepBrightness(first.brightness, first.max, notches)
+        });
+    }
+
     function openPopup(applet) {
         Data.call("plasma.popup", {
             applet: applet
@@ -47,10 +62,12 @@ Item {
     Component.onCompleted: {
         Data.want(linksTopic);
         Data.want(phoneTopic);
+        Data.want(brightnessTopic);
     }
     Component.onDestruction: {
         Data.release(linksTopic);
         Data.release(phoneTopic);
+        Data.release(brightnessTopic);
     }
 
     // Quickshell binds a node's audio only while something holds it.
@@ -120,13 +137,35 @@ Item {
         }
 
         TrayItem {
+            id: sun
+
             anchors.verticalCenter: parent.verticalCenter
             glyph: root.brightness.glyph
             dim: root.brightness.dim
-            tip: "Brightness and Color"
+            tip: "Brightness"
+            tipSuppressed: root.brightnessOpen
             onClicked: button => {
                 if (button === Qt.LeftButton) {
-                    root.openPopup(TrayRules.applets.brightness);
+                    root.brightnessOpen = !root.brightnessOpen;
+                }
+            }
+            onScrolled: notches => root.stepFirstDisplay(notches)
+
+            BarPopup {
+                anchorItem: sun
+                gap: Theme.d(root.popupGapPx)
+                open: root.brightnessOpen
+                catchOutside: true
+                onDismissed: root.brightnessOpen = false
+                content: Component {
+                    BrightnessPopup {
+                        snapshot: root.displaysTopic.value
+                        onDisplaySet: (id, value) => Data.call("brightness.set", {
+                            display: id,
+                            value: value
+                        })
+                        onNightLightToggled: Data.call("nightlight.toggle", {})
+                    }
                 }
             }
         }

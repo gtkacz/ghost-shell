@@ -21,6 +21,7 @@ test('every key in the constraints table resolves in both scripts', () => {
     mem: ['記憶', 'メモリ'],
     disk: ['記録', 'ストレージ'],
     sens: ['温度', 'センサー'],
+    bright: ['輝度', 'ブライトネス'],
   };
   for (const [key, [kanji, katakana]] of Object.entries(expected)) {
     assert.equal(tag(key, 'kanji'), kanji);
