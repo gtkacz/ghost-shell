@@ -2,6 +2,7 @@
 //! the server and the feed decide when to call it and when to persist.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 
 use ghost_proto::{Notification, NotificationAction, NotificationLevel, Urgency};
 use serde::de::Error as _;
@@ -136,12 +137,24 @@ impl History {
             )));
         }
         let items = stored.items.into_owned();
-        // A hand-edited file must not hand out an id that is already in use.
+        // Colliding ids would make a close or a replacement hit the wrong record, so the whole
+        // file is refused. `u32::MAX` is refused too so that "past every id" cannot overflow.
+        let mut seen = HashSet::new();
+        if let Some(bad) = items
+            .iter()
+            .find(|item| item.id == 0 || item.id == u32::MAX || !seen.insert(item.id))
+        {
+            return Err(serde_json::Error::custom(format!(
+                "history file has an unusable id {}",
+                bad.id
+            )));
+        }
+        // A stale `next_id` must not hand out an id that is already in use.
         let past_every_id = items
             .iter()
-            .map(|item| item.id)
+            .map(|item| item.id + 1)
             .max()
-            .map_or(FIRST_ID, |id| id + 1);
+            .unwrap_or(FIRST_ID);
         Ok(Self {
             items,
             dnd: stored.dnd,
@@ -500,6 +513,56 @@ mod tests {
         assert!(restored.dnd());
         let next = restored.notify(incoming("c"), 9_000, false, LIMIT).unwrap();
         assert_eq!(next.id, 3);
+    }
+
+    fn file(version: u32, next_id: u32, ids: &[u32]) -> String {
+        let items: Vec<_> = ids
+            .iter()
+            .map(|&id| Notification {
+                id,
+                ..Notification::default()
+            })
+            .collect();
+        serde_json::to_string(&Stored {
+            version,
+            next_id,
+            dnd: false,
+            items: Cow::Owned(items),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn future_version_is_rejected() {
+        assert!(
+            History::from_json("{\"version\":2,\"next_id\":1,\"dnd\":false,\"items\":[]}").is_err()
+        );
+        assert!(History::from_json(&file(2, 1, &[])).is_err());
+    }
+
+    #[test]
+    fn stale_next_id_is_lifted_past_stored_ids() {
+        let mut history = History::from_json(&file(1, 1, &[7, 3])).unwrap();
+        let outcome = history.notify(incoming("a"), 0, false, LIMIT).unwrap();
+        assert_eq!(outcome.id, 8);
+        let mut empty = History::from_json(&file(1, 0, &[])).unwrap();
+        assert_eq!(empty.notify(incoming("a"), 0, false, LIMIT).unwrap().id, 1);
+    }
+
+    #[test]
+    fn duplicate_or_zero_ids_are_rejected() {
+        assert!(History::from_json(&file(1, 5, &[2, 2])).is_err());
+        assert!(History::from_json(&file(1, 5, &[0, 1])).is_err());
+    }
+
+    #[test]
+    fn max_id_does_not_overflow() {
+        assert!(History::from_json(&file(1, u32::MAX, &[u32::MAX])).is_err());
+        let mut history = History::from_json(&file(1, 1, &[u32::MAX - 1])).unwrap();
+        let outcome = history.notify(incoming("a"), 0, false, LIMIT).unwrap();
+        assert_eq!(outcome.id, u32::MAX);
+        let after = history.notify(incoming("b"), 2_000, false, LIMIT).unwrap();
+        assert_eq!(after.id, FIRST_ID);
     }
 
     #[test]
