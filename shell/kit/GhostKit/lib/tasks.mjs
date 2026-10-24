@@ -5,16 +5,22 @@ const NO_BADGE = Object.freeze({ count: null, progress: null, urgent: false });
 // The app a window belongs to, by the plan's order: its desktop file name, an entry's startup class, the lower-cased
 // resource class, and last the desktop entries' own guess. Lookups are injected so the order is testable.
 // A pinned app goes first: several entries can share one startup class, and the user's pin is the one they meant.
+// An exact id still beats a class, since a browser's web apps carry the browser's class but their own desktop file name.
 export function matchOrder(window, { hasId, byStartupClass, heuristic, pinned = [] }) {
+  const windowId = window.app_id.toLowerCase();
   const windowClass = window.resource_class.toLowerCase();
-  const claimedBy = pinned.find(({ id, startupClass }) => {
-    return id.toLowerCase() === window.app_id.toLowerCase() || id.toLowerCase() === windowClass || (startupClass !== '' && startupClass.toLowerCase() === windowClass);
-  });
-  if (claimedBy) {
-    return claimedBy.id;
+  const pinnedById = pinned.find(({ id }) => id.toLowerCase() === windowId);
+  if (pinnedById) {
+    return pinnedById.id;
   }
   if (hasId(window.app_id)) {
     return window.app_id;
+  }
+  const claimedByClass = pinned.find(({ id, startupClass }) => {
+    return id.toLowerCase() === windowClass || (startupClass !== '' && startupClass.toLowerCase() === windowClass);
+  });
+  if (claimedByClass) {
+    return claimedByClass.id;
   }
   const fromStartupClass = byStartupClass(window.resource_class);
   if (fromStartupClass) {

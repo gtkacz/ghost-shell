@@ -139,6 +139,15 @@ test('a pinned app also claims a window whose id or lower-cased class equals its
   assert.equal(matchOrder({ app_id: 'y', resource_class: 'KATE' }, lookups), 'kate');
 });
 
+test('a window whose id names an entry stays with it, over a pin that shares its class', () => {
+  const pwa = 'thorium-pwa-Profile_1';
+  const browserPin = { id: 'thorium-browser', startupClass: '' };
+  const lookups = { hasId: (id) => id === pwa || id === 'thorium-browser', byStartupClass: () => null, heuristic: () => null };
+  const window = { app_id: pwa, resource_class: 'Thorium-browser' };
+  assert.equal(matchOrder(window, { ...lookups, pinned: [browserPin, { id: pwa, startupClass: 'crx_pwa' }] }), pwa);
+  assert.equal(matchOrder(window, { ...lookups, pinned: [browserPin] }), pwa);
+});
+
 test('duplicate pins keep first occurrences and do not shift task shortcut indices', () => {
   const tasks = buildTasks({ pinned: ['a', 'b', 'a', 'c', 'b'], windows: [], findEntry: byAppId });
   assert.deepEqual(tasks.map((task) => task.appId), ['a', 'b', 'c']);
