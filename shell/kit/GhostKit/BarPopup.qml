@@ -16,6 +16,9 @@ Item {
     property int keyboardFocus: WlrKeyboardFocus.None
     // Logical pixels left between the anchor and the popup.
     property real gap: 0
+    // How long the content's size must hold still before the window takes it. A Column reads 0 until its first layout,
+    // and a layer surface resized faster than the compositor answers is left at a stale size, with the content clipped.
+    property int settleMs: 50
 
     signal dismissed
 
@@ -45,6 +48,31 @@ Item {
 
             // Both bars span the screen from its edge, so the window's margin is where it starts; the dock sets its own.
             readonly property real leftEdge: root.barWindow.margins.left + root.anchorRect.x
+            property int settledWidth: 0
+            property int settledHeight: 0
+
+            Timer {
+                id: settle
+
+                interval: root.settleMs
+                running: true
+                onTriggered: {
+                    popup.settledWidth = body.implicitWidth;
+                    popup.settledHeight = body.implicitHeight;
+                }
+            }
+
+            Connections {
+                target: body
+
+                function onImplicitWidthChanged() {
+                    settle.restart();
+                }
+
+                function onImplicitHeightChanged() {
+                    settle.restart();
+                }
+            }
 
             screen: root.barWindow.screen
             anchors {
@@ -59,8 +87,9 @@ Item {
             }
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
-            implicitWidth: body.implicitWidth
-            implicitHeight: body.implicitHeight
+            implicitWidth: settledWidth
+            implicitHeight: settledHeight
+            visible: settledHeight > 0
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.namespace: "utility"
             WlrLayershell.keyboardFocus: root.keyboardFocus
