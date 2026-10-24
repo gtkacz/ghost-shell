@@ -23,6 +23,11 @@ Singleton {
         console.info("launch file");
     }
 
+    function url(link) {
+        Quickshell.execDetached(LaunchLib.urlCommand(link, home));
+        console.info("launch url");
+    }
+
     function action(desktopAction) {
         Quickshell.execDetached(LaunchLib.actionCommand(desktopAction, home));
         console.info("launch action " + desktopAction.id);

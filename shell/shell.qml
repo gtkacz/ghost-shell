@@ -36,4 +36,12 @@ ShellRoot {
             screen: desktop.mainScreen
         }
     }
+
+    LazyLoader {
+        active: barEnabled && desktop.mainScreen !== null
+
+        Toasts {
+            screen: desktop.mainScreen
+        }
+    }
 }

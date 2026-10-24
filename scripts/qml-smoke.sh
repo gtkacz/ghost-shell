@@ -115,6 +115,8 @@ temp_config=
 # The shell's own state, such as the media widget's remembered track, lives in a directory made for
 # this run, so a smoke run never reads or writes the desktop shell's.
 state_dir=
+# Set by a failed snapshot check, so the snapshots outlive the run.
+keep_state=
 # Set once this run has made sure no other run's socket is at $socket, so cleanup never removes one.
 owns_socket=
 daemon_pid=
@@ -140,7 +142,7 @@ cleanup() {
     if [[ -n $temp_config ]]; then
         rm -f "$temp_config"
     fi
-    if [[ -n $state_dir ]]; then
+    if [[ -n $state_dir && -z $keep_state ]]; then
         rm -r -- "$state_dir"
     fi
 }
@@ -169,8 +171,11 @@ apply_smoke_bar() {
     done
 }
 
+# Seconds between the fake daemon's own new notifications; empty for none.
+notify_every=
+
 start_daemon() {
-    DBUS_SESSION_BUS_ADDRESS=$daemon_bus "$daemon" run --fake --socket "$socket" --config "$config" \
+    GHOST_FAKE_NOTIFY_EVERY_S=$notify_every DBUS_SESSION_BUS_ADDRESS=$daemon_bus "$daemon" run --fake --socket "$socket" --config "$config" \
         --widgets-dir "$repo/widgets" >> "$daemon_log" 2>&1 &
     daemon_pid=$!
 }
@@ -331,6 +336,102 @@ run_launcher_phase() {
     fi
 }
 
+# GHOST_SMOKE_TOASTS=1 has the fake daemon send a notification every 2 s, waits for three toasts and looks at the stack
+# in snapshots taken by GHOST_SMOKE_SHOT, an executable that writes a PNG of the whole output to the path it is given
+# (the compositor is the caller's, so the snapshot is too). The daemon then restarts with no new notifications, which
+# makes every toast leave, and the clock holds must be what they were before the first toast.
+toasts=${GHOST_SMOKE_TOASTS:-}
+shot_cmd=${GHOST_SMOKE_SHOT:-}
+toast_wait_s=20
+# The dashboard's alerts hold the clock for appearance.alert_attention_s (10 s) after each connect, so the holds are only
+# comparable once that has passed.
+attention_s=10
+# The first toast times out after 6 s, so this is after it is gone and past the arrival that follows.
+toast_gap_s=7
+# Wider and taller than three cards and the waiting line at the test scale (QT_SCALE_FACTOR=1.15, where a design pixel is
+# about two physical ones), starting past the bar.
+stack_region_w=780
+stack_region_h=640
+stack_region_inset=48
+# Cards, borders and text change far more pixels than the dashboard's own motion does.
+stack_min_diff_px=3000
+
+toast_count() {
+    grep -cE 'qml: toast [0-9]+ ' "$shell_log" || true
+}
+
+latest_holds() {
+    local line
+    line=$(grep -aF 'qml: holds ' "$shell_log" | tail -n 1 || true)
+    echo "${line#*holds }"
+}
+
+# Writes the part of the screen the stack is in to $1, cropped from a snapshot.
+take_stack_shot() {
+    local whole=$state_dir/whole.png w h x y
+    "$shot_cmd" "$whole" || { echo "smoke: FAIL (GHOST_SMOKE_SHOT failed)" >&2; exit 1; }
+    read -r w h < <(magick identify -format '%w %h\n' "$whole")
+    x=$((w - stack_region_w))
+    y=$stack_region_inset
+    if [[ $(sed -n 's/^position = "\(.*\)"/\1/p' "$config" | head -n 1) == bottom ]]; then
+        y=$((h - stack_region_inset - stack_region_h))
+    fi
+    magick "$whole" -crop "${stack_region_w}x${stack_region_h}+${x}+${y}" +repage "$1"
+}
+
+# Fails unless the stack differs between the snapshots $1 and $2 in at least stack_min_diff_px pixels.
+expect_stack_changed() {
+    local diff
+    diff=$(compare -metric AE -fuzz 8% "$1" "$2" null: 2>&1 || true)
+    # The metric is a float on some builds.
+    diff=${diff%%[. ]*}
+    if ! [[ $diff =~ ^[0-9]+$ ]] || (( diff < stack_min_diff_px )); then
+        echo "smoke: FAIL (toasts: $3: $diff pixels of the stack differ, expected $stack_min_diff_px; snapshots in $state_dir)" >&2
+        keep_state=1
+        exit 1
+    fi
+}
+
+run_toasts_phase() {
+    local before baseline deadline
+    sleep $((attention_s + settle_s))
+    baseline=$(latest_holds)
+    take_stack_shot "$state_dir/stack-empty.png"
+    stop daemon_pid
+    notify_every=2
+    before=$(connect_count)
+    start_daemon
+    wait_for_connects $((before + 1))
+    deadline=$((SECONDS + toast_wait_s))
+    while (( $(toast_count) < 3 )); do
+        if (( SECONDS >= deadline )); then
+            echo "smoke: FAIL (toasts: $(toast_count) toast lines within $toast_wait_s s, expected 3; see $shell_log)" >&2
+            exit 1
+        fi
+        sleep "$poll_s"
+    done
+    sleep "$settle_s"
+    take_stack_shot "$state_dir/stack-1.png"
+    expect_stack_changed "$state_dir/stack-empty.png" "$state_dir/stack-1.png" "three toasts look like none"
+    sleep "$toast_gap_s"
+    take_stack_shot "$state_dir/stack-2.png"
+    expect_stack_changed "$state_dir/stack-1.png" "$state_dir/stack-2.png" "the stack did not change after the first toast timed out"
+    if [[ -n ${GHOST_SMOKE_KEEP_SHOTS:-} ]]; then
+        cp -- "$state_dir"/stack-*.png "$GHOST_SMOKE_KEEP_SHOTS"/
+    fi
+
+    stop daemon_pid
+    notify_every=
+    before=$(connect_count)
+    start_daemon
+    wait_for_connects $((before + 1))
+    sleep $((attention_s + settle_s))
+    if [[ $(latest_holds) != "$baseline" ]]; then
+        echo "smoke: FAIL (toasts: clock holds $(latest_holds) after every toast ended, were $baseline before; see $shell_log)" >&2
+        exit 1
+    fi
+}
+
 trap cleanup EXIT
 # Turning signals into a plain exit makes bash run the EXIT trap for them too.
 trap 'exit 130' INT
@@ -355,6 +456,10 @@ state_dir=$(mktemp -d -t ghost-smoke-state.XXXXXX)
 if [[ -n $launcher ]]; then
     make_launcher_fixture
 fi
+if [[ -n $toasts && ( -z $shot_cmd || ! -x $shot_cmd ) ]]; then
+    echo "smoke: FAIL (GHOST_SMOKE_TOASTS needs GHOST_SMOKE_SHOT, an executable that writes a PNG of the output to its argument)" >&2
+    exit 1
+fi
 # The shell's audio rows and the daemon's spectrum would otherwise read the user's own PipeWire graph,
 # and a held MIC LIVE alert from their record streams would change what the run sees.
 mkdir -- "$state_dir/pipewire"
@@ -368,7 +473,7 @@ owns_socket=1
 : > "$daemon_log"
 start_daemon
 # The greeting would hide the dashboard for its first seconds; GHOST_GREETING=login or auto plays it.
-env ${launcher_env[@]+"${launcher_env[@]}"} GHOST_GREETING=${GHOST_GREETING:-off} GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
+env ${launcher_env[@]+"${launcher_env[@]}"} ${toasts:+GHOST_DEBUG=1} GHOST_GREETING=${GHOST_GREETING:-off} GHOST_SOCKET=$socket QML_IMPORT_PATH=$repo/shell/kit XDG_STATE_HOME=$state_dir qs --no-color -p "$repo/shell" > "$shell_log" 2>&1 &
 shell_pid=$!
 
 sleep "$startup_s"
@@ -383,6 +488,9 @@ fi
 
 if [[ -n $launcher ]]; then
     run_launcher_phase
+fi
+if [[ -n $toasts ]]; then
+    run_toasts_phase
 fi
 
 stop shell_pid

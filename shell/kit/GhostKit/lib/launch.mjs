@@ -32,6 +32,12 @@ export function fileCommand(path, home) {
   return transientService(path, home, ['xdg-open', path]);
 }
 
+// A link in a notification; the caller has checked its scheme, so it cannot read as an option. Like a file, it opens in a
+// service of its own so the browser it starts does not live in the shell's cgroup.
+export function urlCommand(url, home) {
+  return transientService(url, home, ['xdg-open', url]);
+}
+
 function transientService(description, home, command) {
   return [
     'systemd-run',

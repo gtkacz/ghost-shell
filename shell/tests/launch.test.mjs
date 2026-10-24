@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actionCommand, appCommand, fileCommand, searchDirs } from '../kit/GhostKit/lib/launch.mjs';
+import { actionCommand, appCommand, fileCommand, searchDirs, urlCommand } from '../kit/GhostKit/lib/launch.mjs';
 
 test('the user data directory is searched before the system ones, each once', () => {
   assert.deepEqual(searchDirs('/h/.local/share', '/usr/local/share:/usr/share:/h/.local/share'), [
@@ -74,4 +74,11 @@ test('a file opens with xdg-open in a service of its own, never through kioclien
   assert.deepEqual(argv.slice(-3), ['--', 'xdg-open', path]);
   assert.equal(argv.filter((arg) => arg === path).length, 1);
   assert.equal(argv.some((arg) => arg.includes('kioclient')), false);
+});
+
+test('a link opens with xdg-open in a service of its own', () => {
+  const url = 'https://example.org/a b?x=1&y=$(z)';
+  const argv = urlCommand(url, '/home/u');
+  assert.deepEqual(argv.slice(0, 2), ['systemd-run', '--user']);
+  assert.deepEqual(argv.slice(-3), ['--', 'xdg-open', url]);
 });

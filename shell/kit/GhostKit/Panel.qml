@@ -12,9 +12,9 @@ Item {
     readonly property real bracketArmPx: 14
     // The mockup centres the bracket stroke 1 px in, so it covers the edge and shows just inside it.
     readonly property real bracketInsetPx: 1
-    readonly property real headerHeightPx: 26
-    readonly property real headerTopPx: 9
-    readonly property real headerBottomPx: 6
+    property real headerHeightPx: 26
+    property real headerTopPx: 9
+    property real headerBottomPx: 6
     readonly property real headerSidePx: 12
     readonly property real headerGapPx: 8
     readonly property real squarePx: 5
