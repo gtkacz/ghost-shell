@@ -170,6 +170,9 @@ Item {
         headerBottomPx: root.headerBottomPx
         label: root.rec.app.toUpperCase()
         meta: root.age
+        // Each scrambling text holds the frame clock on a surface beside the desktop's, which is where a toast's
+        // cost went; the summary keeps the one scramble.
+        scrambles: false
 
         Column {
             id: content
@@ -325,6 +328,7 @@ Item {
                 width: parent.width
                 level: root.rec.level
                 chipKey: "alert"
+                still: true
                 // The level is part of the name, so a replacement that raises a warning to critical draws attention again.
                 alertKey: "notif:" + root.rec.id + ":" + root.rec.level
                 text: root.alertText

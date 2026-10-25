@@ -5,6 +5,7 @@ import QtQuick
 Text {
     property real durationMs
     property string scrambleKey
+    property bool scrambles
 
     textFormat: Text.PlainText
 }

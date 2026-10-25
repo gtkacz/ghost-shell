@@ -338,7 +338,7 @@ run_launcher_phase() {
     fi
 }
 
-# GHOST_SMOKE_TOASTS=1 has the fake daemon send a notification every 2 s, waits for three toasts and looks at the stack
+# GHOST_SMOKE_TOASTS=1 has the fake daemon send a notification every 4 s, waits for three toasts and looks at the stack
 # in snapshots taken by GHOST_SMOKE_SHOT, an executable that writes a PNG of the whole output to the path it is given
 # (the compositor is the caller's, so the snapshot is too). The daemon then restarts with no new notifications, which
 # makes every toast leave, and the clock holds must be what they were before the first toast.
@@ -350,6 +350,10 @@ toast_wait_s=20
 attention_s=10
 # The first toast times out after 6 s, so this is after it is gone and past the arrival that follows.
 toast_gap_s=7
+# The fake feed's third toast is the warn one. Four seconds apart, its alert box's flicker (1.6 s) and a normal toast's
+# summary scramble (0.5 s) do not overlap with the next arrival's, so the holds in between belong to one toast.
+toast_every_s=4
+warn_still_after_s=2.4
 # Wider and taller than three cards and the waiting line at the test scale (QT_SCALE_FACTOR=1.15, where a design pixel is
 # about two physical ones), starting past the bar.
 stack_region_w=780
@@ -372,6 +376,58 @@ latest_holds() {
     local line
     line=$(grep -aF 'qml: holds ' "$shell_log" | tail -n 1 || true)
     echo "${line#*holds }"
+}
+
+# The normal count in a holds line such as "normal=1 fast=0 seconds=3".
+holds_normal() {
+    local count=${1#normal=}
+    echo "${count%% *}"
+}
+
+# The highest normal count logged for the first toast, whose card takes its holds just before it is announced: from the
+# last count that was no higher than the base $1 before the announcement, to the second toast's announcement.
+first_toast_peak_normal() {
+    awk -v base="$1" '
+        /qml: holds / && match($0, /normal=[0-9]+/) { counts[++seen] = substr($0, RSTART + 7, RLENGTH - 7) + 0 }
+        /qml: toast [0-9]+ / && !/ ended / { announced++ }
+        announced == 1 && !started {
+            started = 1
+            for (from = seen; from > 0 && counts[from] > base; from--) { }
+        }
+        announced > 1 { exit }
+        END {
+            peak = base
+            for (i = from + 1; started && i <= seen; i++) { if (counts[i] > peak) { peak = counts[i] } }
+            print peak
+        }' "$shell_log"
+}
+
+# Fails unless a toast scrambles only its summary: the first toast, a normal one, adds one normal hold at most.
+expect_summary_only_scramble() {
+    local base peak
+    base=$(holds_normal "$1")
+    peak=$(first_toast_peak_normal "$base")
+    if (( peak > base + 1 )); then
+        echo "smoke: FAIL (toasts: the first toast raised the normal clock holds from $base to $peak, expected at most $((base + 1)) for the summary alone; see $shell_log)" >&2
+        exit 1
+    fi
+}
+
+# Fails unless the warn toast, still on screen, has let go of its alert box's clock: past the arrival flicker the normal
+# holds are what they were before any toast. The dashboard's own alerts have used their window by then.
+expect_warn_toast_still() {
+    local warn_line now base
+    warn_line=$({ grep -E 'qml: toast [0-9]+ ' "$shell_log" || true; } | { grep -v ' ended ' || true; } | sed -n 3p)
+    if [[ $warn_line != *WEATHER* ]]; then
+        echo "smoke: FAIL (toasts: the third toast is \"$warn_line\", expected the WEATHER warn toast; see $shell_log)" >&2
+        exit 1
+    fi
+    now=$(holds_normal "$(latest_holds)")
+    base=$(holds_normal "$1")
+    if (( now != base )); then
+        echo "smoke: FAIL (toasts: the warn toast still holds the clock $warn_still_after_s s after it arrived, normal holds $now were $base; see $shell_log)" >&2
+        exit 1
+    fi
 }
 
 # Writes the part of the screen the stack is in to $1, cropped from a snapshot.
@@ -422,7 +478,7 @@ run_toasts_phase() {
     baseline=$(latest_holds)
     take_stack_shot "$state_dir/stack-empty.png"
     stop daemon_pid
-    notify_every=2
+    notify_every=$toast_every_s
     before=$(connect_count)
     start_daemon
     wait_for_connects $((before + 1))
@@ -438,6 +494,9 @@ run_toasts_phase() {
         fi
         sleep "$poll_s"
     done
+    sleep "$warn_still_after_s"
+    expect_warn_toast_still "$baseline"
+    expect_summary_only_scramble "$baseline"
     expect_first_toast_timed_out "$first_at"
     sleep "$settle_s"
     take_stack_shot "$state_dir/stack-1.png"

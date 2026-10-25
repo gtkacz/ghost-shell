@@ -9,6 +9,7 @@ Item {
     readonly property var digitPattern: /^[0-9]$/
 
     property string text
+    property bool scrambles: true
     required property real pixelSize
     property int weight: Font.Bold
     // Letter spacing in em. The cells below measure "0" with it, so a font without equal digit widths keeps the
@@ -50,6 +51,7 @@ Item {
         width: root.width
         opacity: root.monospace ? 1 : 0
         text: root.text
+        scrambles: root.scrambles
         // Callers pass daemon and provider values, which AutoText would render as markup.
         textFormat: Text.PlainText
         color: root.color

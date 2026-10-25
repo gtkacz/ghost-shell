@@ -18,6 +18,7 @@ Item {
 
     // A Theme.chip() key.
     property string key
+    property bool scrambles: true
     property color color: Theme.signal
     // The mockup's .alert .chip sets the border to the full text colour instead.
     property color borderColor: ThemeLib.withAlpha(color, borderAlphaPct)
@@ -42,6 +43,7 @@ Item {
 
         anchors.centerIn: parent
         text: Theme.chip(root.key)
+        scrambles: root.scrambles
         textFormat: Text.PlainText
         color: root.color
         font {

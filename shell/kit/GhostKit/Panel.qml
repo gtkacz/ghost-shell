@@ -37,6 +37,8 @@ Item {
     property string label
     property string tagKey
     property string meta
+    // False writes the label, tag and meta plainly, for a card that scrambles a line of its own instead.
+    property bool scrambles: true
     // The dock draws the same frame over a denser ground.
     property color fill: ThemeLib.withAlpha(Theme.panel, Theme.panelFill)
     property real padding: Theme.d(paddingPx)
@@ -207,6 +209,7 @@ Item {
             // Widgets set the label and meta from their own data, which AutoText would render as markup.
             textFormat: Text.PlainText
             scrambleKey: "panel:" + root.label
+            scrambles: root.scrambles
             durationMs: root.labelScrambleMinMs + Math.random() * root.labelScrambleSpanMs
             color: Theme.hi
             elide: Text.ElideRight
@@ -229,6 +232,7 @@ Item {
             }
             width: Math.max(0, Math.min(implicitWidth, headerLine.x + headerLine.width - headerItem.reserved - x))
             text: Theme.tag(root.tagKey)
+            scrambles: root.scrambles
             color: Theme.signal
             opacity: root.tagOpacity
             elide: Text.ElideRight
@@ -249,6 +253,7 @@ Item {
                 verticalCenter: headerLine.verticalCenter
             }
             text: root.meta
+            scrambles: root.scrambles
             textFormat: Text.PlainText
             color: Theme.dim
             horizontalAlignment: Text.AlignRight

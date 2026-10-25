@@ -16,6 +16,8 @@ Text {
     // the write by the item's place under its host, so its first written value scrambles and later
     // values, such as a reading's, show directly.
     property string scrambleKey
+    // False writes every value plainly and claims no key, so a later showing of the same text still scrambles.
+    property bool scrambles: true
 
     // Widgets do not know their host, so the scope is found up the tree: the nearest WidgetHost's, or
     // none outside one.
@@ -45,7 +47,7 @@ Text {
     }
 
     function considerKey() {
-        if (!visible) {
+        if (!visible || !scrambles) {
             return;
         }
         const key = FirstWriteLib.writeKey({ scrambleKey: scrambleKey, decidedKey: run.decidedKey, written: FirstWriteLib.isWritten(text), position: positionKey });

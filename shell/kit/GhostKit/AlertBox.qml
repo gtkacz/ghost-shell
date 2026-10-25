@@ -7,7 +7,7 @@ import "lib/theme.mjs" as ThemeLib
 // blinks like the boot cursor. That lasts appearance.alert_attention_s (10 s unless set) of the time the alert
 // is on screen, and then the text holds still at full colour while the stripes step, once a second unless
 // appearance.alert_stripe_step_s says otherwise. Every step lands on a FrameClock tick or second, so it adds no
-// frames of its own.
+// frames of its own. A still box keeps only the arrival flicker, after which it holds no clock at all.
 Item {
     id: root
 
@@ -44,6 +44,9 @@ Item {
     // Names the alert, so a new one blinks and the same one shown again does not. A new level or message counts as
     // a new alert; a caller whose message changes under one alert passes that alert's id instead.
     property string alertKey: level + ":" + text
+    // For a card shown beside the desktop for a few seconds, where a frame source of its own costs more than the
+    // desktop's: the attention window is the arrival flicker alone, the stripes never step and the texts write plainly.
+    property bool still: false
 
     readonly property bool live: Data.connected && !Data.stale && sourceLive
     readonly property bool shown: visible && live
@@ -105,8 +108,9 @@ Item {
     // Past its window a shown alert needs a clock only to notice its stripes' steps, and holds whichever of the two
     // suits the step, swapping them when the setting moves from one kind to the other.
     function holdStepClock(wanted) {
-        holdSeconds(wanted && stepsOnSeconds);
-        holdTicks(wanted && !stepsOnSeconds);
+        const stepping = wanted && !still;
+        holdSeconds(stepping && stepsOnSeconds);
+        holdTicks(stepping && !stepsOnSeconds);
     }
 
     function holdSeconds(wanted) {
@@ -162,7 +166,8 @@ Item {
             AlertAttention.show(key);
             countedKey = key;
         }
-        const leftMs = showing ? AlertAttention.attentionLeftMs(key) : 0;
+        const windowLeftMs = showing ? AlertAttention.attentionLeftMs(key) : 0;
+        const leftMs = still ? Math.min(windowLeftMs, Attention.ARRIVAL_MS) : windowLeftMs;
         attracting = leftMs > 0;
         if (attracting) {
             attentionTimer.interval = Math.ceil(leftMs);
@@ -258,6 +263,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             // An empty key is how a Chip reads as absent, so hasChip, the text's anchor and implicitWidth follow.
             key: Theme.alertChips ? root.chipKey : ""
+            scrambles: !root.still
             color: root.levelColor
             borderColor: root.levelColor
         }
@@ -273,6 +279,7 @@ Item {
                 verticalCenter: parent.verticalCenter
             }
             text: root.text
+            scrambles: !root.still
             // Callers pass provider and device strings, which AutoText would render as markup.
             textFormat: Text.PlainText
             color: root.levelColor
@@ -294,6 +301,7 @@ Item {
             }
             visible: root.hasTrailing
             text: root.trailing
+            scrambles: !root.still
             pixelSize: root.textSize
             weight: Font.DemiBold
             color: root.levelColor
