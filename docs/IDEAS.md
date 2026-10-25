@@ -10,3 +10,7 @@
 - Network speed test
 - Trash icon/Clear trash
 - Launcher styles `panes` (two panes, Kickoff-like) and `console` (centred prompt over a dimmed backdrop) as other values of `launcher.style`, directions B and C in `docs/superpowers/specs/mockups/2026-10-22-ghost-shell-launcher-directions.html`
+- Netrunner + AlphaSignal alternative color palettes
+- Netrunner-mock-animation
+- (3c) Live window preview on hovering a bar task, shared with the styled Alt+Tab switcher. KWin 6.7.5 has no `ext-image-copy-capture` (only `zkde_screencast` over PipeWire), so Quickshell's `ScreencopyView` can't capture a window; route: the ghost-shell-desktop KWin script shows a KWin-owned popup with a live `WindowThumbnail` on a bridge command from the bar. Spike first: can a script popup sit under the bar, above its layer? Fallback (static snapshot via KWin's ScreenShot2, needs a screenshot permission for ghostd) only with the user's yes
+- (layout B) Let the dock reserve its height so maximised windows stop above it, and rebalance V1 (or shrink the dock) so MEMORY keeps its process rows and STORAGE all its drives under the 58 px band

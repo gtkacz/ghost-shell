@@ -252,8 +252,10 @@ install_units() {
 
     if systemctl --user show-environment > /dev/null 2>&1; then
         systemctl --user daemon-reload
+        # Enabled but not started: the next login brings both up without this script touching the live session.
+        systemctl --user enable ghostd.service ghost-shell.service
     else
-        warn "systemctl --user is unavailable; run 'systemctl --user daemon-reload' from a login session"
+        warn "systemctl --user is unavailable; from a login session run: systemctl --user daemon-reload && systemctl --user enable ghostd ghost-shell"
     fi
 }
 
@@ -530,7 +532,7 @@ install_units
 step "installing the KWin desktop script"
 install_kwin_script
 
-step "done; start with: systemctl --user start ghostd ghost-shell"
+step "done; the units start at every login; to start them now: systemctl --user start ghostd ghost-shell"
 # Printed, never run: retiring changes the live Plasma session, so it is the user's call.
 step "to hand Plasma's panel over to the bar, run once: $repo/scripts/plasma-panel.sh retire (undo with: $repo/scripts/plasma-panel.sh restore)"
 step "to hand Plasma's notification server over to ghostd, run once: $repo/scripts/plasma-panel.sh retire-notifications (undo with: $repo/scripts/plasma-panel.sh restore-notifications)"
