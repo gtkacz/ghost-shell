@@ -46,6 +46,14 @@ lock_dropin=$lock_dropin_dir/ghost-shell-lock.conf
 lock_previous=$app_dir/lock.previous
 lock_snapshot=${XDG_STATE_HOME:-$HOME/.local/state}/ghost-shell/gate.ini
 
+switcher_package_id=org.ghostshell.switcher
+switcher_package_src=$repo/packaging/switcher/$switcher_package_id
+switcher_package_dir=$data_home/kwin/tabbox
+switcher_package=$switcher_package_dir/$switcher_package_id
+switcher_previous=$app_dir/switcher.previous
+switcher_keys=(LayoutName HighlightWindows)
+switcher_reconfigure_s=5
+
 # The login part writes under /usr, /etc and /var, each reached through these, so a test can point them at a temp
 # directory and stub the privileged commands.
 ghost_root=${GHOST_ROOT:-}
@@ -368,6 +376,91 @@ remove_lock() {
     step "done; the stock lock screen returns at your next login"
 }
 
+# Reads the file because kreadconfig6 also reads kdedefaults, whose value must count as not set: writing it back would
+# leave a key in kwinrc that was never there. Fails when the key is not set.
+tabbox_value() {
+    awk -v key="$1=" '
+        /^\[/ { inside = ($0 == "[TabBox]"); next }
+        inside && index($0, key) == 1 { print substr($0, length(key) + 1); found = 1; exit }
+        END { exit !found }
+    ' "$config_home/kwinrc" 2> /dev/null
+}
+
+# A hung KWin must not hang the way back, and KWin reads kwinrc at its next start anyway.
+reconfigure_kwin() {
+    if ! timeout "$switcher_reconfigure_s" qdbus-qt6 org.kde.KWin /KWin reconfigure > /dev/null 2>&1; then
+        warn "could not reach KWin; it picks this change up at its next start"
+    fi
+}
+
+install_switcher() {
+    local stage key value
+
+    require_tools kwriteconfig6 timeout
+    require_shaders
+
+    mkdir -p -- "$switcher_package_dir"
+    # Beside its destination, so the swap is one rename on one filesystem, and a failed build keeps the working package.
+    stage=$(mktemp -d -p "$switcher_package_dir")
+    # Global to the trap, which runs after this function has returned or died.
+    switcher_stage=$stage
+    trap 'rm -rf -- "$switcher_stage"' EXIT
+    chmod 755 "$stage"
+    cp -r -- "$switcher_package_src/." "$stage/"
+    # Overridable only so a test can make the build fail.
+    "${GHOST_SWITCHER_ASSEMBLE:-$repo/scripts/assemble-gate.sh}" "$stage/contents/ui"
+
+    step "installing the switcher into $switcher_package"
+    rm -rf -- "$switcher_package"
+    mv -- "$stage" "$switcher_package"
+
+    # Recorded once, so a second --switcher does not take our own values for the user's.
+    if [[ ! -e $switcher_previous ]]; then
+        mkdir -p -- "$app_dir"
+        for key in "${switcher_keys[@]}"; do
+            if value=$(tabbox_value "$key"); then
+                echo "$key=$value"
+            else
+                echo "$key unset"
+            fi
+        done > "$switcher_previous"
+    fi
+    step "pointing KWin's [TabBox] at it in $config_home/kwinrc"
+    kwriteconfig6 --file kwinrc --group TabBox --key LayoutName "$switcher_package_id"
+    kwriteconfig6 --file kwinrc --group TabBox --key HighlightWindows false
+    reconfigure_kwin
+    step "done; an update to an installed switcher takes effect at your next login. To undo: $repo/scripts/install.sh --remove-switcher"
+}
+
+# Needs no shaders, display or bus: this is the way back when the switcher has gone wrong.
+remove_switcher() {
+    local line key current
+
+    require_tools kwriteconfig6 timeout
+
+    if [[ -e $switcher_previous ]]; then
+        current=$(tabbox_value LayoutName || true)
+        while IFS= read -r line; do
+            key=${line%%[= ]*}
+            if [[ $key == LayoutName && $current != "$switcher_package_id" ]]; then
+                warn "left [TabBox] LayoutName=$current in place: it is no longer the switcher"
+            elif [[ $line == "$key unset" ]]; then
+                kwriteconfig6 --file kwinrc --group TabBox --key "$key" --delete
+            else
+                kwriteconfig6 --file kwinrc --group TabBox --key "$key" "${line#*=}"
+            fi
+        done < "$switcher_previous"
+        step "restored [TabBox] in $config_home/kwinrc as it was before --switcher"
+    else
+        step "no record at $switcher_previous, so $config_home/kwinrc stays as it is"
+    fi
+    rm -f -- "$switcher_previous"
+    step "removing $switcher_package"
+    rm -rf -- "$switcher_package"
+    reconfigure_kwin
+    step "done; the switcher is gone"
+}
+
 as_root() {
     "${sudo_cmd[@]}" "$@"
 }
@@ -498,8 +591,16 @@ case ${1:-} in
         remove_lock
         exit
         ;;
+    --switcher)
+        install_switcher
+        exit
+        ;;
+    --remove-switcher)
+        remove_switcher
+        exit
+        ;;
     '') ;;
-    *) die "unknown option $1; usage: install.sh [--lock | --remove-lock | --login | --remove-login]" ;;
+    *) die "unknown option $1; usage: install.sh [--lock | --remove-lock | --login | --remove-login | --switcher | --remove-switcher]" ;;
 esac
 
 check_prerequisites
