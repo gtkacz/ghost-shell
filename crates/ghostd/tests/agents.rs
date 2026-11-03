@@ -297,7 +297,7 @@ mod sessions {
                 ""
             };
             let json = format!(
-                r#"{{"pid":{pid},"procStart":{proc_start},"sessionId":"{pid}","cwd":"/home/u/p","name":"s{pid}","kind":"interactive","status":"{status}","statusUpdatedAt":{}{waiting}}}"#,
+                r#"{{"pid":{pid},"procStart":"{proc_start}","sessionId":"{pid}","cwd":"/home/u/p","name":"s{pid}","kind":"interactive","status":"{status}","statusUpdatedAt":{}{waiting}}}"#,
                 (BASE_S + since_s) * 1000
             );
             let dir = self.dir.path().join("claude/sessions");

@@ -23,8 +23,9 @@ pub struct ClaudeSession {
 #[serde(rename_all = "camelCase")]
 struct SessionFile {
     pid: u32,
+    // Claude writes this number as a JSON string.
     #[serde(default)]
-    proc_start: u64,
+    proc_start: String,
     session_id: String,
     #[serde(default)]
     cwd: String,
@@ -109,7 +110,7 @@ pub fn parse_session(json: &str) -> Option<ClaudeSession> {
             pid: Some(file.pid),
             tmux: file.tmux,
         },
-        proc_start: file.proc_start,
+        proc_start: file.proc_start.parse().unwrap_or(0),
     })
 }
 
