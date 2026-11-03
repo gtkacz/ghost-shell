@@ -31,18 +31,22 @@ KWin.TabBoxSwitcher {
             title: "ghost-shell switcher"
             color: "transparent"
 
-            onFrameSwapped: {
-                if (openingSeen) {
-                    return;
+            // Only the first frame's business, so a hold runs no script on its later frames.
+            Connections {
+                target: window
+                enabled: !window.openingSeen
+
+                function onFrameSwapped() {
+                    window.openingSeen = true;
+                    // The effects would otherwise keep the closed panel on screen, up to 600 ms with KWin's defaults. Only the
+                    // closing can be stopped: they start the opening before a layout has drawn anything.
+                    const own = KWin.Workspace.stackingOrder.find(candidate => candidate.caption === window.title);
+                    if (own) {
+                        own.skipsCloseAnimation = true;
+                    }
+                    // Debug, which qtlogging.ini turns off, so a hold writes nothing to the user's journal.
+                    console.debug("switcher: open");
                 }
-                openingSeen = true;
-                // The effects would otherwise keep the closed panel on screen, up to 600 ms with KWin's defaults. Only the
-                // closing can be stopped: they start the opening before a layout has drawn anything.
-                const own = KWin.Workspace.stackingOrder.find(candidate => candidate.caption === window.title);
-                if (own) {
-                    own.skipsCloseAnimation = true;
-                }
-                console.info("switcher: open");
             }
 
             // Declares no properties: a declared one would be written back to ghostd's file.

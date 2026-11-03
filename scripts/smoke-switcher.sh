@@ -173,7 +173,7 @@ sandbox=(env -i "HOME=$root" PATH=/usr/bin:/bin "XDG_RUNTIME_DIR=$root/run" "XDG
     "XDG_DATA_HOME=$root/data" "XDG_CACHE_HOME=$root/cache" "XDG_STATE_HOME=$root/state")
 
 "${sandbox[@]}" KWIN_SCREENSHOT_NO_PERMISSION_CHECKS=1 KWIN_WAYLAND_NO_PERMISSION_CHECKS=1 QT_FORCE_STDERR_LOGGING=1 \
-    QT_LOGGING_RULES='js.info=true;qml.info=true' \
+    QT_LOGGING_RULES='qml.debug=true' \
     dbus-run-session --config-file="$repo/scripts/private-bus.conf" -- \
     sh -c 'echo $$ > "$0/kwin.pid"; echo "$DBUS_SESSION_BUS_ADDRESS" > "$0/session.addr"; exec kwin_wayland --virtual --no-lockscreen --socket "$1" --width 2560 --height 1440' \
     "$root" "$wayland" > "$kwin_log" 2>&1 &
