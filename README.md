@@ -111,20 +111,14 @@ make install-term
 make install-agents
 ```
 
-The `agents` chip shows Claude Code and Codex usage meters and the number of running sessions, with a popup for the detail. It is in no preset, so add it to `[layout.bar]` in `~/.config/ghost-shell/config.toml`, here with the default layout-a bar and the chip between `status` and `tray`:
+The `agents` chip shows Claude Code and Codex usage meters and the number of running sessions, with a popup for the detail. It is off by default. Turn it on in `~/.config/ghost-shell/config.toml`, and list any other Claude config dirs whose sessions should show, `~/.claude` first:
 
 ```toml
-[layout.bar]
-left = [{ widget = "brand" }, { widget = "tasks", settings = { style = "icons" } }]
-centre = []
-right = [
-    { widget = "media", settings = { style = "bar" } },
-    { widget = "status", settings = { parts = ["cpu", "net", "vpn", "weather"] } },
-    { widget = "agents" },
-    { widget = "tray" },
-    { widget = "view-chip" },
-    { widget = "bar-clock" },
-]
+[bar.agents]
+enabled = true
+
+[agents]
+claude_config_dirs = ["~/.claude", "~/.config/claude-code/work"]
 ```
 
 `scripts/install-agents.sh` needs `scripts/install.sh` to have run first. It backs up `~/.claude/settings.json` and `~/.codex/hooks.json` to `<file>.ghost-shell.bak.<timestamp>`, checks each copy with `cmp`, and stops without changing anything if that fails. Then it points Claude's `statusLine` at `ghostd claude-statusline-tap`, which runs your previous status-line command (saved in `~/.config/ghost-shell/claude-statusline-inner`) after saving Claude's JSON, and adds a `ghostd codex-hook` entry for each of eight Codex events. It prints each backup with its `restore: cp` line, and is idempotent. `--dry-run` lists what it would write, and `--uninstall` reverses both edits, with the same backups. Anything that rewrites `statusLine` (a claude-hud update, unsnooze setup) removes the tap, and the chip reads `CC --` until you rerun the installer. A Codex session already running stays invisible until its next prompt or tool call. Usage is read from `~/.claude` only, while sessions come from every `claude_config_dirs` entry. Run its tests with `uv run --no-project --with pytest python -I -m pytest scripts/test_agents_hooks.py`.
@@ -1234,6 +1228,17 @@ Shell process only (`/proc/<pid>/stat`), headless KWin at 2560×1440, `QT_SCALE_
 | Playing, popup open | 0.63, 0.38, 0.38 % | 0.38 % |
 
 The arms overlap and do not order as cost would, so the item's cost is below what this run can resolve, and it gives no figure for it. The spread within an arm (up to 0.41 points) is larger than any gap between medians. The closed item holds no frame clock and redraws only when the track or play state changes. The popup holds the seconds clock while it is open, and opens no capture stream. Not measured: `ghostd`, Rss, the visible dashboard, the release build and a real player.
+
+### The agents feeds
+
+`ghostd` only (`scripts/measure-cpu.sh`), the installed release build on the live desktop, one reading of 60 s per arm, 141 files in `~/.claude/sessions`, load average 1.3 to 2.0. Both arms had the `status` readout in the bar. The daemons had been up for about 20 and 11 minutes.
+
+| Arm | `cpu_pct` | `rss_kib` |
+|---|---|---|
+| Before: the daemon without the agents feeds (2026-11-02 23:58) | 0.08 | 42,500 |
+| After: chip, tap and hooks in, 10 sessions across three config dirs (2026-11-03 00:10) | 0.08 | 44,176 |
+
+The feeds' CPU cost is below what this resolves. RSS is 1,676 KiB higher, from a single pair of readings of processes of different ages, so it is an indication and not a figure. `echo '{}' | ghostd codex-hook` took 1 ms in each of 5 runs, timed to the millisecond, with an empty payload and not a real event's. The chip's cost in the shell was not measured. A reading from 2026-10-24 (0.07 %, 38,420 KiB) predates the daemon's later feeds, so it is no baseline for this.
 
 ## License
 
