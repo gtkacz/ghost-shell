@@ -166,6 +166,16 @@ def test_remove_leaves_a_layout_the_user_chose(box):
     result = removed(box)
     assert box.group("TabBox") == {"LayoutName": "thumbnail_grid", "HighlightWindows": "true"}
     assert "thumbnail_grid" in result.stderr
+    assert "LayoutName unset" in result.stderr
+
+
+def test_remove_names_the_value_it_no_longer_restores(box):
+    box.write("TabBox", "LayoutName", "thumbnail_grid")
+    installed(box)
+    box.write("TabBox", "LayoutName", "flipswitch")
+    result = removed(box)
+    assert box.group("TabBox")["LayoutName"] == "flipswitch"
+    assert "LayoutName=thumbnail_grid" in result.stderr
 
 
 def test_a_failed_assemble_keeps_the_working_package(box):
@@ -221,6 +231,17 @@ def test_a_hung_kwin_cannot_hang_removal(box):
     )
     assert result.returncode == 0, result.stderr
     assert box.kwinrc.read_bytes() == before
+
+
+def test_remove_with_no_record_clears_the_switchers_own_values(box):
+    session = in_a_plasma_session(box)
+    before = box.kwinrc.read_bytes()
+    assert box.install("--switcher", env=session).returncode == 0
+    box.record.unlink()
+    result = box.install("--remove-switcher", env=session)
+    assert result.returncode == 0, result.stderr
+    assert box.kwinrc.read_bytes() == before
+    assert "no record" in result.stdout
 
 
 def test_remove_with_no_record_leaves_kwinrc_alone(box):

@@ -432,27 +432,38 @@ install_switcher() {
     step "done; an update to an installed switcher takes effect at your next login. To undo: $repo/scripts/install.sh --remove-switcher"
 }
 
+# With no lower layer in view: when kdedefaults also sets the key, KConfig would otherwise keep the line as a [$d] marker,
+# which hides that default for good, where a Plasma session and a text console should agree.
+delete_tabbox_key() {
+    XDG_CONFIG_DIRS=/nonexistent kwriteconfig6 --file kwinrc --group TabBox --key "$1" --delete
+}
+
 # Needs no shaders, display or bus: this is the way back when the switcher has gone wrong.
 remove_switcher() {
     local line key current
 
     require_tools kwriteconfig6 timeout
 
+    current=$(tabbox_value LayoutName || true)
     if [[ -e $switcher_previous ]]; then
-        current=$(tabbox_value LayoutName || true)
         while IFS= read -r line; do
             key=${line%%[= ]*}
             if [[ $key == LayoutName && $current != "$switcher_package_id" ]]; then
-                warn "left [TabBox] LayoutName=$current in place: it is no longer the switcher"
+                # The record goes below, and a later --switcher must record this layout and not the older one.
+                warn "left [TabBox] LayoutName=$current in place: it is no longer the switcher. Before the switcher: $line"
             elif [[ $line == "$key unset" ]]; then
-                # With no lower layer in view: when kdedefaults also sets the key, KConfig would otherwise keep the line as a
-                # [$d] marker, which hides that default for good, where a Plasma session and a text console should agree.
-                XDG_CONFIG_DIRS=/nonexistent kwriteconfig6 --file kwinrc --group TabBox --key "$key" --delete
+                delete_tabbox_key "$key"
             else
                 kwriteconfig6 --file kwinrc --group TabBox --key "$key" "${line#*=}"
             fi
         done < "$switcher_previous"
         step "restored [TabBox] in $config_home/kwinrc as it was before --switcher"
+    elif [[ $current == "$switcher_package_id" ]]; then
+        # Left alone, LayoutName would name the package deleted below.
+        for key in "${switcher_keys[@]}"; do
+            delete_tabbox_key "$key"
+        done
+        step "no record at $switcher_previous, so the switcher's values leave $config_home/kwinrc and KWin's defaults apply"
     else
         step "no record at $switcher_previous, so $config_home/kwinrc stays as it is"
     fi
