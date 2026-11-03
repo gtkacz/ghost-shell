@@ -139,7 +139,7 @@ wait_for bar_is_showing || fail "no bar after the output returned, $(strip_colou
 echo "output-return: bar after the output returned, $(strip_colours) colours"
 
 if grep -aE 'TypeError|ReferenceError|Component failed|is not a type' "$root/shell.log" \
-    | grep -avF 'Desktop.qml[121:-1]'; then
+    | grep -avE "Desktop\.qml\[[0-9]+:-1\]: TypeError: Cannot read property 'width' of null"; then
     fail "the shell logged an error"
 fi
 echo "output-return: PASS"
