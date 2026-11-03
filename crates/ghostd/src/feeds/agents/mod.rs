@@ -238,7 +238,8 @@ async fn watch(
     sweep.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! {
-            _ = events.recv() => {
+            // `Some` disables this arm once the watcher's thread dies, leaving the sweep to keep the list true.
+            Some(_) = events.recv() => {
                 // A fixed window, not a quiet gap: busy sessions rewrite their files faster than any gap.
                 sleep(DEBOUNCE).await;
                 while events.try_recv().is_ok() {}
