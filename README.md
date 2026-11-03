@@ -1186,6 +1186,19 @@ Headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, private session and system 
 
 The greeter is non-dumpable, so `smaps_rollup` is unreadable and `scripts/measure-cpu.sh` cannot run on it. `VmRSS` counts NVIDIA's `/dev/nvidiactl` mappings twice and includes the greeter's own Plasma imports, so it overstates the gate's memory.
 
+### Brightness latency on the M27Q (DDC/CI)
+
+From `SetBrightness` on `org.kde.ScreenBrightness` to the monitor's brightness setting (VCP `0x10`) reading the new value, 2026-11-02. Each row is 2 % steps from 100 %, with powerdevil left idle for seconds around each trial. Each trial read the setting once, after a fixed wait, because polling holds the I²C lock and delays the write being timed (it read 2.5 to 5 s).
+
+| Path | Time |
+|---|---|
+| `SetBrightness` D-Bus call returning | 2 to 3 ms |
+| powerdevil 6.7.5 (a 1 s wait, restarted by every change) | not yet at 0.75 s; between 1.0 and 1.5 s |
+| `ddcutil setvcp` directly, including its process start and verification | 0.33 to 0.43 s |
+| powerdevil 6.8.2 (a 50 ms wait, restarted by every change) | projected about 0.3 to 0.4 s, not yet measured |
+
+ghostd's own hop was not timed separately: it adds a few local D-Bus reads to each `brightness.set`. The monitor's own fade after the write is not included in any row.
+
 ## License
 
 Copyright (C) 2026 Gabriel Mitelman Tkacz
