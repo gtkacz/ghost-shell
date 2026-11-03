@@ -6,8 +6,9 @@
 # naming a widget that is missing or unusable, which the daemon reports instead of refusing.
 # "Failed to find shader", "ShaderEffect" and "QShader" catch a shader that is missing or will not
 # deserialise, which Qt only warns about and the effect then draws nothing. "ERROR " at the start of a
-# line or after a space catches every qs error-level line.
-shell_error_pattern='ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to|ghostd refused the shell|ghostd config problem|Failed to find shader|ShaderEffect|QShader|(^| )ERROR '
+# line or after a space catches every qs error-level line. "Binding loop" catches a binding that re-entered itself,
+# whose update QML then drops, which it only warns about.
+shell_error_pattern='Binding loop|ReferenceError|TypeError|is not defined|Cannot assign|Error:|failed to load|Unable to|ghostd refused the shell|ghostd config problem|Failed to find shader|ShaderEffect|QShader|(^| )ERROR '
 
 # Lines the pattern catches that are benign. With PipeWire shut out every run logs an ERROR for the
 # context it cannot connect, and a run without a desktop portal logs a host-portal line from Qt.

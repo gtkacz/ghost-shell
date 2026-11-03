@@ -377,8 +377,8 @@ Singleton {
             if (stagedLiveness.size === 0 && staged.size === 0 && !historyStaged) {
                 return;
             }
-            // A write below can start or stop the FrameClock, whose running change publishes again at
-            // once; taking every buffer first leaves that nested call nothing, so this order holds.
+            // A write below can start or stop the FrameClock, whose running change publishes again;
+            // taking every buffer first leaves that call only what arrives after this one.
             const pendingLiveness = stagedLiveness;
             const pending = staged;
             const series = historyStaged ? track.series : null;
@@ -409,9 +409,11 @@ Singleton {
             link.publish();
         }
 
-        // Updates staged since the last tick must not wait for the next message once the clock stops.
+        // Updates staged since the last tick must not wait for the next message once the clock stops. Later, because
+        // this runs inside the clock's running binding: a publish can start a scramble, whose hold on the clock would
+        // re-enter that binding and lose the update.
         function onRunningChanged() {
-            link.publish();
+            Qt.callLater(link.publish);
         }
     }
 
