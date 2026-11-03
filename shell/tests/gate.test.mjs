@@ -68,6 +68,12 @@ test('parseSnapshot keeps the default for a value it cannot use', () => {
   assert.equal(parseSnapshot({ appearance: { japanese: 'pirate' } }).appearance.japanese, 'mixed');
 });
 
+test('parseSnapshot reads the icon style and defaults one it cannot use', () => {
+  assert.equal(parseSnapshot({}).appearance.icons, 'mono');
+  assert.equal(parseSnapshot({ appearance: { icons: 'colour' } }).appearance.icons, 'colour');
+  assert.equal(parseSnapshot({ appearance: { icons: 'neon' } }).appearance.icons, 'mono');
+});
+
 test('readSnapshot asks for every snapshot key as section/key and parses the answers', () => {
   const ini = {
     'gate/display_model': 'M27Q',

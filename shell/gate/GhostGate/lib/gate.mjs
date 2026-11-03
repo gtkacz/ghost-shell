@@ -17,6 +17,7 @@ const CLOCK_DIGITS = 2;
 const ACTION_LABELS = { 'switch-user': 'SWITCH USER', sleep: 'SLEEP', restart: 'RESTART', power: 'SHUT DOWN' };
 const DEFAULT_STYLE = 'prompt';
 const JAPANESE_MODES = ['kanji', 'katakana', 'mixed', 'off'];
+const ICON_STYLES = ['mono', 'colour'];
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const NUMBER = /^\s*-?\d+(\.\d+)?\s*$/;
 
@@ -27,6 +28,7 @@ const DEFAULTS = {
     font: 'Kode Mono',
     font_cjk: 'Noto Sans CJK JP',
     japanese: 'mixed',
+    icons: 'mono',
     panel_fill: 55,
     alert_stripe_period_s: 1.6,
     alert_stripe_step_s: 1,
@@ -88,6 +90,9 @@ export function parseSnapshot(sections) {
   const appearance = fill(DEFAULTS.appearance, sections.appearance);
   if (!JAPANESE_MODES.includes(appearance.japanese)) {
     appearance.japanese = DEFAULTS.appearance.japanese;
+  }
+  if (!ICON_STYLES.includes(appearance.icons)) {
+    appearance.icons = DEFAULTS.appearance.icons;
   }
   return {
     style: resolveStyle(gate.style),

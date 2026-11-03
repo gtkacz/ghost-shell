@@ -38,6 +38,7 @@ QtObject {
     readonly property color dot: appearance.colors.dot
     readonly property color burn: appearance.colors.burn
 
+    readonly property string icons: appearance.icons
     readonly property real panelFill: appearance.panel_fill
     readonly property real dotOpacity: appearance.dots.opacity
     readonly property real dotSpacing: appearance.dots.spacing

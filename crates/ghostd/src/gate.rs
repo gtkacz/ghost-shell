@@ -9,7 +9,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::{env, future};
 
-use ghost_proto::{LockStyle, ResolvedConfig};
+use ghost_proto::{IconStyle, LockStyle, ResolvedConfig};
 use tokio::sync::watch;
 use tracing::warn;
 
@@ -45,6 +45,13 @@ fn style_name(style: LockStyle) -> &'static str {
     }
 }
 
+fn icons_name(icons: IconStyle) -> &'static str {
+    match icons {
+        IconStyle::Mono => "mono",
+        IconStyle::Colour => "colour",
+    }
+}
+
 fn japanese_name(config: &ResolvedConfig) -> String {
     serde_json::to_value(config.appearance.japanese)
         .ok()
@@ -73,11 +80,12 @@ pub fn snapshot_ini(
     );
     let _ = write!(
         ini,
-        "[appearance]\nfont={}\nfont_cjk={}\njapanese={}\npanel_fill={}\n\
+        "[appearance]\nfont={}\nfont_cjk={}\njapanese={}\nicons={}\npanel_fill={}\n\
          alert_stripe_period_s={}\nalert_stripe_step_s={}\n",
         quoted(&look.font),
         quoted(&look.font_cjk),
         quoted(&japanese_name(config)),
+        quoted(icons_name(config.bar.icons)),
         look.panel_fill,
         look.alert_stripe_period_s,
         look.alert_stripe_step_s,
@@ -215,6 +223,7 @@ mod tests {
         "font=",
         "font_cjk=",
         "japanese=",
+        "icons=",
         "panel_fill=",
         "alert_stripe_period_s=",
         "alert_stripe_step_s=",
@@ -293,6 +302,15 @@ mod tests {
         let ini = snapshot_ini(&config, "ghost", "gtkacz", None);
         assert!(ini.contains("\nstyle=idcheck\n"));
         assert!(ini.contains("\npanel_fill=40\n"));
+    }
+
+    #[test]
+    fn snapshot_carries_the_bar_icon_style() {
+        assert!(default_ini().contains("\nicons=\"mono\"\n"));
+        let mut config = crate::config::load_str("").unwrap();
+        config.bar.icons = IconStyle::Colour;
+        let ini = snapshot_ini(&config, "ghost", "gtkacz", None);
+        assert!(ini.contains("\nicons=\"colour\"\n"));
     }
 
     #[test]
