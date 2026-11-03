@@ -13,6 +13,12 @@ for (const [desktop, cls, caption, want] of [
   ['thorium-hnpfjngllnobngcgfapefoaidbinmjnm-Default', 'thorium-browser', '', 'WINDOW'],
   ['', '', 'Some Window', 'SOME WINDOW'],
   ['', '', '', 'WINDOW'],
+  ['google-chrome', 'Google-chrome', 'x', 'GOOGLE CHROME'],
+  ['google-chrome-stable', 'Google-chrome', 'x', 'GOOGLE CHROME'],
+  ['', 'sublime_text', 'x', 'SUBLIME TEXT'],
+  ['', 'steam_app_570', 'Dota 2', 'DOTA 2'],
+  ['steam_app_570', 'steam_app_570', 'Dota 2', 'DOTA 2'],
+  ['', 'steam_app_570', '', 'WINDOW'],
 ]) {
   test(`appName of ${desktop || cls || caption || 'nothing'} is ${want}`, () => {
     assert.equal(appName(desktop, cls, caption), want);
@@ -23,6 +29,7 @@ for (const [caption, app, want] of [
   ['Toast.qml — ghost-shell — Visual Studio Code', 'CODE', 'Toast.qml — ghost-shell'],
   ['KWin/TabBox – Mozilla Firefox', 'FIREFOX', 'KWin/TabBox'],
   ['#general - Slack', 'SLACK', '#general'],
+  ['New Tab - Google Chrome', 'GOOGLE CHROME', 'New Tab'],
   ['Derezzed - Daft Punk', 'SPOTIFY', 'Derezzed - Daft Punk'],
   ['Slack', 'SLACK', 'Slack'],
   ['', 'CODE', ''],
