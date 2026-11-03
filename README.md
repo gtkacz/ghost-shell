@@ -165,7 +165,7 @@ This replaces KWin's Alt+Tab layout with ghost-shell's: a list of the windows an
 
 Choosing the layout takes effect at the `reconfigure`. An update to an installed package takes effect at your next login, because KWin keeps running the layout it loaded.
 
-`scripts/install.sh --remove-switcher` undoes all of it, and deletes the keys if they were not set before. If you have chosen another layout since, it leaves that one in place and says so. `[TabBoxAlternative]` is never touched.
+`scripts/install.sh --remove-switcher` undoes all of it, and deletes the keys if they were not set before. If you have chosen another layout since, it leaves that one in place and says so, naming the value from before the switcher. If the record is gone, it clears the switcher's own values, so KWin's defaults apply. `[TabBoxAlternative]` is never touched.
 
 **If it goes wrong.** The layout runs inside KWin's process, so unlike the bar or the dashboard, a hang there stops the whole screen. It also blocks `Ctrl+Alt+F3`, because KWin itself handles the switch to a text console. KWin creates the layout at the first hold of Alt+Tab, so a new session is safe until then. The way back:
 
@@ -1290,7 +1290,7 @@ The feeds' CPU cost is below what this resolves. RSS is 1,676 KiB higher, from a
 
 ### Plan 3c: the switcher
 
-The live desktop on 2026-11-03 at `68d6b9a`: NVIDIA, the user's windows and effects, one KWin process throughout, other sessions running. There are no numeric targets, because stock is the baseline. KWin's CPU comes from `/proc/<pid>/stat` as a percentage of one core, so GPU work is not in it. Each held reading covers 25 s of a 30 s hold between two sounds, and counts only if the log shows the opening inside it. The switcher logs `switcher: open`; Breeze logs `This plugin does not support setting window masks` three times per opening, as 8 sandboxed openings showed. The log has no line for a release, so how long each hold lasted is the user's word.
+The live desktop on 2026-11-03 at `68d6b9a`: NVIDIA, the user's windows and effects, one KWin process throughout, other sessions running. There are no numeric targets, because stock is the baseline. KWin's CPU comes from `/proc/<pid>/stat` as a percentage of one core, so GPU work is not in it. Each held reading covers 25 s of a 30 s hold between two sounds, and counts only if the log shows the opening inside it. The switcher logged `switcher: open` at this commit, a line that has been debug level and off in a normal session since `0177eb7`; Breeze logs `This plugin does not support setting window masks` three times per opening, as 8 sandboxed openings showed. The log has no line for a release, so how long each hold lasted is the user's word.
 
 | Arm | Closed 60 s: mean, median, peak second | Held open 25 s: mean, median, peak second | Bell, then opening | `VmRSS` across the run |
 |---|---|---|---|---|
@@ -1330,13 +1330,15 @@ KWin had grown 11,500 KiB since the stock run before the switcher ever loaded, a
 |---|---|---|
 | The switcher, run 1 | 160 ms | 111, 123, 110 ms |
 | The switcher, run 2 | 158 ms | 108, 114, 116 ms |
+| The switcher at `84612e3`, run 1 | 154 ms | 106, 108, 111 ms |
+| The switcher at `84612e3`, run 2 | 158 ms | 110, 105, 112 ms |
 | `org.kde.breeze.desktop`, run 1 | 208 ms | 127, 122, 120 ms |
 | `org.kde.breeze.desktop`, run 2 | 202 ms | 122, 125, 123 ms |
 | The spike, with no list (Task 1) | 148 ms | 99, 106, 108 ms |
 | `thumbnail_grid` (Task 1) | 210 ms | 120, 126, 127 ms |
 | `org.kde.breeze.desktop` (Task 1) | 207 ms | 123, 123, 124 ms |
 
-The list costs the switcher little against the spike, and it stays ahead of stock on first and later openings.
+The list costs the switcher little against the spike, and it stays ahead of stock on first and later openings. `84612e3` builds the panel after loading the theme and shows the window after that, so the first frame has the right colours; that cost nothing measurable here, and the theme is now evaluated once per opening, where the first opening and any palette change took more than one.
 
 ## License
 
