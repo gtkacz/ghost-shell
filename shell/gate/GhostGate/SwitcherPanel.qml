@@ -102,9 +102,6 @@ Item {
                 highlightFollowsCurrentItem: false
                 onCurrentIndexChanged: keepSelectionInView()
                 onCountChanged: keepSelectionInView()
-                // The rows change size when the layout fits the theme after building the panel. This fires once they have moved,
-                // where the list's own height changes too early, and deferred because it fires during the list's layout.
-                onContentHeightChanged: Qt.callLater(keepSelectionInView)
                 Component.onCompleted: keepSelectionInView()
 
                 delegate: Rectangle {

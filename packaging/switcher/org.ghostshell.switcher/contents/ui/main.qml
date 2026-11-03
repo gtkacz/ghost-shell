@@ -25,8 +25,6 @@ KWin.TabBoxSwitcher {
             width: tabBox.screenGeometry.width
             height: tabBox.screenGeometry.height
             flags: Qt.ToolTip | Qt.BypassWindowManagerHint | Qt.FramelessWindowHint
-            visibility: Window.FullScreen
-            visible: true
             // How the window finds itself in KWin's stacking order below.
             title: "ghost-shell switcher"
             color: "transparent"
@@ -45,7 +43,7 @@ KWin.TabBoxSwitcher {
                         own.skipsCloseAnimation = true;
                     }
                     // Debug, which qtlogging.ini turns off, so a hold writes nothing to the user's journal.
-                    console.debug("switcher: open");
+                    console.debug("switcher: open, signal " + Theme.signal);
                 }
             }
 
@@ -56,32 +54,45 @@ KWin.TabBoxSwitcher {
                 location: StandardPaths.writableLocation(StandardPaths.GenericStateLocation) + "/ghost-shell/gate.ini"
             }
 
+            // In this order because KWin draws a window's first frame as soon as it is shown: shown earlier, that frame has the
+            // last opening's theme, and the first opening's has the wrong size too.
             Component.onCompleted: {
                 Theme.load(GateLib.readSnapshot(key => snapshot.value(key)));
                 Theme.fit(tabBox.screenGeometry.width);
+                content.active = true;
+                window.visibility = Window.FullScreen;
             }
 
-            Rectangle {
+            Loader {
+                id: content
+
                 anchors.fill: parent
-                color: ThemeLib.withAlpha(Theme.ground, window.backdropPct)
-            }
+                active: false
 
-            SwitcherPanel {
-                id: panel
+                sourceComponent: Item {
+                    Rectangle {
+                        anchors.fill: parent
+                        color: ThemeLib.withAlpha(Theme.ground, window.backdropPct)
+                    }
 
-                anchors.centerIn: parent
-                model: tabBox.model
-                currentIndex: tabBox.currentIndex
-                nameOf: (windowId, caption) => {
-                    const wanted = String(windowId);
-                    const found = KWin.Workspace.stackingOrder.find(candidate => String(candidate.internalId) === wanted);
-                    return Switcher.appName(found ? found.desktopFileName : "", found ? found.resourceClass : "", caption);
-                }
-                onActivated: index => tabBox.model.activate(index)
+                    SwitcherPanel {
+                        id: panel
 
-                KWin.WindowThumbnail {
-                    anchors.fill: parent
-                    wId: panel.currentWindowId ?? ""
+                        anchors.centerIn: parent
+                        model: tabBox.model
+                        currentIndex: tabBox.currentIndex
+                        nameOf: (windowId, caption) => {
+                            const wanted = String(windowId);
+                            const found = KWin.Workspace.stackingOrder.find(candidate => String(candidate.internalId) === wanted);
+                            return Switcher.appName(found ? found.desktopFileName : "", found ? found.resourceClass : "", caption);
+                        }
+                        onActivated: index => tabBox.model.activate(index)
+
+                        KWin.WindowThumbnail {
+                            anchors.fill: parent
+                            wId: panel.currentWindowId ?? ""
+                        }
+                    }
                 }
             }
         }
