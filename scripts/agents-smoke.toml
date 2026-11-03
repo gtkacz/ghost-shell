@@ -1,12 +1,7 @@
-# Loads the agents chip in the bar: preset a with `agents` between `status` and `tray`. Every key not set
-# here keeps its default. `make smoke-agents` runs the smoke test against it.
-[layout.bar]
-left = [{ widget = "brand" }, { widget = "tasks", settings = { style = "icons" } }]
-right = [
-    { widget = "media", settings = { style = "bar" } },
-    { widget = "status", settings = { parts = ["cpu", "net", "vpn", "weather"] } },
-    { widget = "agents" },
-    { widget = "tray" },
-    { widget = "view-chip" },
-    { widget = "bar-clock" },
-]
+# Loads the agents chip and the machine readout in the bar, both off by default. Every key not set here keeps its
+# default. `make smoke-agents` runs the smoke test against it.
+[bar.status]
+enabled = true
+
+[bar.agents]
+enabled = true

@@ -216,14 +216,97 @@ fn bar_clock_seconds_other_than_covered_or_always_names_its_path() {
 }
 
 #[test]
-fn agents_is_in_no_preset_but_a_user_bar_can_place_it() {
+fn the_status_readout_and_the_agents_chip_are_off_in_every_preset_by_default() {
     for layout in [BarLayout::A, BarLayout::B, BarLayout::C] {
-        assert!(!widgets(&resolve_config("", layout).bar.right).contains(&"agents"));
+        let right = resolve_config("", layout).bar.right;
+
+        assert_eq!(widgets(&right), ["media", "tray", "view-chip", "bar-clock"]);
     }
+}
+
+#[test]
+fn enabling_both_places_them_between_the_media_item_and_the_tray() {
+    let right = resolve_config(
+        "[bar.status]\nenabled = true\n[bar.agents]\nenabled = true\n",
+        BarLayout::A,
+    )
+    .bar
+    .right;
+
+    assert_eq!(
+        widgets(&right),
+        [
+            "media",
+            "status",
+            "agents",
+            "tray",
+            "view-chip",
+            "bar-clock"
+        ]
+    );
+}
+
+#[test]
+fn an_enabled_status_keeps_what_each_layout_showed_until_parts_are_set() {
+    let cases = [
+        (BarLayout::A, json!(["cpu", "net", "vpn", "weather"])),
+        (
+            BarLayout::B,
+            json!(["cpu", "gpu", "mem", "net", "vpn", "weather"]),
+        ),
+        (BarLayout::C, json!(["weather"])),
+    ];
+    for (layout, parts) in cases {
+        let right = resolve_config("[bar.status]\nenabled = true\n", layout)
+            .bar
+            .right;
+
+        assert_eq!(right[1].settings["parts"], parts);
+    }
+
+    let right = resolve_config(
+        "[bar.status]\nenabled = true\nparts = [\"cpu\", \"mem\"]\n",
+        BarLayout::A,
+    )
+    .bar
+    .right;
+    assert_eq!(right[1].settings["parts"], json!(["cpu", "mem"]));
+}
+
+#[test]
+fn the_switches_also_govern_a_user_bar() {
+    let user_bar = "[layout.bar]\nright = [{ widget = \"status\" }, { widget = \"agents\" }, { widget = \"tray\" }]\n";
+
+    assert_eq!(
+        widgets(&resolve_config(user_bar, BarLayout::A).bar.right),
+        ["tray"]
+    );
+
+    let switched_on = format!(
+        "[bar.status]\nenabled = true\nparts = [\"net\"]\n[bar.agents]\nenabled = true\n{user_bar}"
+    );
+    let right = resolve_config(&switched_on, BarLayout::A).bar.right;
+    assert_eq!(widgets(&right), ["status", "agents", "tray"]);
+    assert_eq!(right[0].settings["parts"], json!(["net"]));
+}
+
+#[test]
+fn a_problem_after_a_switched_off_slot_names_its_place_in_the_users_list() {
     let resolved = resolve_config(
-        "[layout.bar]\nright = [{ widget = \"status\" }, { widget = \"agents\" }, { widget = \"tray\" }]\n",
+        "[layout.bar]\nright = [{ widget = \"status\" }, { widget = \"nope\" }]\n",
         BarLayout::A,
     );
-    assert_eq!(widgets(&resolved.bar.right), ["status", "agents", "tray"]);
-    assert!(errors_at(&resolved, "layout.bar").is_empty());
+
+    assert!(
+        errors_at(&resolved, "layout.bar.right[1]").len() == 1,
+        "{:?}",
+        resolved.errors
+    );
+}
+
+#[test]
+fn an_unknown_status_part_names_its_path() {
+    let error = load_str_with_user("[bar.status]\nparts = [\"cpu\", \"disk\"]\n", "u").unwrap_err();
+
+    assert!(error.to_string().contains("bar.status.parts[1]"), "{error}");
 }

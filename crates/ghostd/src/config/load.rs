@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use ghost_proto::{
-    Agents, Alerts, Appearance, Dashboard, I18n, LayoutConfig, LayoutNode, Location, Network,
-    ProviderSpec, ResolvedConfig, Shortcuts, Thresholds, Uplink,
+    Agents, Alerts, Appearance, BarStatus, Dashboard, I18n, LayoutConfig, LayoutNode, Location,
+    Network, ProviderSpec, ResolvedConfig, Shortcuts, Thresholds, Uplink,
 };
 
 use crate::keyseq;
@@ -18,6 +18,8 @@ const FRACTION: RangeInclusive<f64> = 0.0..=1.0;
 const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
 const LATITUDE: RangeInclusive<f64> = -90.0..=90.0;
 const LONGITUDE: RangeInclusive<f64> = -180.0..=180.0;
+// The readings widgets/status can draw.
+const STATUS_PARTS: [&str; 6] = ["cpu", "gpu", "mem", "net", "vpn", "weather"];
 const MIN_DOT_SPACING: u32 = 1;
 // One per digit key; Meta+0 is KWin's, so the defaults use nine but a user may rebind ten.
 pub(crate) const MAX_TASK_SHORTCUTS: usize = 10;
@@ -136,6 +138,7 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_network(&config.network)?;
     validate_uplink(&config.uplink)?;
     validate_agents(&config.agents)?;
+    validate_bar_status(&config.bar.status)?;
     validate_providers(&config.providers)
 }
 
@@ -579,6 +582,18 @@ fn validate_agents(agents: &Agents) -> Result<(), ConfigError> {
             return Err(invalid(
                 format!("agents.providers[{index}]"),
                 format!("duplicate provider {:?}", provider.name()),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_bar_status(status: &BarStatus) -> Result<(), ConfigError> {
+    for (index, part) in status.parts.iter().flatten().enumerate() {
+        if !STATUS_PARTS.contains(&part.as_str()) {
+            return Err(invalid(
+                format!("bar.status.parts[{index}]"),
+                format!("{part:?} is not one of {}", STATUS_PARTS.join(", ")),
             ));
         }
     }

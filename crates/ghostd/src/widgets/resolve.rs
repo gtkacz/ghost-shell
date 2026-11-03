@@ -9,6 +9,10 @@ use serde_json::{Map, Value};
 use super::manifest::{Kind, Manifest, Setting, SettingType, WIDGET_API};
 use crate::config::is_hex_colour;
 
+const STATUS_WIDGET: &str = "status";
+const AGENTS_WIDGET: &str = "agents";
+const PARTS_SETTING: &str = "parts";
+
 /// Checks every slot of every view against `manifests`.
 ///
 /// Never fails: each problem lands on the slot that caused it and in [`ResolvedLayout::errors`],
@@ -20,6 +24,7 @@ pub fn resolve(
 ) -> ResolvedLayout {
     let mut resolver = Resolver {
         manifests,
+        bar_config: bar,
         errors: Vec::new(),
     };
     let views = layout
@@ -47,8 +52,28 @@ pub fn resolve(
     }
 }
 
+// Like `[bar.brand]`, these beat `[layout.bar]`: off is off wherever a slot sits.
+fn is_switched_on(config: &BarConfig, widget: &str) -> bool {
+    match widget {
+        STATUS_WIDGET => config.status.enabled,
+        AGENTS_WIDGET => config.agents.enabled,
+        _ => true,
+    }
+}
+
+fn bar_settings(config: &BarConfig, spec: &BarSlotSpec) -> Map<String, Value> {
+    let mut settings = spec.settings.clone();
+    if spec.widget == STATUS_WIDGET
+        && let Some(parts) = &config.status.parts
+    {
+        settings.insert(PARTS_SETTING.to_owned(), parts.clone().into());
+    }
+    settings
+}
+
 struct Resolver<'a> {
     manifests: &'a BTreeMap<String, Manifest>,
+    bar_config: &'a BarConfig,
     errors: Vec<String>,
 }
 
@@ -92,16 +117,20 @@ impl Resolver<'_> {
     }
 
     fn bar_slots(&mut self, path: &str, slots: &[BarSlotSpec]) -> Vec<ResolvedSlot> {
+        let config = self.bar_config;
+        // Filtered after numbering, so a problem names the slot's place in the user's own list.
         slots
             .iter()
             .enumerate()
+            .filter(|(_, spec)| is_switched_on(config, &spec.widget))
             .map(|(index, spec)| {
+                let settings = bar_settings(config, spec);
                 self.slot(
                     &format!("{path}[{index}]"),
                     Kind::Bar,
                     &spec.widget,
                     None,
-                    &spec.settings,
+                    &settings,
                 )
             })
             .collect()

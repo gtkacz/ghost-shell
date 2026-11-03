@@ -69,10 +69,12 @@ fn tasks(style: &str) -> BarSlotSpec {
     with("tasks", "style", style.into())
 }
 
+// `status` and `agents` are placed here but show only while `[bar.status]` and `[bar.agents]` enable them.
 fn tail(parts: &[&str]) -> Vec<BarSlotSpec> {
     vec![
         with("media", "style", "bar".into()),
         with("status", "parts", parts.into()),
+        slot("agents"),
         slot("tray"),
         slot("view-chip"),
         slot("bar-clock"),

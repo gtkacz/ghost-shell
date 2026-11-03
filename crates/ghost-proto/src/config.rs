@@ -289,6 +289,8 @@ pub struct BarConfig {
     pub pinned: Vec<String>,
     pub brand: Brand,
     pub clock: Clock,
+    pub status: BarStatus,
+    pub agents: BarAgents,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -339,6 +341,23 @@ impl TryFrom<String> for ClockSeconds {
 pub struct Clock {
     pub seconds: ClockSeconds,
 }
+
+/// The machine readout in the bar.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BarStatus {
+    pub enabled: bool,
+    /// What it shows; unset keeps what the bar layout shows by default.
+    pub parts: Option<Vec<String>>,
+}
+
+/// The LLM usage and sessions chip in the bar.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BarAgents {
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Greeting {

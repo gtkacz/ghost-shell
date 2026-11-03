@@ -140,6 +140,17 @@ subtitle = "攻殻"
 # adds roughly 0.3 to 0.5 % CPU while the dashboard is up.
 seconds = "covered"
 
+[bar.status]
+# The machine readout in the bar. Off also takes its weather alert out of the bar.
+enabled = false
+# What it shows, in this fixed order: "cpu", "gpu", "mem", "net", "vpn", "weather". Leave unset for what suits
+# bar.layout: "a" shows cpu, net, vpn and weather, "b" all six, and "c" the weather.
+# parts = ["cpu", "net", "vpn", "weather"]
+
+[bar.agents]
+# The LLM usage and sessions chip; [agents] picks what it watches. scripts/install-agents.sh feeds it.
+enabled = false
+
 [greeting]
 # Name used in the greeting. Empty means your login name.
 name = ""
@@ -235,7 +246,7 @@ margin = 12
 # The bar's widgets, left to right in three groups. Without [layout.bar] the preset for
 # bar.layout is used (this is preset "a"); `layout.dock`, an array of the same tables, replaces
 # the dock that layout "b" shows. Only widgets that declare the "bar" kind fit here.
-# `agents` is the LLM usage and sessions chip; it is in no preset.
+# `status` and `agents` show only while [bar.status] and [bar.agents] enable them, wherever they are listed.
 # [layout.bar]
 # left = [{ widget = "brand" }, { widget = "tasks", settings = { style = "icons" } }]
 # centre = []
