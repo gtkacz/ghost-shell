@@ -843,8 +843,27 @@ mod taps {
 
     /// Runs a subcommand with `stdin`, every XDG variable pointed into the sandbox, and returns (status, stdout).
     fn run_tap(sb: &Sandbox, args: &[&str], stdin: &str) -> (ExitStatus, String) {
+        run_tap_from(sb, None, args, stdin)
+    }
+
+    fn run_tap_in_profile(sb: &Sandbox, config_dir: &str, stdin: &str) -> (ExitStatus, String) {
+        run_tap_from(sb, Some(config_dir), &["claude-statusline-tap"], stdin)
+    }
+
+    fn run_tap_from(
+        sb: &Sandbox,
+        config_dir: Option<&str>,
+        args: &[&str],
+        stdin: &str,
+    ) -> (ExitStatus, String) {
         let base = sb.dir.path();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ghostd"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_ghostd"));
+        // The session running these tests may itself be in a profile.
+        match config_dir {
+            Some(dir) => command.env("CLAUDE_CONFIG_DIR", dir),
+            None => command.env_remove("CLAUDE_CONFIG_DIR"),
+        };
+        let mut child = command
             .args(args)
             .env("HOME", base.join("home"))
             .env("XDG_STATE_HOME", base.join("state"))
@@ -918,6 +937,39 @@ mod taps {
         let (status, out) = run_tap(&sb, &["claude-statusline-tap"], fresh_session);
         assert!(status.success());
         assert_eq!(out, fresh_session);
+        assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), LIMITED);
+    }
+
+    #[test]
+    fn another_profiles_status_line_keeps_the_capture_and_still_forwards() {
+        let sb = Sandbox::new();
+        sb.write_inner("cat");
+        run_tap(&sb, &["claude-statusline-tap"], LIMITED);
+        let other_account = r#"{"rate_limits":{"seven_day":{"used_percentage":99}}}"#;
+        let (status, out) = run_tap_in_profile(&sb, "/other/profile", other_account);
+        assert!(status.success());
+        assert_eq!(out, other_account);
+        assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), LIMITED);
+    }
+
+    #[test]
+    fn a_config_dir_naming_the_default_profile_still_captures() {
+        let sb = Sandbox::new();
+        sb.write_inner("cat");
+        let default_dir = sb.dir.path().join("home/.claude/");
+        run_tap_in_profile(&sb, default_dir.to_str().unwrap(), LIMITED);
+        assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), LIMITED);
+    }
+
+    #[test]
+    fn a_symlink_to_the_default_profile_still_captures() {
+        let sb = Sandbox::new();
+        sb.write_inner("cat");
+        let default_dir = sb.dir.path().join("home/.claude");
+        fs::create_dir_all(&default_dir).unwrap();
+        let link = sb.dir.path().join("profile-link");
+        std::os::unix::fs::symlink(&default_dir, &link).unwrap();
+        run_tap_in_profile(&sb, link.to_str().unwrap(), LIMITED);
         assert_eq!(fs::read_to_string(sb.capture_path()).unwrap(), LIMITED);
     }
 

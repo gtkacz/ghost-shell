@@ -1,6 +1,7 @@
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
-use std::{fs, io};
+use std::{env, fs, io};
 
 use super::{read_stdin, write_atomic};
 use crate::config::config_dir;
@@ -8,6 +9,9 @@ use crate::feeds::agents::capture_path;
 
 /// Under `config_dir()`; holds the status-line command the tap hands the same input on to.
 pub const INNER_FILE: &str = "claude-statusline-inner";
+const CONFIG_DIR_ENV: &str = "CLAUDE_CONFIG_DIR";
+const HOME_ENV: &str = "HOME";
+const DEFAULT_CONFIG_DIR: &str = ".claude";
 
 /// Writes stdin to the capture atomically, then runs the saved inner command with the same stdin, stdout passed through.
 /// Always succeeds: a failing tap must never blank the user's status line.
@@ -21,7 +25,8 @@ pub fn claude_statusline_tap() -> ExitCode {
     };
     // A session that has not had its first API response renders without limits, and would otherwise
     // overwrite the reading every other session captured.
-    if has_rate_limits(&input)
+    if is_default_profile()
+        && has_rate_limits(&input)
         && let Err(error) = write_atomic(&capture_path(), &input)
     {
         eprintln!("ghostd claude-statusline-tap: writing the capture failed: {error}");
@@ -30,6 +35,25 @@ pub fn claude_statusline_tap() -> ExitCode {
         eprintln!("ghostd claude-statusline-tap: the inner command failed: {error}");
     }
     ExitCode::SUCCESS
+}
+
+// Another profile can share the default's settings.json by symlink, and with it this tap. Usage is read for the default
+// profile only, so another account's limits must not overwrite its reading.
+fn is_default_profile() -> bool {
+    let Some(config_dir) = env::var_os(CONFIG_DIR_ENV).filter(|dir| !dir.is_empty()) else {
+        return true;
+    };
+    let Some(home) = env::var_os(HOME_ENV) else {
+        return false;
+    };
+    let config_dir = Path::new(&config_dir);
+    let default_dir = Path::new(&home).join(DEFAULT_CONFIG_DIR);
+    // Canonicalized too, since a default profile reached by another spelling would lose its readings without a word.
+    config_dir == default_dir
+        || matches!(
+            (fs::canonicalize(config_dir), fs::canonicalize(&default_dir)),
+            (Ok(named), Ok(default)) if named == default
+        )
 }
 
 fn has_rate_limits(input: &[u8]) -> bool {
