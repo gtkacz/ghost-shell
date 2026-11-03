@@ -45,6 +45,7 @@ pub enum Japanese {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Appearance {
+    pub palette: Palette,
     pub font: String,
     pub font_cjk: String,
     pub japanese: Japanese,
@@ -66,6 +67,7 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
+            palette: Palette::default(),
             font: "Kode Mono".into(),
             font_cjk: "Noto Sans CJK JP".into(),
             japanese: Japanese::default(),
@@ -78,6 +80,36 @@ impl Default for Appearance {
             colors: Colors::default(),
             dots: Dots::default(),
             scanlines: Scanlines::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Palette {
+    #[default]
+    SectionNine,
+    Netrunner,
+}
+
+impl Palette {
+    pub fn colors(self) -> Colors {
+        match self {
+            Self::SectionNine => Colors::default(),
+            Self::Netrunner => Colors {
+                ground: "#0b0914".into(),
+                panel: "#130e20".into(),
+                hair: "#48345e".into(),
+                hair2: "#241a32".into(),
+                text: "#d4cce5".into(),
+                hi: "#b58aff".into(),
+                dim: "#9285a8".into(),
+                signal: "#38d9f5".into(),
+                warn: "#fcee0a".into(),
+                crit: "#ff3b45".into(),
+                dot: "#38d9f5".into(),
+                burn: "#e9ddff".into(),
+            },
         }
     }
 }

@@ -2,6 +2,36 @@ use ghost_proto::{AgentProvider, DotMotion, LayoutConfig, LayoutNode, ResolvedCo
 use ghostd::config::{DEFAULT_TOML, load_str_with_user};
 
 #[test]
+fn palette_presets_and_overrides() {
+    let net = load_str_with_user("[appearance]\npalette = 'netrunner'", "u").unwrap();
+    assert_eq!(net.appearance.colors.hi, "#b58aff");
+    assert_eq!(net.appearance.colors.warn, "#fcee0a");
+    assert_eq!(net.appearance.colors.burn, "#e9ddff");
+    assert_eq!(net.appearance.colors.signal, "#38d9f5");
+    assert_eq!(net.appearance.colors.crit, "#ff3b45");
+    assert_eq!(net.appearance.colors.ground, "#0b0914");
+    let custom = load_str_with_user("[appearance]\npalette = 'netrunner'\n[appearance.colors]\nsignal = '#a3d4cc'\nburn = '#123456'", "u").unwrap();
+    assert_eq!(custom.appearance.colors.signal, "#a3d4cc");
+    assert_eq!(custom.appearance.colors.burn, "#123456");
+    assert_eq!(custom.appearance.colors.hi, "#b58aff");
+    let restored = load_str_with_user("[appearance]\npalette = 'section-nine'", "u").unwrap();
+    assert_eq!(
+        restored.appearance.colors,
+        ResolvedConfig::default().appearance.colors
+    );
+    assert!(load_str_with_user("[appearance]\npalette = 'typo'", "u").is_err());
+    assert!(
+        load_str_with_user(
+            "[appearance]\npalette = 'netrunner'\n[appearance.colors]\nhi = 'oops'",
+            "u"
+        )
+        .is_err()
+    );
+    let roundtrip = load_str_with_user(&toml::to_string(&net).unwrap(), "u").unwrap();
+    assert_eq!(roundtrip, net);
+}
+
+#[test]
 fn default_file_equals_builtin_defaults() {
     let mut expected = ResolvedConfig::default();
     expected.greeting.name = "gtkacz".into();

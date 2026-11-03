@@ -1,0 +1,76 @@
+<div id="netrunner-color-study">
+  <div class="viz-controls">
+    <label class="form-label">Primary
+      <select class="form-select" id="netrunner-primary">
+        <option value="violet">Violet + cyan</option>
+        <option value="blue">Electric blue + cyan</option>
+        <option value="orchid">Orchid + cyan</option>
+        <option value="current">Current Netrunner</option>
+      </select>
+    </label>
+    <label class="form-label">Warnings
+      <select class="form-select" id="netrunner-warning">
+        <option value="#fcee0a">Cyberpunk yellow</option>
+        <option value="#ffb454">Amber-orange</option>
+      </select>
+    </label>
+  </div>
+  <section class="nr-surface" aria-label="Ghost-shell color comparison, illustrative telemetry">
+    <header><strong>GS//01</strong><span>NETRUNNER · COLOR STUDY</span><span>LIVE</span></header>
+    <div class="nr-panels">
+      <article><h3>演算 · PROCESSOR</h3><div class="nr-value">25<span>%</span></div><div class="nr-meter"><i style="width:25%"></i></div><p>CPU LOAD <b>NORMAL</b></p><p>PACKAGE <span>46 °C</span></p></article>
+      <article><h3>衛星 · UPLINK</h3><div class="nr-value nr-signal">ONLINE</div><div class="nr-wave">▁ ▃ ▂ ▆ ▄ ▂ ▇ ▅ ▃ ▆ ▁ ▄</div><p>DOWN <span>24.8 MB/s</span></p><p>LATENCY <span>12 ms</span></p></article>
+    </div>
+    <div class="nr-alert nr-warn"><b>△ WARNING · 警報</b><span>PACKAGE TEMPERATURE · 82 °C</span></div>
+    <div class="nr-alert nr-crit"><b>! CRITICAL · 危険</b><span>STORAGE USAGE · 95%</span></div>
+    <footer aria-live="polite"></footer>
+  </section>
+</div>
+<style>
+#netrunner-color-study .nr-surface {--nr-bg:#0b0914;--nr-panel:#130e20;--nr-hi:#b58aff;--nr-signal:#38d9f5;--nr-text:#d4cce5;--nr-dim:#9285a8;--nr-line:#48345e;--nr-warn:#fcee0a;--nr-crit:#ff3b45;background:var(--nr-bg);color:var(--nr-text);font:500 13px/1.5 ui-monospace,monospace;padding:20px;}
+#netrunner-color-study header {display:flex;flex-wrap:wrap;gap:12px;align-items:center;border-bottom:1px solid var(--nr-line);padding-bottom:14px;color:var(--nr-dim);}
+#netrunner-color-study header strong {background:var(--nr-hi);color:var(--nr-bg);padding:5px 10px;font-size:18px;}
+#netrunner-color-study header span:last-child {color:var(--nr-signal);margin-left:auto;}
+#netrunner-color-study .nr-panels {display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0;}
+#netrunner-color-study article {background:var(--nr-panel);padding:16px;border:1px solid var(--nr-line);clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,12px 100%,0 calc(100% - 12px));}
+#netrunner-color-study h3 {color:var(--nr-hi);font-size:13px;letter-spacing:.08em;margin:0 0 12px;}
+#netrunner-color-study .nr-value {color:var(--nr-hi);font-size:36px;line-height:1.25;overflow-wrap:anywhere;}
+#netrunner-color-study .nr-value span {font-size:18px;}
+#netrunner-color-study .nr-signal,#netrunner-color-study .nr-wave {color:var(--nr-signal);}
+#netrunner-color-study .nr-wave {font-size:19px;overflow-wrap:anywhere;}
+#netrunner-color-study .nr-meter {height:9px;background:var(--nr-line);margin:12px 0;}
+#netrunner-color-study .nr-meter i {display:block;height:100%;background:var(--nr-signal);}
+#netrunner-color-study p {display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:7px 0 0;color:var(--nr-dim);}
+#netrunner-color-study p span {color:var(--nr-text);}
+#netrunner-color-study p b {color:var(--nr-signal);font-weight:500;}
+#netrunner-color-study .nr-alert {display:flex;gap:8px 22px;justify-content:space-between;flex-wrap:wrap;border-left:3px solid currentColor;padding:12px;margin:10px 0;background:var(--nr-panel);}
+#netrunner-color-study .nr-alert b {font-weight:600;}
+#netrunner-color-study .nr-warn {color:var(--nr-warn);}
+#netrunner-color-study .nr-crit {color:var(--nr-crit);}
+#netrunner-color-study footer {color:var(--nr-dim);font-size:12px;margin-top:16px;overflow-wrap:anywhere;}
+@media(max-width:500px){#netrunner-color-study .nr-panels{grid-template-columns:1fr;}#netrunner-color-study .nr-surface{padding:14px;}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('netrunner-color-study');
+  const surface = root.querySelector('.nr-surface');
+  const primary = root.querySelector('#netrunner-primary');
+  const warning = root.querySelector('#netrunner-warning');
+  const palettes = {
+    violet: ['#0b0914','#130e20','#b58aff','#38d9f5','#d4cce5','#9285a8','#48345e'],
+    blue: ['#080d19','#0f1728','#6ea8ff','#38d9f5','#c9d8ec','#8496b3','#2d456a'],
+    orchid: ['#120a16','#1c1022','#f07bdf','#38d9f5','#e2cfe2','#a18aa4','#563356'],
+    current: ['#080c14','#0d1420','#e6f4f7','#3ee0e6','#b9dce3','#718c9b','#294653']
+  };
+  const tokens = ['bg','panel','hi','signal','text','dim','line'];
+  function render() {
+    const values = palettes[primary.value];
+    tokens.forEach((token,index) => surface.style.setProperty('--nr-'+token,values[index]));
+    surface.style.setProperty('--nr-warn',warning.value);
+    root.querySelector('footer').textContent = 'PRIMARY '+values[2]+' · DATA '+values[3]+' · WARN '+warning.value+' · CRIT #ff3b45';
+  }
+  primary.addEventListener('change',render);
+  warning.addEventListener('change',render);
+  render();
+})();
+</script>

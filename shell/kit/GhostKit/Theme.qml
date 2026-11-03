@@ -11,6 +11,7 @@ Singleton {
 
     // Mirrors the daemon's ResolvedConfig defaults, which apply until the first config arrives.
     readonly property var defaultAppearance: ({
+            palette: "section-nine",
             font: "Kode Mono",
             font_cjk: "Noto Sans CJK JP",
             japanese: "mixed",

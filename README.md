@@ -159,7 +159,17 @@ qs -c gridlock &
 
 ## Configuration
 
-`ghostd` reads `$XDG_CONFIG_HOME/ghost-shell/config.toml`, or `~/.config/ghost-shell/config.toml` when that variable is unset. Without the file it uses the defaults. To start from them:
+`ghostd` reads `$XDG_CONFIG_HOME/ghost-shell/config.toml`, or `~/.config/ghost-shell/config.toml` when that variable is unset. Without the file it uses the defaults.
+
+The default palette is **Section Nine**. To use **Netrunner**, set
+`palette = "netrunner"` under `[appearance]`; switch back with
+`palette = "section-nine"`. Saved changes apply live to the desktop and the
+lock-screen snapshot. Netrunner combines plum-black surfaces, violet headings,
+lilac body text, cyan live data, yellow warnings and red critical alerts. Individual
+`[appearance.colors]` entries override the selected preset: remove those entries
+from a copied default config to see the full preset. Terminal themes are separate.
+
+To start from the defaults:
 
 ```sh
 mkdir -p ~/.config/ghost-shell

@@ -7,6 +7,10 @@
 # Print this file again with `ghostd default-config`.
 
 [appearance]
+# Color preset: "section-nine" (default) or "netrunner". Applied live on save.
+# Explicit [appearance.colors] values below override the preset; remove them to
+# see all the selected preset's colors.
+palette = "section-nine"
 # Interface font, and the font used for Japanese text.
 font = "Kode Mono"
 font_cjk = "Noto Sans CJK JP"
@@ -31,7 +35,7 @@ alert_stripe_step_s = 1.0
 # still. Longer costs more CPU while an alert is on screen.
 alert_attention_s = 10.0
 
-# Colours are written as #rrggbb.
+# Optional overrides, written as #rrggbb. These show Section Nine's defaults.
 [appearance.colors]
 ground = "#0a0f11"  # Screen background.
 panel = "#0a0f11"   # Panel background, drawn at panel_fill opacity.

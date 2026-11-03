@@ -87,6 +87,19 @@ pub fn load_str(s: &str) -> Result<ResolvedConfig, ConfigError> {
 
 pub fn load_str_with_user(s: &str, user: &str) -> Result<ResolvedConfig, ConfigError> {
     let mut config: ResolvedConfig = toml::from_str(s).map_err(|error| parse_error(s, &error))?;
+    // Keep the supplied keys: comparing with default values would lose explicit overrides
+    // that happen to match Section Nine.
+    let source: toml::Table = toml::from_str(s).map_err(|error| parse_error(s, &error))?;
+    let overrides = source
+        .get("appearance")
+        .and_then(|appearance| appearance.get("colors"))
+        .and_then(toml::Value::as_table);
+    let mut colors = toml::Value::try_from(config.appearance.palette.colors())
+        .expect("palette colors serialize as a table");
+    if let Some(overrides) = overrides {
+        colors.as_table_mut().unwrap().extend(overrides.clone());
+    }
+    config.appearance.colors = colors.try_into().map_err(|error| parse_error(s, &error))?;
     // Deserialization replaces the whole map when the user names any view, which would drop the
     // default views they did not mention.
     let mut views = LayoutConfig::default().views;
