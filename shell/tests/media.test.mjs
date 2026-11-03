@@ -7,6 +7,19 @@ import {
 
 const MINUTE_MS = 60000;
 
+test('with nothing playing a paused player beats a stopped one, even the last active', () => {
+  const players = [{ id: 'stopped', playing: false }, { id: 'paused', playing: false, paused: true }];
+  assert.equal(pickPlayer(players, ''), 1);
+  assert.equal(pickPlayer(players, 'stopped'), 1);
+});
+
+test('with nothing playing a paused local player beats a paused mirror, unless the mirror was last active', () => {
+  const mirror = { id: 'org.mpris.MediaPlayer2.kdeconnect.mpris_1', identity: 'Phone', playing: false, paused: true };
+  const local = { id: 'org.mpris.MediaPlayer2.spotify', identity: 'Spotify', playing: false, paused: true };
+  assert.equal(pickPlayer([mirror, local], ''), 1);
+  assert.equal(pickPlayer([mirror, local], mirror.id), 0);
+});
+
 test('the bar names a playing or paused track, and the player when the track has no title', () => {
   const playing = { playbackState: 'playing', trackTitle: 'Derezzed', identity: 'Spotify' };
   assert.equal(barName(mediaView(playing, null, 0)), 'Derezzed');

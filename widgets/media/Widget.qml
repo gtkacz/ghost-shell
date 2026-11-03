@@ -79,7 +79,8 @@ Panel {
     readonly property int playerIndex: Media.pickPlayer(players.map(candidate => ({
                     id: candidate.dbusName,
                     identity: candidate.identity,
-                    playing: candidate.playbackState === MprisPlaybackState.Playing
+                    playing: candidate.playbackState === MprisPlaybackState.Playing,
+                    paused: candidate.playbackState === MprisPlaybackState.Paused
                 })), lastActiveId)
     readonly property MprisPlayer player: playerIndex >= 0 ? players[playerIndex] : null
     // Only the properties media.mjs reads, so the view follows them and nothing else on the player. A position or

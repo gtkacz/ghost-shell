@@ -37,16 +37,28 @@ function isMirror(player) {
 }
 
 // The index of the player to show. Among the playing ones a local player beats a KDE Connect mirror, which plays
-// whatever the phone does, and then the last active one wins; with none playing, the last active one, else the first.
-// `players` is [{ id, identity, playing }].
+// whatever the phone does, and then the last active one wins; with none playing, the last active one if it is paused,
+// then a paused local player, then any paused one, since those are what play can resume and a mirror's play would start
+// the phone. Only with none of those does a stopped player show, the last active one, else the first.
+// `players` is [{ id, identity, playing, paused }].
 export function pickPlayer(players, lastActiveId) {
   const list = players || [];
   const last = list.findIndex(player => player.id === lastActiveId);
-  const playing = list.map((_, index) => index).filter(index => list[index].playing);
+  const indices = list.map((_, index) => index);
+  const local = index => !isMirror(list[index]);
+  const playing = indices.filter(index => list[index].playing);
   if (playing.length > 0) {
-    const local = playing.filter(index => !isMirror(list[index]));
-    const candidates = local.length > 0 ? local : playing;
+    const localPlaying = playing.filter(local);
+    const candidates = localPlaying.length > 0 ? localPlaying : playing;
     return candidates.includes(last) ? last : candidates[0];
+  }
+  const paused = indices.filter(index => list[index].paused);
+  if (paused.length > 0) {
+    if (paused.includes(last)) {
+      return last;
+    }
+    const localPaused = paused.filter(local);
+    return localPaused.length > 0 ? localPaused[0] : paused[0];
   }
   if (last !== NO_PLAYER) {
     return last;
