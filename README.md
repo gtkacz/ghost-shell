@@ -154,6 +154,25 @@ sudo udevadm trigger --subsystem-match=powercap --action=change
 
 The rule makes that one file world-readable (0444). **Trade-off:** the counter is a power side channel, and PLATYPUS (CVE-2020-8694) used it to recover cryptographic keys from Intel CPUs, which is why the kernel restricts it. Any local user or process can read it once the rule is in place. `ghostd` retries the read on every sample, so it needs no restart. To revert, delete the rule file and either reboot or run `sudo chmod 0400 /sys/class/powercap/intel-rapl:0/energy_uj`, because removing the rule does not restore the mode of a running system.
 
+### Alt+Tab switcher (optional)
+
+```sh
+make shaders
+scripts/install.sh --switcher
+```
+
+This replaces KWin's Alt+Tab layout with ghost-shell's: a list of the windows and one live preview of the selected one. A quick flick between two windows draws nothing. It installs a KWin window switcher package into `~/.local/share/kwin/tabbox/org.ghostshell.switcher/`, records the current `[TabBox] LayoutName` and `HighlightWindows` in `~/.local/share/ghost-shell/switcher.previous`, writes new values into `~/.config/kwinrc`, and asks KWin to reconfigure. `HighlightWindows` goes off so that the desktop stays still and only the preview changes. The panel reads its colours, font, `japanese` setting and icon style from ghostd's `gate.ini` at each opening.
+
+Choosing the layout takes effect at the `reconfigure`. An update to an installed package takes effect at your next login, because KWin keeps running the layout it loaded.
+
+`scripts/install.sh --remove-switcher` undoes all of it, and deletes the keys if they were not set before. If you have chosen another layout since, it leaves that one in place and says so. `[TabBoxAlternative]` is never touched.
+
+**If it goes wrong.** The layout runs inside KWin's process, so unlike the bar or the dashboard, a hang there stops the whole screen. It also blocks `Ctrl+Alt+F3`, because KWin itself handles the switch to a text console. KWin creates the layout at the first hold of Alt+Tab, so a new session is safe until then. The way back:
+
+1. If KWin has hung, reboot with `Alt+SysRq` then `S`, `U`, `B`, or hold the power button. The key combination needs `kernel.sysrq` to allow it.
+2. Log in as usual, do not hold Alt+Tab, and run `scripts/install.sh --remove-switcher`.
+3. If KWin still responds, the same command works from a text console. It needs no display or session bus, and a KWin that does not answer cannot hang it. KWin then picks the change up at its next start.
+
 ## Run
 
 ```sh
