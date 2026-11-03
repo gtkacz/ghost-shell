@@ -17,3 +17,6 @@ Prompt 1.0 Prompt.qml
 FakeAdapter 1.0 FakeAdapter.qml
 LockAdapter 1.0 LockAdapter.qml
 LoginAdapter 1.0 LoginAdapter.qml
+Duotone 1.0 Duotone.qml
+SwitcherIcon 1.0 SwitcherIcon.qml
+SwitcherPanel 1.0 SwitcherPanel.qml

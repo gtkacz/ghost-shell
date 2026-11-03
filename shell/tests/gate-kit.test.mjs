@@ -8,7 +8,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const KIT = join(ROOT, 'shell/kit/GhostKit');
 const GATE = join(ROOT, 'shell/gate/GhostGate');
 const QSB_SUFFIX = '.qsb';
-const QT_TYPES = new Set(['Item', 'Text', 'Rectangle', 'Shape', 'ShapePath', 'ShaderEffect', 'QtObject', 'Binding', 'Connections', 'Timer', 'Image', 'PathSvg', 'PathLine', 'PathMove', 'PathArc', 'PathQuad', 'PathCubic', 'Repeater', 'Row', 'Column', 'MouseArea', 'Component', 'Loader', 'TextInput', 'TestCase', 'SignalSpy']);
+const QT_TYPES = new Set(['Item', 'Text', 'Rectangle', 'Shape', 'ShapePath', 'ShaderEffect', 'QtObject', 'Binding', 'Connections', 'Timer', 'Image', 'PathSvg', 'PathLine', 'PathMove', 'PathArc', 'PathQuad', 'PathCubic', 'Repeater', 'Row', 'Column', 'MouseArea', 'Component', 'Loader', 'TextInput', 'TestCase', 'SignalSpy', 'ListView', 'ListModel']);
 
 const script = readFileSync(join(ROOT, 'scripts/assemble-gate.sh'), 'utf8');
 const sharedBlock = script.match(/SHARED_FILES=\(([^)]*)\)/);

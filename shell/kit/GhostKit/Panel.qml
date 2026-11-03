@@ -15,7 +15,7 @@ Item {
     property real headerHeightPx: 26
     property real headerTopPx: 9
     property real headerBottomPx: 6
-    readonly property real headerSidePx: 12
+    property real headerSidePx: 12
     readonly property real headerGapPx: 8
     readonly property real squarePx: 5
     readonly property real headerTextPx: 10

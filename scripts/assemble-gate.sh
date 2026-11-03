@@ -5,9 +5,10 @@ set -euo pipefail
 
 # Relative to shell/kit/GhostKit. Shaders are the compiled files, so `make shaders` must have run.
 SHARED_FILES=(
-    Panel.qml Chip.qml Glyph.qml
+    Panel.qml Chip.qml Glyph.qml Duotone.qml
     lib/theme.mjs lib/scale.mjs lib/views.mjs lib/attention.mjs
     shaders/dotgrid.frag.qsb shaders/scanlines.frag.qsb shaders/stripes.frag.qsb shaders/blink.frag.qsb
+    shaders/duotone.frag.qsb
 )
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)

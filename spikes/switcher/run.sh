@@ -154,9 +154,6 @@ start_session() {
     mkdir -p "$layout"
     cp -r -- "$spike/layout/." "$layout/"
     "$repo/scripts/assemble-gate.sh" "$layout/contents/ui"
-    cp -- "$repo/shell/kit/GhostKit/Duotone.qml" "$layout/contents/ui/GhostGate/"
-    cp -- "$repo/shell/kit/GhostKit/shaders/duotone.frag.qsb" "$layout/contents/ui/GhostGate/shaders/"
-    echo 'Duotone 1.0 Duotone.qml' >> "$layout/contents/ui/GhostGate/qmldir"
     sed -i 's/SPIKE_MARKER/first/' "$layout/contents/ui/main.qml"
     case $mode in
         broken-load)

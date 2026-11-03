@@ -1,0 +1,9 @@
+{
+    "KPackageStructure": "KWin/WindowSwitcher",
+    "KPlugin": {
+        "Id": "org.ghostshell.switcher",
+        "Name": "ghost-shell",
+        "Description": "ghost-shell's Alt+Tab: a list of the windows and one live preview.",
+        "License": "GPL-3.0-or-later"
+    }
+}
