@@ -113,8 +113,12 @@ Item {
                     required property int index
 
                     readonly property bool selected: ListView.isCurrentItem
-                    readonly property string app: root.nameOf(windowId, caption)
+                    // Asked once, not bound: KWin's stacking order, which the layout's nameOf reads, has no change signal, so
+                    // a binding logs a warning per row per opening. A window's app does not change while the panel is open.
+                    property string app
                     readonly property string title: Switcher.titleWithoutApp(caption, app)
+
+                    Component.onCompleted: app = root.nameOf(windowId, caption)
 
                     width: ListView.view.width
                     height: Theme.d(root.rowHeightPx)

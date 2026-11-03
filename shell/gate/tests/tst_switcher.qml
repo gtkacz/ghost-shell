@@ -172,6 +172,26 @@ TestCase {
         verify(texts(panel).includes("2 / 2"));
     }
 
+    // KWin's stacking order, which nameOf reads there, has no change signal: in a binding it logs a line per row per opening.
+    function test_a_row_asks_for_its_name_once() {
+        const model = rows(1);
+        let asked = 0;
+        const panel = createTemporaryObject(panelComponent, test, {
+            model: model,
+            currentIndex: 0,
+            nameOf: () => {
+                asked += 1;
+                return "NAME";
+            }
+        });
+        verify(panel);
+        compare(asked, 1);
+        verify(texts(panel).includes("NAME"));
+        model.setProperty(0, "caption", "new title");
+        compare(asked, 1);
+        verify(texts(panel).includes("new title"));
+    }
+
     function test_one_or_no_windows() {
         const one = makePanel(rows(1), 0);
         verify(texts(one).includes("1 / 1"));
