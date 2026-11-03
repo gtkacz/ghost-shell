@@ -121,14 +121,30 @@ def test_remove_restores_kwinrc_byte_for_byte_when_the_keys_were_set(box):
     assert box.kwinrc.read_bytes() == before
 
 
-def test_kdedefaults_does_not_count_as_set(box):
+def in_a_plasma_session(box: Box) -> dict[str, str]:
+    """kdedefaults holds the layout, and is in view as a Plasma session has it: without this KConfig never reads it."""
     defaults = box.home / ".config/kdedefaults/kwinrc"
     defaults.parent.mkdir()
     defaults.write_text("[TabBox]\nLayoutName=org.kde.breeze.desktop\n")
+    return box.env() | {"XDG_CONFIG_DIRS": str(defaults.parent)}
+
+
+def test_kdedefaults_does_not_count_as_set(box):
+    session = in_a_plasma_session(box)
     before = box.kwinrc.read_bytes()
-    installed(box)
+    assert box.install("--switcher", env=session).returncode == 0
     assert "LayoutName unset" in box.record.read_text()
-    removed(box)
+    assert box.install("--remove-switcher", env=session).returncode == 0
+    assert box.kwinrc.read_bytes() == before
+
+
+def test_remove_restores_a_value_equal_to_its_kdedefault(box):
+    session = in_a_plasma_session(box)
+    box.write("TabBox", "LayoutName", "org.kde.breeze.desktop")
+    before = box.kwinrc.read_bytes()
+    assert box.install("--switcher", env=session).returncode == 0
+    assert "LayoutName=org.kde.breeze.desktop" in box.record.read_text()
+    assert box.install("--remove-switcher", env=session).returncode == 0
     assert box.kwinrc.read_bytes() == before
 
 

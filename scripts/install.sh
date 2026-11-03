@@ -445,7 +445,9 @@ remove_switcher() {
             if [[ $key == LayoutName && $current != "$switcher_package_id" ]]; then
                 warn "left [TabBox] LayoutName=$current in place: it is no longer the switcher"
             elif [[ $line == "$key unset" ]]; then
-                kwriteconfig6 --file kwinrc --group TabBox --key "$key" --delete
+                # With no lower layer in view: when kdedefaults also sets the key, KConfig would otherwise keep the line as a
+                # [$d] marker, which hides that default for good, where a Plasma session and a text console should agree.
+                XDG_CONFIG_DIRS=/nonexistent kwriteconfig6 --file kwinrc --group TabBox --key "$key" --delete
             else
                 kwriteconfig6 --file kwinrc --group TabBox --key "$key" "${line#*=}"
             fi
