@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="darkreader-lock">
+<title>ghost-shell · Plan 3c · Alt+Tab layouts</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px 28px 20px; background: #05080a; color: #8a9e9c; font: 14px/1.5 system-ui, sans-serif; }
+  h1 { color: #e4f1ef; font-weight: 500; font-size: 18px; margin: 0; }
+  p { margin: 2px 0 10px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 10px; font: 11px/1 'Kode Mono', monospace; letter-spacing: .1em; }
+  .group { display: inline-flex; border: 1px solid #2a3a3d; }
+  .group button { background: none; border: 0; color: #587170; font: inherit; letter-spacing: inherit; padding: 8px 13px; cursor: pointer; }
+  .group button.on, .group button.selected { color: #e4f1ef; background: #1a2527; }
+  .group button:hover { color: #b7d1cd; }
+  .caption { color: #587170; }
+  kbd { display: inline-block; min-width: 22px; padding: 4px 6px; text-align: center; color: #b7d1cd; border: 1px solid #2a3a3d; font: inherit; }
+  kbd.down { color: #0a0f11; background: #a3d4cc; border-color: #a3d4cc; }
+  #fit { position: relative; overflow: hidden; border: 1px solid #1a2527; }
+  #log { margin-top: 8px; min-height: 18px; color: #a3d4cc; font: 11.5px/1.5 'Kode Mono', monospace; letter-spacing: .06em; }
+  #note { margin-top: 2px; max-width: 1100px; }
+  #note strong { color: #e4f1ef; font-weight: 500; }
+  .fine { font-size: 12px; color: #587170; margin: 2px 0 0; }
+
+  .stage { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; overflow: hidden; transform-origin: 0 0;
+    --ground: #0a0f11; --hair: #2a3a3d; --hair2: #1a2527; --text: #b7d1cd; --hi: #e4f1ef; --dim: #587170; --sig: #a3d4cc;
+    background: var(--ground); color: var(--text); font: 500 10px 'Kode Mono', monospace; letter-spacing: .08em; }
+  .stage svg.ic { width: 12px; height: 12px; flex: none; display: block; fill: none; stroke: var(--dim); stroke-width: 1.2; stroke-linecap: square; }
+  .scan { position: absolute; inset: 0; z-index: 30; pointer-events: none; background: repeating-linear-gradient(transparent 0 2px, rgba(0,0,0,.14) 2px 3px); }
+
+  .bar { position: absolute; left: 0; right: 0; top: 0; height: 28px; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--ground); border-bottom: 1px solid var(--hair2); }
+  .bar .task { position: relative; padding: 8px 3px; }
+  .bar .task.focus svg.ic { stroke: var(--hi); }
+  .bar .task.focus::after { content: ''; position: absolute; left: 0; right: 0; bottom: 2px; height: 2px; background: var(--sig); }
+  .bar .clock { margin-left: auto; color: var(--hi); font-size: 11px; }
+  #front { position: absolute; left: 0; top: 28px; width: 1280px; height: 692px; overflow: hidden; }
+
+  /* ---- stand-in windows, drawn at 640 x 346 and scaled ---- */
+  .th { position: relative; overflow: hidden; display: block; background: #000; }
+  .win { position: absolute; left: 0; top: 0; width: 640px; height: 346px; transform-origin: 0 0; overflow: hidden; font: 8px/1.45 system-ui, sans-serif; letter-spacing: 0; color: #ccd; }
+  .tb { height: 14px; display: flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 7px; }
+  .tb span { flex: 1; text-align: center; }
+  .tb i { width: 5px; height: 5px; border-radius: 50%; background: #5a6065; }
+  .b { position: absolute; display: block; }
+  .mono { font: 7.5px/1.55 'Kode Mono', monospace; white-space: pre; }
+  .kw { color: #c586c0; } .st { color: #ce9178; } .ty { color: #4ec9b0; } .cm { color: #6a9955; } .fn { color: #dcdcaa; }
+  .cur { display: inline-block; width: 5px; height: 9px; background: #a3d4cc; vertical-align: -1px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .prog { animation: prog 40s linear infinite; }
+  @keyframes prog { from { width: 30%; } to { width: 90%; } }
+
+  /* ---- the switcher ---- */
+  #sw { position: absolute; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; }
+  #sw.on { display: flex; }
+  .dim { position: absolute; inset: 0; background: rgba(5, 8, 9, .6); }
+  .reveal { position: relative; animation: print 110ms steps(6) both; }
+  @keyframes print { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+  .reveal::before, .reveal::after { content: ''; position: absolute; z-index: 2; width: 14px; height: 14px; pointer-events: none; }
+  .reveal::before { left: 0; top: 0; border-left: 1.5px solid var(--sig); border-top: 1.5px solid var(--sig); }
+  .reveal::after { right: 0; bottom: 0; border-right: 1.5px solid var(--sig); border-bottom: 1.5px solid var(--sig); }
+  .panel { padding: 1px; background: var(--hair); clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+  .in { padding: 14px 18px 18px; background: #0b1012; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+  .head { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; color: var(--hi); font-size: 10px; font-weight: 600; letter-spacing: .16em; }
+  .head::before { content: ''; width: 5px; height: 5px; background: var(--sig); }
+  .head .jp { font-family: 'Noto Sans CJK JP', sans-serif; font-weight: 500; letter-spacing: .06em; color: var(--dim); }
+  .head .count { margin-left: auto; color: var(--dim); }
+
+  .card { position: relative; cursor: pointer; }
+  .thw { position: relative; border: 1px solid var(--hair2); }
+  .card:not(.sel) .th { filter: brightness(.6); }
+  .sel .thw { border-color: var(--sig); }
+  .sel .thw::before, .sel .thw::after, .row.sel::before, .row.sel::after { content: ''; position: absolute; z-index: 2; width: 12px; height: 12px; }
+  .sel .thw::before, .row.sel::before { left: -5px; top: -5px; border-left: 1.5px solid var(--sig); border-top: 1.5px solid var(--sig); }
+  .sel .thw::after, .row.sel::after { right: -5px; bottom: -5px; border-right: 1.5px solid var(--sig); border-bottom: 1.5px solid var(--sig); }
+  .cap { display: flex; gap: 6px; align-items: center; padding-top: 6px; font-size: 9.5px; min-width: 0; }
+  .ix { color: var(--dim); font-size: 9px; flex: none; }
+  .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sel svg.ic { stroke: var(--hi); }
+  .sel .tt { color: var(--hi); }
+
+  .grid { display: grid; grid-template-columns: repeat(5, 188px); gap: 14px; }
+
+  .rowview { position: relative; width: 1152px; overflow: hidden; padding: 6px 6px 0; margin: 0 -6px; box-sizing: content-box; }
+  .strip { display: flex; gap: 10px; }
+  .strip .card { flex: 0 0 156px; }
+  .more { position: absolute; top: 6px; bottom: 0; width: 22px; display: none; align-items: center; justify-content: center; background: #0b1012; }
+  .more.show { display: flex; }
+  .more.l { left: 0; } .more.r { right: 0; }
+  .more svg.ic { stroke: var(--sig); }
+  .line { display: flex; gap: 8px; align-items: center; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--hair2); color: var(--hi); font-size: 11px; }
+
+  .cols { display: flex; gap: 18px; align-items: flex-start; }
+  .list { width: 366px; }
+  .row { position: relative; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 1px solid transparent; cursor: pointer; font-size: 10px; }
+  .row .app { flex: 0 0 62px; color: var(--dim); }
+  .row .tt { flex: 1; color: var(--text); }
+  .row.sel { border-color: var(--sig); background: rgba(163, 212, 204, .08); }
+  .row.sel .app { color: var(--sig); }
+  .prev .cap { padding-top: 8px; font-size: 11px; color: var(--hi); }
+</style>
+</head>
+<body>
+<h1>Alt+Tab: three layouts to try</h1>
+<p>Try each one both ways: a quick flick, then hold and browse. KWin would catch your real Alt+Tab, so here <strong style="color:#e4f1ef;font-weight:500">Z stands for Alt and X for Tab</strong>.</p>
+
+<div class="controls">
+  <span class="group">
+    <button class="on" id="tab-a" data-choice="a" onclick="setLayout('a')">A GRID</button>
+    <button id="tab-b" data-choice="b" onclick="setLayout('b')">B STRIP</button>
+    <button id="tab-c" data-choice="c" onclick="setLayout('c')">C READOUT</button>
+  </span>
+  <span class="caption">HOLD <kbd id="kz">Z</kbd> TAP <kbd id="kx">X</kbd> SHIFT+X BACK · ESC CANCELS</span>
+  <span class="group">
+    <button onclick="simFlick()">FLICK</button>
+    <button onclick="simBrowse()">BROWSE</button>
+  </span>
+  <span class="caption">DRAW AFTER</span>
+  <span class="group" id="delays">
+    <button class="on" onclick="setDelay(90, this)">90 MS</button>
+    <button onclick="setDelay(150, this)">150</button>
+    <button onclick="setDelay(250, this)">250</button>
+  </span>
+</div>
+
+<div id="fit"><div class="stage" id="stage">
+  <div id="front"></div>
+  <div class="bar" id="bar"></div>
+  <div id="sw"></div>
+  <div class="scan"></div>
+</div></div>
+
+<div id="log">Waiting for a flick.</div>
+<p id="note"></p>
+<p class="fine">Window contents are drawn stand-ins, and real ones bring their own colours. Timing comes from the browser, so treat the delay as approximate. 90 ms is KWin's default.</p>
+
+<script>
+const ICON = {
+  code: '<path d="M4 3 1 6l3 3M8 3l3 3-3 3"/>',
+  ghostty: '<path d="M2 3l3 3-3 3M6 9.5h4"/>',
+  thorium: '<circle cx="6" cy="6" r="5"/><circle cx="6" cy="6" r="2"/>',
+  spotify: '<circle cx="6" cy="6" r="5"/><path d="M3 4.6c2-.6 4-.5 6 .4M3.5 6.5c1.6-.4 3.2-.3 5 .4M4 8.3c1.2-.3 2.4-.2 3.6.3"/>',
+  slack: '<path d="M4.3 1v10M7.7 1v10M1 4.3h10M1 7.7h10"/>',
+  discord: '<rect x="1" y="2.5" width="10" height="7" rx="2.5"/><path d="M4 6h.5M7.5 6H8"/>',
+  steam: '<circle cx="6" cy="6" r="5"/><circle cx="7.5" cy="4.8" r="1.4"/><path d="M1.5 7.2 6.4 5.6"/>',
+  dolphin: '<path d="M1 3h4l1 1.2h5V10H1z"/>',
+};
+const NAME = { code: 'VS CODE', ghostty: 'GHOSTTY', thorium: 'THORIUM', spotify: 'SPOTIFY', slack: 'SLACK', discord: 'DISCORD', steam: 'STEAM', dolphin: 'DOLPHIN' };
+const ic = app => `<svg class="ic" viewBox="0 0 12 12">${ICON[app]}</svg>`;
+const pad = n => String(n).padStart(2, '0');
+const rep = (n, fn) => Array.from({ length: n }, (_, i) => fn(i)).join('');
+const box = (x, y, w, h, bg, extra = '') => `<i class="b" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${bg};${extra}"></i>`;
+const tb = (t, bg = '#1f2326', fg = '#aeb4b8') => `<div class="tb" style="background:${bg};color:${fg}"><span>${t}</span><i></i><i></i><i></i></div>`;
+
+const DRAW = {
+  code: w => `${tb(w.t + ' — Visual Studio Code', '#323233')}<div style="position:absolute;inset:14px 0 0;background:#1e1e1e">
+    ${box(0, 0, 16, 332, '#333')}${box(16, 0, 92, 332, '#252526')}
+    ${rep(13, i => box(24 + (i % 3) * 5, 8 + i * 12, 46 + (i * 17) % 34, 4, i === 4 ? '#9cdcfe' : '#6c7278'))}
+    <div class="mono" style="position:absolute;left:118px;top:8px;color:#d4d4d4"><span class="cm">// Deferred: sync() writes visibleIds, which the queue is computed from.</span>
+<span class="kw">function</span> <span class="fn">finish</span>(id, reason) {
+    <span class="kw">const</span> item = items.<span class="fn">find</span>(item => item.id === id);
+    shownIds.<span class="fn">add</span>(Rules.<span class="fn">toastKey</span>(item));
+    console.<span class="fn">info</span>(<span class="st">"toast "</span> + id + <span class="st">" ended "</span> + reason);
+}
+
+<span class="ty">Connections</span> {
+    target: Data.notifications
+    <span class="kw">function</span> <span class="fn">onItemsChanged</span>() {
+        Qt.<span class="fn">callLater</span>(sync);
+    }
+}</div></div>`,
+  term1: w => `${tb(w.t, '#0a0f11', '#587170')}<div class="mono" style="position:absolute;inset:14px 0 0;padding:8px 10px;background:#0a0f11;color:#b7d1cd"><span style="color:#a3d4cc">~/Codes/ghost-shell</span> <span style="color:#587170">main</span>
+&gt; claude
+
+Reading shell/host/Toasts.qml
+Reading crates/ghostd/src/feeds/notifications/state.rs
+Running make smoke
+  smoke: ok (headless KWin, 41 widgets)
+
+<span style="color:#e4f1ef">The toast key now follows the revision.</span>
+
+&gt; <span class="cur"></span></div>`,
+  term2: w => `${tb(w.t, '#0a0f11', '#587170')}<div class="mono" style="position:absolute;inset:14px 0 0;padding:8px 10px;background:#0a0f11;color:#b7d1cd"><span style="color:#a3d4cc">~/Codes</span>
+&gt; codex
+
+<span style="color:#e9a84c">usage 71 %</span>  resets in 2 h 14 min
+Searching for tabbox skins
+  /usr/share/kwin/tabbox/thumbnail_grid
+  /usr/share/kwin/tabbox/coverswitch
+
+&gt; <span class="cur"></span></div>`,
+  gh: w => `${tb(w.t + ' — Thorium')}<div style="position:absolute;inset:14px 0 0;background:#0d1117">
+    ${box(0, 0, 640, 18, '#35363a')}${box(60, 4, 400, 10, '#202124', 'border-radius:5px')}
+    ${box(40, 34, 160, 8, '#c9d1d9')}${box(40, 56, 390, 1, '#30363d')}
+    ${rep(9, i => box(48, 66 + i * 21, 100 + (i * 37) % 70, 5, '#58a6ff') + box(260, 66 + i * 21, 120 + (i * 29) % 40, 5, '#6e7681') + box(40, 80 + i * 21, 390, 1, '#21262d'))}
+    ${box(452, 34, 150, 150, '#161b22', 'border:1px solid #30363d')}${rep(4, i => box(464, 48 + i * 16, 110 - i * 14, 5, '#8b949e'))}</div>`,
+  inmet: w => `${tb(w.t + ' — Thorium')}<div style="position:absolute;inset:14px 0 0;background:#f3f5f6">
+    ${box(0, 0, 640, 18, '#35363a')}${box(60, 4, 400, 10, '#202124', 'border-radius:5px')}${box(0, 18, 640, 30, '#0b5ea8')}${box(20, 28, 120, 10, '#fff')}
+    ${box(24, 62, 330, 262, '#dfe7ea')}${box(90, 100, 120, 110, '#f4c430')}${box(120, 130, 90, 90, '#f08a24')}${box(150, 165, 60, 48, '#d9342b')}
+    ${rep(5, i => box(374, 66 + i * 50, 240, 40, '#fff', 'border:1px solid #cfd8dc') + box(382, 74 + i * 50, 150, 6, i < 2 ? '#d9342b' : '#f08a24') + box(382, 88 + i * 50, 200, 4, '#8a979d'))}</div>`,
+  spotify: w => `${tb(w.t + ' — Spotify', '#000', '#b3b3b3')}<div style="position:absolute;inset:14px 0 0;background:#121212">
+    ${box(0, 0, 112, 332, '#000')}${rep(9, i => box(14, 14 + i * 20, 60 + (i * 13) % 30, 5, '#b3b3b3'))}
+    ${box(128, 14, 104, 104, 'linear-gradient(135deg,#1b6cff,#5ef2ff 60%,#0a1a33)')}${box(246, 56, 190, 15, '#fff')}${box(246, 80, 110, 6, '#b3b3b3')}
+    ${rep(6, i => box(130, 134 + i * 24, 7, 6, '#777') + box(150, 134 + i * 24, 180 + (i * 41) % 70, 6, i === 1 ? '#1db954' : '#e6e6e6') + box(560, 134 + i * 24, 26, 6, '#777'))}
+    ${box(0, 296, 640, 36, '#181818')}${box(160, 314, 320, 3, '#4d4d4d')}<i class="b prog" style="left:160px;top:314px;height:3px;background:#1db954;width:40%;max-width:320px"></i>${box(310, 300, 12, 12, '#fff', 'border-radius:50%')}</div>`,
+  slack: w => `${tb(w.t + ' — Slack', '#2c0a2d', '#d9c9da')}<div style="position:absolute;inset:14px 0 0;background:#1a1d21">
+    ${box(0, 0, 30, 332, '#2c0a2d')}${box(30, 0, 120, 332, '#3f0e40')}${rep(11, i => box(42, 14 + i * 18, 58 + (i * 19) % 40, 5, i === 2 ? '#fff' : '#b39bb4'))}
+    ${rep(6, i => box(162, 18 + i * 50, 24, 24, ['#e8912d', '#2eb67d', '#36c5f0', '#e01e5a'][i % 4], 'border-radius:4px') + box(194, 20 + i * 50, 80, 5, '#e8e8e8') + box(194, 32 + i * 50, 300 + (i * 53) % 110, 4, '#9a9c9e') + box(194, 42 + i * 50, 170 + (i * 31) % 90, 4, '#9a9c9e'))}</div>`,
+  discord: w => `${tb(w.t + ' — Discord', '#1e1f22', '#b5bac1')}<div style="position:absolute;inset:14px 0 0;background:#313338">
+    ${box(0, 0, 34, 332, '#1e1f22')}${rep(7, i => box(6, 8 + i * 28, 22, 22, i === 1 ? '#5865f2' : '#3a3c42', 'border-radius:50%'))}${box(34, 0, 112, 332, '#2b2d31')}${rep(10, i => box(46, 16 + i * 20, 50 + (i * 23) % 44, 5, i === 3 ? '#fff' : '#80848e'))}
+    ${rep(6, i => box(158, 16 + i * 52, 26, 26, ['#5865f2', '#eb459e', '#57f287'][i % 3], 'border-radius:50%') + box(194, 18 + i * 52, 72, 5, '#f2f3f5') + box(194, 30 + i * 52, 280 + (i * 47) % 130, 4, '#b5bac1') + (i === 2 ? box(194, 42 + i * 52, 150, 16, '#0f4c5c') : ''))}</div>`,
+  steam: w => `${tb(w.t + ' — Steam', '#171a21', '#c7d5e0')}<div style="position:absolute;inset:14px 0 0;background:#1b2838">
+    ${box(0, 0, 640, 24, '#171a21')}${rep(4, i => box(14 + i * 62, 9, 46, 6, i === 0 ? '#66c0f4' : '#8f98a0'))}${box(0, 24, 130, 308, '#222d3d')}${rep(12, i => box(12, 36 + i * 21, 80 + (i * 11) % 30, 5, '#8f98a0'))}
+    ${rep(15, i => box(144 + (i % 5) * 96, 36 + Math.floor(i / 5) * 98, 86, 88, ['linear-gradient(160deg,#c33,#311)', 'linear-gradient(160deg,#28a,#123)', 'linear-gradient(160deg,#dc3,#431)', 'linear-gradient(160deg,#3a7,#132)', 'linear-gradient(160deg,#84c,#213)'][(i * 3) % 5]))}</div>`,
+  dolphin: w => `${tb(w.t + ' — Dolphin', '#2a2e32', '#c8ccd0')}<div style="position:absolute;inset:14px 0 0;background:#1b1e20">
+    ${box(0, 0, 640, 22, '#2a2e32')}${box(0, 22, 120, 310, '#232629')}${rep(10, i => box(14, 34 + i * 20, 66 + (i * 13) % 28, 5, i === 3 ? '#3daee9' : '#9aa0a5'))}
+    ${rep(24, i => box(136 + (i % 8) * 62, 34 + Math.floor(i / 8) * 76, 40, 32, i % 5 === 2 ? '#c7cdd1' : '#3daee9', 'border-radius:2px') + box(134 + (i % 8) * 62, 72 + Math.floor(i / 8) * 76, 44, 4, '#9aa0a5'))}</div>`,
+};
+
+let WINS = [
+  { a: 'code', t: 'Toast.qml — ghost-shell', k: 'code' },
+  { a: 'ghostty', t: 'claude — ~/Codes/ghost-shell', k: 'term1' },
+  { a: 'thorium', t: 'github.com/bowenbride/wrayth', k: 'gh' },
+  { a: 'spotify', t: 'Derezzed — Daft Punk', k: 'spotify' },
+  { a: 'slack', t: '#general', k: 'slack' },
+  { a: 'discord', t: '#rice-share', k: 'discord' },
+  { a: 'ghostty', t: 'codex — ~/Codes', k: 'term2' },
+  { a: 'thorium', t: 'INMET — alertas', k: 'inmet' },
+  { a: 'steam', t: 'Library', k: 'steam' },
+  { a: 'dolphin', t: 'Downloads', k: 'dolphin' },
+];
+
+const thumb = (w, width) => `<span class="th" style="width:${width}px;height:${Math.round(width * 346 / 640)}px"><div class="win" style="transform:scale(${width / 640})">${DRAW[w.k](w)}</div></span>`;
+const head = () => `<div class="head"><span>SWITCH WINDOW</span><span class="jp">窓切替</span><span class="count" id="count"></span></div>`;
+const chevron = d => `<svg class="ic" viewBox="0 0 12 12"><path d="${d}"/></svg>`;
+
+const NOTES = {
+  a: '<strong>A, Grid (the October design).</strong> Every window is on screen at once, so you recognise them by looks. The whole screen dims. It draws 10 live thumbnails.',
+  b: '<strong>B, Strip.</strong> The least in your way: nothing dims and your window stays readable around it. It shows 7 of the 10 and scrolls, with the full title only for the selected window. It draws 7 live thumbnails.',
+  c: '<strong>C, Readout.</strong> Find by name, then confirm by picture, like the shell\'s other text panels. The list stays put while one large preview changes. It draws a single live thumbnail, so it should cost the least, though nothing is measured yet.',
+};
+
+const LAYOUTS = {
+  a() {
+    return `<div class="dim"></div><div class="reveal"><div class="panel"><div class="in">${head()}<div class="grid">${WINS.map((w, i) => `<div class="card" data-i="${i}"><div class="thw">${thumb(w, 186)}</div><div class="cap"><span class="ix">${pad(i + 1)}</span>${ic(w.a)}<span class="tt">${NAME[w.a]} · ${w.t}</span></div></div>`).join('')}</div></div></div></div>`;
+  },
+  b() {
+    return `<div class="reveal"><div class="panel"><div class="in">${head()}<div class="rowview"><div class="strip" id="strip">${WINS.map((w, i) => `<div class="card" data-i="${i}"><div class="thw">${thumb(w, 154)}</div><div class="cap"><span class="ix">${pad(i + 1)}</span>${ic(w.a)}<span class="tt" style="color:var(--dim)">${NAME[w.a]}</span></div></div>`).join('')}</div><span class="more l" id="ml">${chevron('M8 2 4 6l4 4')}</span><span class="more r" id="mr">${chevron('M4 2l4 4-4 4')}</span></div><div class="line" id="line"></div></div></div></div>`;
+  },
+  c() {
+    return `<div class="dim"></div><div class="reveal"><div class="panel"><div class="in">${head()}<div class="cols"><div class="list">${WINS.map((w, i) => `<div class="row card" data-i="${i}"><span class="ix">${pad(i + 1)}</span>${ic(w.a)}<span class="app">${NAME[w.a]}</span><span class="tt">${w.t}</span></div>`).join('')}</div><div class="prev" id="prev"></div></div></div></div></div>`;
+  },
+};
+
+const $ = id => document.getElementById(id);
+const sw = $('sw');
+let layout = 'a', delay = 90, walking = false, shown = false, sel = 0, steps = 0, startedAt = 0, timer = 0, zDown = false, sims = [];
+
+function mark() {
+  sw.querySelectorAll('.card').forEach(c => c.classList.toggle('sel', +c.dataset.i === sel));
+  const count = $('count');
+  if (count) { count.textContent = `${sel + 1} / ${WINS.length}`; }
+  const w = WINS[sel];
+  if (layout === 'b') {
+    const pitch = 166, visible = 7;
+    const first = Math.max(0, Math.min(WINS.length - visible, sel - 3));
+    $('strip').style.transform = `translateX(${-first * pitch}px)`;
+    $('ml').classList.toggle('show', first > 0);
+    $('mr').classList.toggle('show', first + visible < WINS.length);
+    $('line').innerHTML = `<span class="ix">${pad(sel + 1)}</span>${ic(w.a).replace('class="ic"', 'class="ic" style="stroke:var(--hi)"')}<span>${NAME[w.a]} · ${w.t}</span>`;
+  }
+  if (layout === 'c') {
+    $('prev').innerHTML = `<div class="thw" style="border-color:var(--hair)">${thumb(w, 528)}</div><div class="cap">${ic(w.a).replace('class="ic"', 'class="ic" style="stroke:var(--hi)"')}<span class="tt">${NAME[w.a]} · ${w.t}</span></div>`;
+  }
+}
+function show() {
+  shown = true;
+  sw.innerHTML = LAYOUTS[layout]();
+  sw.classList.add('on');
+  mark();
+}
+function hide() {
+  shown = false;
+  sw.classList.remove('on');
+  sw.innerHTML = '';
+}
+function start(dir) {
+  walking = true;
+  startedAt = performance.now();
+  steps = 1;
+  sel = dir > 0 ? 1 : WINS.length - 1;
+  timer = setTimeout(show, delay);
+}
+function step(dir) {
+  steps++;
+  sel = (sel + dir + WINS.length) % WINS.length;
+  if (shown) { mark(); }
+}
+function commit(i) {
+  WINS = [WINS[i], ...WINS.filter((_, k) => k !== i)];
+  renderDesktop();
+}
+function release() {
+  if (!walking) { return; }
+  walking = false;
+  clearTimeout(timer);
+  const held = Math.round(performance.now() - startedAt);
+  const drew = shown;
+  const target = WINS[sel];
+  hide();
+  commit(sel);
+  $('log').textContent = drew
+    ? `BROWSE · held ${held} ms, ${steps} step${steps === 1 ? '' : 's'} · now on ${NAME[target.a]}`
+    : `FLICK · held ${held} ms, under the ${delay} ms delay, so nothing drew · now on ${NAME[target.a]}`;
+}
+function cancel() {
+  sims.forEach(clearTimeout);
+  sims = [];
+  if (!walking) { return; }
+  walking = false;
+  clearTimeout(timer);
+  hide();
+  $('log').textContent = 'Cancelled · still on ' + NAME[WINS[0].a];
+}
+function renderDesktop() {
+  $('front').innerHTML = thumb(WINS[0], 1280);
+  const apps = [...new Set(['dolphin', 'steam', 'discord', 'thorium', 'spotify', 'code', 'slack', 'ghostty'])];
+  $('bar').innerHTML = apps.map(a => `<span class="task ${a === WINS[0].a ? 'focus' : ''}">${ic(a)}</span>`).join('') + '<span class="clock">14:27</span>';
+}
+function setLayout(next) {
+  cancel();
+  layout = next;
+  ['a', 'b', 'c'].forEach(k => $('tab-' + k).classList.toggle('on', k === next));
+  $('note').innerHTML = NOTES[next];
+}
+function setDelay(ms, button) {
+  delay = ms;
+  $('delays').querySelectorAll('button').forEach(b => b.classList.toggle('on', b === button));
+}
+function simFlick() {
+  cancel();
+  start(1);
+  sims = [setTimeout(release, 45)];
+}
+function simBrowse() {
+  cancel();
+  start(1);
+  sims = [setTimeout(() => step(1), 650), setTimeout(() => step(1), 1300), setTimeout(release, 2200)];
+}
+function fit() {
+  const fitBox = $('fit');
+  const top = fitBox.getBoundingClientRect().top;
+  const scale = Math.min((innerWidth - 58) / 1280, (innerHeight - top - 104) / 720);
+  $('stage').style.transform = `scale(${scale})`;
+  fitBox.style.width = Math.round(1280 * scale) + 'px';
+  fitBox.style.height = Math.round(720 * scale) + 'px';
+}
+
+sw.addEventListener('click', e => {
+  const card = e.target.closest('.card');
+  if (!card) { return; }
+  sel = +card.dataset.i;
+  release();
+});
+addEventListener('keydown', e => {
+  if (e.repeat) { return; }
+  if (e.code === 'Digit1') { setLayout('a'); }
+  if (e.code === 'Digit2') { setLayout('b'); }
+  if (e.code === 'Digit3') { setLayout('c'); }
+  if (e.code === 'KeyZ') { zDown = true; $('kz').classList.add('down'); }
+  if (e.code === 'KeyX' && zDown) {
+    e.preventDefault();
+    $('kx').classList.add('down');
+    const dir = e.shiftKey ? -1 : 1;
+    if (walking) { step(dir); } else { start(dir); }
+  }
+  if (e.code === 'Escape') { cancel(); }
+});
+addEventListener('keyup', e => {
+  if (e.code === 'KeyX') { $('kx').classList.remove('down'); }
+  if (e.code === 'KeyZ') { zDown = false; $('kz').classList.remove('down'); release(); }
+});
+addEventListener('blur', () => { zDown = false; $('kz').classList.remove('down'); $('kx').classList.remove('down'); cancel(); });
+addEventListener('resize', fit);
+
+renderDesktop();
+setLayout('a');
+fit();
+</script>
+</body>
+</html>
