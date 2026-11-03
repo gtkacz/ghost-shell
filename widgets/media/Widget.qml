@@ -9,13 +9,15 @@ import "media.mjs" as Media
 // styles: a stack with the art on top (V1), a headerless strip (V2) and a compact row for the MONITOR band. Paused,
 // the spectrum falls to dark; stopped or gone, the last track played is shown dimmed. That track is remembered across
 // restarts in $XDG_STATE_HOME/ghost-shell/media.json. Below the player, rows show the default output and input, and
-// a MIC LIVE alert says which apps record.
+// a MIC LIVE alert says which apps record. In the bar it is only the art and the name, there while a player is playing
+// or paused, and a click on them opens the stack in a popup, without its spectrum or rows.
 Panel {
     id: root
 
     readonly property string stackStyle: "stack"
     readonly property string stripStyle: "strip"
     readonly property string compactStyle: "compact"
+    readonly property string barStyle: "bar"
 
     // Design pixels, from the reference mockup's .media, .art, .minfo, .prog and .ctrl, and its mediaStrip and
     // bandMedia.
@@ -46,6 +48,7 @@ Panel {
     readonly property real controlGapPx: 20
     readonly property real spectrumCellPx: 3
     readonly property real spectrumGapPx: 2
+    readonly property real popupArtPx: 220
     readonly property real controlVolumePx: 9.5
     // Letter spacing in em.
     readonly property real statusTracking: 0.14
@@ -62,10 +65,12 @@ Panel {
     property var settings
 
     readonly property string style: settings.style
+    readonly property bool inBar: style === barStyle
     // Whether the OUT and IN rows show. MIC LIVE shows either way: it is a privacy cue, and it opens no capture stream.
-    readonly property bool audio: settings.audio
+    readonly property bool audio: settings.audio && !inBar
     // The daemon's default style when no config has arrived.
     readonly property bool mono: (Data.config?.bar?.icons ?? "mono") === "mono"
+    property bool popupOpen: false
 
     // Every MPRIS player on the session bus, in no useful order.
     readonly property var players: Array.from(Mpris.players.values)
@@ -103,6 +108,9 @@ Panel {
     readonly property string chipKey: playing ? "play" : stopped ? "stop" : "pause"
     // A headerless line is narrow, so when its chip already gives the state the words leave it out.
     readonly property string lineStatus: Theme.chip(chipKey) !== "" ? Media.shortStatus(view) : view.status
+    readonly property string statusWithPlayer: view.identity !== "" ? lineStatus + " · " + view.identity.toUpperCase() : lineStatus
+    readonly property string barName: Media.barName(view)
+    readonly property bool barActive: inBar && barName !== ""
     readonly property var fraction: Media.progress(view.positionS, view.lengthS)
     readonly property bool hasProgress: fraction !== null
     // The title's key is the track's, so a new track scrambles once however many views show it; the artist line needs
@@ -116,7 +124,9 @@ Panel {
     readonly property var launcher: player === null && remembered !== null && remembered.desktopEntry !== "" ? desktopEntry(remembered.desktopEntry) : null
     readonly property bool canPlayPause: player !== null ? (playing ? player.canPause : player.canPlay) : launcher !== null
 
-    readonly property bool hasSpectrum: style !== compactStyle
+    readonly property bool hasSpectrum: style !== compactStyle && !inBar
+    // The bar's item shows no time, so it costs the frame clock nothing until its popup opens.
+    readonly property bool secondsWanted: inBar ? popupOpen : visible
 
     readonly property string statePath: {
         const stateHome = Quickshell.env("XDG_STATE_HOME") || "";
@@ -395,13 +405,21 @@ Panel {
 
     anchors.fill: parent
     header: style === stackStyle
+    framed: !inBar
     label: "Media"
     tagKey: "media"
     meta: view.identity
     padding: header ? Theme.d(paddingPx) : 0
+    implicitWidth: inBar ? styled.implicitWidth : 0
 
-    onVisibleChanged: holdSeconds(visible)
+    onSecondsWantedChanged: holdSeconds(secondsWanted)
     onPlayingChanged: Qt.callLater(noteActive)
+    // The bar's item goes with its popup open and cannot report that, which would leave the seconds held.
+    onBarActiveChanged: {
+        if (!barActive) {
+            popupOpen = false;
+        }
+    }
     onPlayerStateChanged: rememberIfNew()
     // The pick can move to another playing player without playing changing, so every new pick is noted as well. A
     // player that quits is the moment its track was last played.
@@ -420,7 +438,7 @@ Panel {
         hadPlayer = player !== null;
         noteActive();
         rememberIfNew();
-        holdSeconds(visible);
+        holdSeconds(secondsWanted);
     }
     Component.onDestruction: holdSeconds(false)
 
@@ -451,7 +469,7 @@ Panel {
     // MprisPlayer works the position out only when asked, by this signal.
     Connections {
         target: FrameClock
-        enabled: root.playing
+        enabled: root.playing && root.holdsSeconds
 
         function onEpochSecondChanged() {
             root.player.positionChanged();
@@ -462,6 +480,9 @@ Panel {
         id: stack
 
         Item {
+            // Only the popup reads this; on the dashboard the stack takes the size of its slot.
+            implicitHeight: stackTop.implicitHeight + Theme.d(root.bodyGapPx) + stackBottom.implicitHeight
+
             Column {
                 id: stackTop
 
@@ -474,7 +495,7 @@ Panel {
 
                 MediaArt {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    sidePx: root.stackArtPx
+                    sidePx: root.inBar ? root.popupArtPx : root.stackArtPx
                 }
 
                 Column {
@@ -484,7 +505,8 @@ Panel {
                     StatusLine {
                         width: parent.width
                         centred: true
-                        text: root.view.status
+                        // The popup has no header to name the player.
+                        text: root.inBar ? root.statusWithPlayer : root.view.status
                     }
 
                     Title {
@@ -501,6 +523,7 @@ Panel {
 
             // The one element that stretches.
             SegBars {
+                visible: root.hasSpectrum
                 anchors {
                     top: stackTop.bottom
                     topMargin: Theme.d(root.bodyGapPx)
@@ -584,7 +607,7 @@ Panel {
                     StatusLine {
                         width: parent.width
                         visible: !stripAlert.visible
-                        text: root.view.identity !== "" ? root.lineStatus + " · " + root.view.identity.toUpperCase() : root.lineStatus
+                        text: root.statusWithPlayer
                     }
 
                     MicAlert {
@@ -738,8 +761,27 @@ Panel {
         }
     }
 
+    Component {
+        id: barItem
+
+        BarItem {
+            name: root.barName
+            artist: root.view.artist
+            artUrl: root.view.artUrl
+            nameKey: root.titleKey
+            artistKey: root.artistKey
+            playing: root.playing
+            mono: root.mono
+            popupBody: stack
+            onOpenChanged: root.popupOpen = open
+        }
+    }
+
     Loader {
+        id: styled
+
         anchors.fill: parent
-        sourceComponent: root.style === root.stackStyle ? stack : root.style === root.stripStyle ? strip : compact
+        active: !root.inBar || root.barActive
+        sourceComponent: root.inBar ? barItem : root.style === root.stackStyle ? stack : root.style === root.stripStyle ? strip : compact
     }
 }

@@ -71,6 +71,7 @@ fn tasks(style: &str) -> BarSlotSpec {
 
 fn tail(parts: &[&str]) -> Vec<BarSlotSpec> {
     vec![
+        with("media", "style", "bar".into()),
         with("status", "parts", parts.into()),
         slot("tray"),
         slot("view-chip"),

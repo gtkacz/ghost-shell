@@ -6,8 +6,9 @@ use ghostd::config::load_str_with_user;
 use ghostd::widgets::{discover, resolve};
 use serde_json::json;
 
-const BAR_WIDGETS: [&str; 9] = [
+const BAR_WIDGETS: [&str; 10] = [
     "brand",
+    "media",
     "tasks",
     "ticker",
     "status",
@@ -67,6 +68,16 @@ fn bar_preset_follows_bar_layout() {
     assert_eq!(resolved.bar.left[1].settings["style"], json!("tabs"));
     assert!(resolved.bar.dock.is_empty());
     assert!(errors_at(&resolved, "layout.bar").is_empty());
+}
+
+#[test]
+fn every_bar_preset_opens_its_right_group_with_the_media_item() {
+    for layout in [BarLayout::A, BarLayout::B, BarLayout::C] {
+        let right = resolve_config("", layout).bar.right;
+
+        assert_eq!(right[0].widget, "media");
+        assert_eq!(right[0].settings["style"], json!("bar"));
+    }
 }
 
 #[test]

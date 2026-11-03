@@ -2,10 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ago } from '../kit/GhostKit/lib/format.mjs';
 import {
-  pickPlayer, mediaView, rememberTrack, parseRemembered, progress, mmss, agoText, allowedArtUrl, shortStatus, fallStep, isDark,
+  pickPlayer, mediaView, rememberTrack, parseRemembered, progress, mmss, agoText, allowedArtUrl, shortStatus, fallStep, isDark, barName,
 } from '../../widgets/media/media.mjs';
 
 const MINUTE_MS = 60000;
+
+test('the bar names a playing or paused track, and the player when the track has no title', () => {
+  const playing = { playbackState: 'playing', trackTitle: 'Derezzed', identity: 'Spotify' };
+  assert.equal(barName(mediaView(playing, null, 0)), 'Derezzed');
+  assert.equal(barName(mediaView({ ...playing, playbackState: 'paused' }, null, 0)), 'Derezzed');
+  assert.equal(barName(mediaView({ ...playing, trackTitle: '' }, null, 0)), 'Spotify');
+});
+
+test('the bar names nothing once the player stops or goes, whatever is remembered', () => {
+  const remembered = { title: 'Derezzed', atMs: 0 };
+  assert.equal(barName(mediaView({ playbackState: 'stopped', identity: 'Spotify' }, remembered, 0)), '');
+  assert.equal(barName(mediaView(null, remembered, 0)), '');
+});
 
 test('prefers a playing player, then the last active one', () => { assert.equal(pickPlayer([{ id: 'a', playing: false }, { id: 'b', playing: true }], 'a'), 1); assert.equal(pickPlayer([{ id: 'a', playing: false }, { id: 'b', playing: false }], 'b'), 1); assert.equal(pickPlayer([], 'b'), -1); });
 test('paused keeps the track and says PAUSED', () => assert.equal(mediaView({ playbackState: 'paused', trackTitle: 'Derezzed', trackArtist: 'Daft Punk', position: 38, length: 104 }, null, 0).status, 'PAUSED'));

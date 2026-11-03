@@ -119,6 +119,12 @@ export function shortStatus(view) {
   return view.detail !== '' ? view.detail : view.status;
 }
 
+// The name the bar shows, or nothing while no player is playing or paused: unlike the panel, the bar has no use for a
+// remembered track, whose controls could not act on anything.
+export function barName(view) {
+  return view.mode === STOPPED ? '' : view.title || view.identity;
+}
+
 export function rememberTrack(player, nowMs) {
   if (!player || !text(player.trackTitle)) {
     return null;

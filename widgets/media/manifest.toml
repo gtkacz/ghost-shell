@@ -2,7 +2,7 @@ id = "media"
 name = "Media"
 version = "0.1.0"
 api = 1
-kinds = ["panel"]
+kinds = ["panel", "bar"]
 requires = []
 # The spectrum redraws at appearance.spectrum_fps (15 or 30 frames/s) while the player plays, and a new track's
 # title scrambles in.
@@ -10,7 +10,7 @@ animates = true
 
 [settings.style]
 type = "enum"
-values = ["stack", "strip", "compact"]
+values = ["stack", "strip", "compact", "bar"]
 default = "stack"
 
 # The audio output and input rows.
