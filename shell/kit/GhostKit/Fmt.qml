@@ -105,6 +105,10 @@ Singleton {
         return Labels.serialOf(driveId);
     }
 
+    function level(value, warnAt, critAt) {
+        return Segments.level(value, warnAt, critAt);
+    }
+
     function levelAbove(value, warnAt, critAt) {
         return Segments.levelAbove(value, warnAt, critAt);
     }

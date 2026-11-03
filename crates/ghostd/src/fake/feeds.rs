@@ -2,16 +2,18 @@ use std::future::pending;
 use std::time::Duration;
 
 use ghost_proto::{
-    AlertLevel, Batteries, Battery, BatteryKind, Brightness, DiskHealth, DisplayBrightness,
-    DriveHealth, Endpoint, HostSnapshot, LanLink, LauncherEntries, LauncherEntry, LinkState,
-    LinksSnapshot, NightLight, RainPeak, RecentFile, RecentFiles, SessionSnapshot, SkySnapshot,
-    SpectrumSnapshot, TailscaleLink, TickerSnapshot, UplinkSnapshot, VpnLink, WeatherAlert,
+    AgentSession, AgentState, AgentsSessions, AgentsUsage, AlertLevel, Batteries, Battery,
+    BatteryKind, Brightness, DiskHealth, DisplayBrightness, DriveHealth, Endpoint, HostSnapshot,
+    LanLink, LauncherEntries, LauncherEntry, LinkState, LinksSnapshot, NightLight, ProviderUsage,
+    RainPeak, RecentFile, RecentFiles, SessionSnapshot, SkySnapshot, SpectrumSnapshot,
+    TailscaleLink, TickerSnapshot, UplinkSnapshot, UsageWindow, VpnLink, WeatherAlert,
     WeatherAlerts, WeatherHour, WeatherSnapshot, WindowInfo, WindowsSnapshot, topics,
 };
 use tokio::time::{MissedTickBehavior, interval, sleep};
 
 use super::Wave;
 use super::sampled::DRIVES;
+use crate::feeds::agents::{FIVE_HOURS_S, SEVEN_DAYS_S, claude, codex};
 use crate::feeds::spectrum::{BANDS, FRAMES_PER_S};
 use crate::feeds::weather::condition;
 use crate::feeds::{unix_now_s, until_unwanted, until_wanted};
@@ -36,6 +38,8 @@ pub fn feeds() -> Vec<Feed> {
         ticker(),
         recent(),
         super::notifications::feed(),
+        agents_usage(),
+        agents_sessions(),
     ]
 }
 
@@ -566,4 +570,152 @@ fn recent() -> Feed {
             .publish(topics::RECENT, &RecentFiles { files });
         pending::<()>().await;
     })
+}
+
+const CLAUDE_5H_PCT: f64 = 42.0;
+const CLAUDE_5H_RESETS_IN_S: u64 = 2 * 3600 + 14 * 60;
+const CLAUDE_7D_PCT: f64 = 61.0;
+const CLAUDE_7D_RESETS_IN_S: u64 = 3 * 24 * 3600;
+const CODEX_PLAN: &str = "plus";
+const CODEX_5H_PCT: f64 = 0.0;
+const CODEX_5H_RESETS_IN_S: u64 = 4 * 3600 + 59 * 60;
+const CODEX_7D_PCT: f64 = 14.0;
+const CODEX_7D_RESETS_IN_S: u64 = 2 * 24 * 3600 + 20 * 3600;
+
+/// The mockup's Claude and Codex usage, published once.
+fn agents_usage() -> Feed {
+    Feed::new(topics::AGENTS_USAGE, |context| async move {
+        context
+            .publisher
+            .publish(topics::AGENTS_USAGE, &mockup_usage(unix_now_s()));
+        pending::<()>().await;
+    })
+}
+
+fn mockup_usage(now_s: u64) -> AgentsUsage {
+    let provider = |id: &str,
+                    label: &str,
+                    plan: Option<&str>,
+                    five_hour: (f64, u64),
+                    seven_day: (f64, u64)| ProviderUsage {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        plan: plan.map(str::to_owned),
+        available: true,
+        reason: None,
+        read_at_s: now_s,
+        windows: [(FIVE_HOURS_S, five_hour), (SEVEN_DAYS_S, seven_day)]
+            .into_iter()
+            .map(|(length_s, (used_pct, resets_in_s))| UsageWindow {
+                length_s,
+                used_pct,
+                resets_at_s: Some(now_s + resets_in_s),
+            })
+            .collect(),
+    };
+    AgentsUsage {
+        providers: vec![
+            provider(
+                claude::ID,
+                claude::LABEL,
+                None,
+                (CLAUDE_5H_PCT, CLAUDE_5H_RESETS_IN_S),
+                (CLAUDE_7D_PCT, CLAUDE_7D_RESETS_IN_S),
+            ),
+            provider(
+                codex::ID,
+                codex::LABEL,
+                Some(CODEX_PLAN),
+                (CODEX_5H_PCT, CODEX_5H_RESETS_IN_S),
+                (CODEX_7D_PCT, CODEX_7D_RESETS_IN_S),
+            ),
+        ],
+    }
+}
+
+const WAITING_FOR: &str = "permission prompt";
+const PROJECT_CWD: &str = "/home/u/Codes/proj";
+const CONTENT_PLATFORM_CWD: &str = "/home/u/Codes/content-platform";
+const IDLE_SESSIONS: u64 = 14;
+const IDLE_NEWEST_AGE_S: u64 = 15 * 3600;
+const IDLE_OLDEST_AGE_S: u64 = 2 * 24 * 3600;
+
+/// The mockup's fleet, published once.
+fn agents_sessions() -> Feed {
+    Feed::new(topics::AGENTS_SESSIONS, |context| async move {
+        context
+            .publisher
+            .publish(topics::AGENTS_SESSIONS, &mockup_sessions(unix_now_s()));
+        pending::<()>().await;
+    })
+}
+
+/// In the order the real feed sorts: waiting, busy, idle, newest first within each group.
+fn mockup_sessions(now_s: u64) -> AgentsSessions {
+    let session = |provider: &str, name: &str, cwd: &str, state, age_s: u64| AgentSession {
+        provider: provider.to_owned(),
+        id: name.to_lowercase().replace(' ', "-"),
+        name: name.to_owned(),
+        cwd: cwd.to_owned(),
+        state,
+        waiting_for: (state == AgentState::Waiting).then(|| WAITING_FOR.to_owned()),
+        since_s: now_s - age_s,
+        pid: None,
+        tmux: None,
+    };
+    let mut sessions = vec![
+        session(
+            claude::ID,
+            "proj-68",
+            PROJECT_CWD,
+            AgentState::Waiting,
+            11 * 60,
+        ),
+        session(claude::ID, "proj-65", PROJECT_CWD, AgentState::Busy, 40),
+        session(claude::ID, "proj-56", PROJECT_CWD, AgentState::Busy, 60),
+        session(
+            codex::ID,
+            "AGENTS.md draft",
+            CONTENT_PLATFORM_CWD,
+            AgentState::Busy,
+            3 * 60,
+        ),
+    ];
+    sessions.extend((0..IDLE_SESSIONS).map(|index| {
+        let age_s = IDLE_NEWEST_AGE_S
+            + index * (IDLE_OLDEST_AGE_S - IDLE_NEWEST_AGE_S) / (IDLE_SESSIONS - 1);
+        session(
+            claude::ID,
+            &format!("proj-{:02}", index + 1),
+            PROJECT_CWD,
+            AgentState::Idle,
+            age_s,
+        )
+    }));
+    AgentsSessions { sessions }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: u64 = 1_792_500_000;
+
+    #[test]
+    fn the_fake_fleet_matches_the_mockup() {
+        let sessions = mockup_sessions(NOW);
+        assert_eq!(sessions.sessions.len(), 18);
+        assert_eq!(
+            sessions
+                .sessions
+                .iter()
+                .filter(|s| s.state == AgentState::Waiting)
+                .count(),
+            1
+        );
+        assert_eq!(sessions.sessions[0].name, "proj-68");
+        let usage = mockup_usage(NOW);
+        assert_eq!(usage.providers[0].windows[1].used_pct, 61.0);
+        assert_eq!(usage.providers[1].plan.as_deref(), Some("plus"));
+    }
 }

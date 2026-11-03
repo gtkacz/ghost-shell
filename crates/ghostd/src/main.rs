@@ -21,6 +21,7 @@ use ghostd::sampler::Sampler;
 use ghostd::selfmon::SelfMon;
 use ghostd::server::{self, ConfigFeed, Feed, Hub, ProviderSpecs, WarningHook, WidgetDirs};
 use ghostd::sysroot::SysRoot;
+use ghostd::taps;
 use ghostd::widgets::default_dirs;
 use ghostd::{fake, feeds, gate, notify, providers};
 use serde::Serialize;
@@ -31,6 +32,7 @@ use tracing::{error, info, warn};
 const EXIT_USAGE: u8 = 2;
 const USAGE: &str = "usage: ghostd run [--socket PATH] [--config PATH] [--widgets-dir DIR] \
                      [--fake] [--tick-ms N]\n       ghostd default-config\n       \
+                     ghostd claude-statusline-tap\n       ghostd codex-hook\n       \
                      ghostd probe <cpu | mem | procs | sensors | gpu | disks | net | perf>";
 const DEFAULT_TICK_MS: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 const RUNTIME_DIR_ENV: &str = "XDG_RUNTIME_DIR";
@@ -48,6 +50,8 @@ fn main() -> ExitCode {
     match args.as_slice() {
         ["run", options @ ..] => run(options),
         ["default-config"] => print_stdout(DEFAULT_TOML),
+        ["claude-statusline-tap"] => taps::claude_statusline_tap(),
+        ["codex-hook"] => taps::codex_hook(),
         ["probe", topic] => probe(topic),
         _ => usage(),
     }
@@ -328,6 +332,8 @@ fn host_feeds(config_path: &Path, signals: watch::Sender<Option<u32>>) -> Vec<Fe
         feeds::recent::feed(),
         feeds::pins::feed(config_path.to_owned(), plasma_config_dir()),
         feeds::notifications::feed(feeds::notifications::default_paths(), signals),
+        feeds::agents::sessions_feed(SysRoot::host()),
+        feeds::agents::usage_feed(),
     ]
 }
 

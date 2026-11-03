@@ -56,7 +56,9 @@ Singleton {
             battery_warn: 20,
             battery_crit: 10,
             aqi_warn: 100,
-            aqi_crit: 150
+            aqi_crit: 150,
+            usage_warn: 60,
+            usage_crit: 85
         })
 
     readonly property var appearance: Data.config ? Data.config.appearance : defaultAppearance
@@ -115,6 +117,8 @@ Singleton {
 
     readonly property real loadWarn: thresholds.load_warn / percent
     readonly property real loadCrit: thresholds.load_crit / percent
+    readonly property real usageWarn: thresholds.usage_warn / percent
+    readonly property real usageCrit: thresholds.usage_crit / percent
     readonly property real tempWarn: thresholds.temp_warn
     readonly property real tempCrit: thresholds.temp_crit
     readonly property real batteryWarn: thresholds.battery_warn
