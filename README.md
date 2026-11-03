@@ -1199,6 +1199,18 @@ From `SetBrightness` on `org.kde.ScreenBrightness` to the monitor's brightness s
 
 ghostd's own hop was not timed separately: it adds a few local D-Bus reads to each `brightness.set`. The monitor's own fade after the write is not included in any row.
 
+### The media item in the bar
+
+Shell process only (`/proc/<pid>/stat`), headless KWin at 2560×1440, `QT_SCALE_FACTOR=1.15`, private bus, debug `ghostd --fake`, `[bar.clock] seconds = "covered"`, dashboard covered, a fake MPRIS player, 2026-11-02. Three rounds of 60 s, interleaved. Each arm ran once per round.
+
+| Arm | Runs | Median |
+|---|---|---|
+| No player, so no item | 0.73, 0.52, 0.32 % | 0.52 % |
+| Playing, item shown, popup closed | 0.55, 0.28, 0.43 % | 0.43 % |
+| Playing, popup open | 0.63, 0.38, 0.38 % | 0.38 % |
+
+The arms overlap and do not order as cost would, so the item's cost is below what this run can resolve, and it gives no figure for it. The spread within an arm (up to 0.41 points) is larger than any gap between medians. The closed item holds no frame clock and redraws only when the track or play state changes. The popup holds the seconds clock while it is open, and opens no capture stream. Not measured: `ghostd`, Rss, the visible dashboard, the release build and a real player.
+
 ## License
 
 Copyright (C) 2026 Gabriel Mitelman Tkacz
