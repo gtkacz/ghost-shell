@@ -49,7 +49,7 @@ Layout C, "Readout", as in the mockup. Sizes below are the mockup's, where 1 moc
 - **Selected row:** signal-colour border, Grid brackets, faint signal fill, bright icon and bright text, as §10 asked of the selected card.
 - **[call] More than 10 windows:** the list scrolls to keep the selection visible, with a drawn chevron at the end that has more. The panel does not resize.
 - **[call] Fewer than 10 windows:** rows stay at the top and the panel keeps its size, so the preview never moves.
-- **[call] Opening:** a top-down print of about 110 ms in 6 steps, as in the mockup. Closing is instant. There are no smooth fades.
+- **[call] Opening:** a top-down print of about 110 ms in 6 steps, as in the mockup. Closing is instant. There are no smooth fades of our own. The user chose, after the spike, to let the print run over KWin's popup effect, which no layout can stop and which ramps the whole window from 20 % to full over about 200 ms; see `docs/superpowers/notes/2026-11-03-switcher-spike.md`.
 - **[call] No text scramble:** the shell scrambles a text on its first write in each showing, but here the names are being read at that very moment, so they appear plain.
 - **Colours and fonts:** every colour, the font and the panel look come from the user's config (§5). The mockup's scanlines also run over the preview; **[call]** the builder may keep them off the real window if that costs less.
 

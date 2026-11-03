@@ -31,7 +31,7 @@ An internal window with `Qt.ToolTip` counts as a popup (`InternalWindow::isPopup
 
 The user's effect fades from 20 % to 100 % over 200 ms with an `OutCubic` curve, so the window is at about 76 % at 66 ms and 93 % at the end of a 110 ms print. The print would run on top of this quick ramp, not instead of it. Layouts and stock switchers all get this ramp today.
 
-Options, for the user to choose:
+Options. The user chose **A** on 2026-11-03, and Task 6 checks how it looks on the real desktop:
 
 - **A, print over the ramp:** no added delay, and the panel is complete at about 200 ms. The ramp may not be visible under the print.
 - **B, hold the panel back about 65 ms:** the steepest part of the ramp runs on an empty window, and the panel is complete about 65 ms later.
