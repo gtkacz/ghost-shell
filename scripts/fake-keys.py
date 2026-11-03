@@ -4,7 +4,8 @@ executable a desktop file in its data dir names with X-KDE-Wayland-Interfaces=or
 Wayland wire format directly, so it needs no Wayland bindings.
 
 usage: uv run --no-project python -I scripts/fake-keys.py <wayland socket path> < commands
-    each line is an evdev key code to press and release; the device lives until stdin closes.
+    each line is an evdev key code to press and release, or +<code> to press it and -<code> to release it, so a
+    modifier can be held across other keys; the device lives until stdin closes.
 """
 
 import socket
@@ -95,6 +96,15 @@ def log(text: str) -> None:
     print(f"fake-key {text} at {time.time_ns() // 1_000_000}", flush=True)
 
 
+def parse_command(line: str) -> tuple[int, tuple[int, ...]]:
+    text = line.strip()
+    if text.startswith("+"):
+        return int(text[1:]), (KEY_PRESSED,)
+    if text.startswith("-"):
+        return int(text[1:]), (KEY_RELEASED,)
+    return int(text), (KEY_PRESSED, KEY_RELEASED)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
         print(__doc__.strip().splitlines()[-2], file=sys.stderr)
@@ -116,11 +126,11 @@ def main(argv: list[str]) -> int:
     client.roundtrip()
     log("ready")
     for line in sys.stdin:
-        key = int(line)
-        for state in (KEY_PRESSED, KEY_RELEASED):
+        key, states = parse_command(line)
+        for state in states:
             client.send(fake_input, FAKE_INPUT_KEYBOARD_KEY, struct.pack("<II", key, state))
         client.roundtrip()
-        log(f"typed {key}")
+        log(f"typed {line.strip()}")
     return 0
 
 

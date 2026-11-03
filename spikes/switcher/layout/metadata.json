@@ -1,0 +1,9 @@
+{
+    "KPackageStructure": "KWin/WindowSwitcher",
+    "KPlugin": {
+        "Id": "org.ghostshell.switcher-spike",
+        "Name": "ghost-shell switcher spike",
+        "Description": "Plan 3c Task 1's throwaway layout.",
+        "License": "GPL-3.0-or-later"
+    }
+}
