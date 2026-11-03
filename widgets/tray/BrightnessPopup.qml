@@ -1,12 +1,13 @@
 import QtQuick
 import GhostKit
 
-// The sun icon's popup in the panel style: one cell slider per display, then the Night Light switch.
+// The sun icon's popup in the panel style: one cell slider per display, then the Night Light switch and temperature.
 Panel {
     id: root
 
-    // Design pixels, from the reference mockup's .tip type and the panel's own rhythm.
-    readonly property real widthPx: 232
+    // Design pixels, from the reference mockup's .tip type and the panel's own rhythm. Wide enough for fifty of SegMeter's
+    // cells, so each is 2 %; a pixel to spare keeps rounding at any scale from dropping the last one.
+    readonly property real widthPx: 323
     readonly property real textPx: 9.5
     readonly property real rowGapPx: 10
     readonly property real captionGapPx: 4
@@ -31,9 +32,26 @@ Panel {
     property var snapshot: null
     readonly property var displays: snapshot !== null ? snapshot.displays : []
     readonly property var nightLight: TrayRules.nightLightSwitch(snapshot !== null ? snapshot.night_light : null)
+    readonly property int temperature: snapshot !== null ? snapshot.night_light.temperature : 0
+    readonly property bool dayTemperature: snapshot !== null && snapshot.night_light.day
+    // As a display row's, so the cells follow the hand and do not snap back while KWin reloads its settings.
+    property int temperatureDragged: -1
+    property int temperatureHeld: -1
+    readonly property int temperatureShown: TrayRules.displayedBrightness(temperatureDragged, temperatureHeld, temperature)
+
+    onTemperatureChanged: temperatureHeld = TrayRules.pendingAfter(temperatureHeld, temperature)
 
     signal displaySet(string id, int value)
     signal nightLightToggled
+    signal nightLightSettingsOpened
+    signal temperatureSet(int kelvin)
+
+    Timer {
+        id: temperatureHoldLimit
+
+        interval: root.holdMs
+        onTriggered: root.temperatureHeld = -1
+    }
 
     readonly property font textFont: Qt.font({
         family: Theme.font,
@@ -171,7 +189,33 @@ Panel {
                 font: root.textFont
             }
 
+            Glyph {
+                id: settingsChevron
+
+                anchors {
+                    left: nightLabel.right
+                    leftMargin: Theme.d(root.captionGapPx)
+                    verticalCenter: parent.verticalCenter
+                }
+                name: "chevron-right"
+                size: Theme.d(root.textPx)
+                color: Theme.text
+            }
+
+            MouseArea {
+                anchors {
+                    left: parent.left
+                    right: settingsChevron.right
+                    top: parent.top
+                    bottom: parent.bottom
+                }
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.nightLightSettingsOpened()
+            }
+
             Text {
+                id: nightStatus
+
                 anchors {
                     right: toggle.left
                     rightMargin: Theme.d(root.switchGapPx)
@@ -207,10 +251,76 @@ Panel {
             }
 
             MouseArea {
-                anchors.fill: parent
+                anchors {
+                    left: nightStatus.left
+                    right: parent.right
+                    top: parent.top
+                    bottom: parent.bottom
+                }
                 enabled: root.nightLight.usable
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.nightLightToggled()
+            }
+        }
+
+        Column {
+            width: parent.width
+            spacing: Theme.d(root.captionGapPx)
+
+            Item {
+                width: parent.width
+                height: temperatureCaption.implicitHeight
+
+                Text {
+                    id: temperatureCaption
+
+                    text: "TEMPERATURE · " + (root.dayTemperature ? "DAY" : "NIGHT")
+                    color: root.nightLight.usable ? Theme.text : Theme.dim
+                    font: root.textFont
+                }
+
+                Text {
+                    anchors.right: parent.right
+                    text: root.nightLight.usable ? root.temperatureShown + " K" : "--"
+                    color: root.nightLight.usable ? Theme.hi : Theme.dim
+                    font: root.textFont
+                }
+            }
+
+            Item {
+                width: parent.width
+                height: Theme.d(root.sliderHitPx)
+
+                SegMeter {
+                    id: temperatureMeter
+
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width
+                    value: root.nightLight.usable ? TrayRules.temperatureFraction(root.temperatureShown) : NaN
+                    // A temperature is no load, so no level of it is an alarm.
+                    warnAt: 2
+                    critAt: 2
+                }
+
+                // Saved on release, not per cell: each save makes KWin re-read its settings and fade again.
+                MouseArea {
+                    function setAt(x) {
+                        root.temperatureDragged = TrayRules.cellTemperature(x, temperatureMeter.cells, temperatureMeter.cellStep);
+                    }
+
+                    anchors.fill: parent
+                    enabled: root.nightLight.usable
+                    cursorShape: Qt.PointingHandCursor
+                    onPressed: mouse => setAt(mouse.x)
+                    onPositionChanged: mouse => setAt(mouse.x)
+                    onReleased: {
+                        root.temperatureHeld = root.temperatureDragged;
+                        root.temperatureDragged = -1;
+                        temperatureHoldLimit.restart();
+                        root.temperatureSet(root.temperatureHeld);
+                    }
+                    onCanceled: root.temperatureDragged = -1
+                }
             }
         }
     }

@@ -193,6 +193,16 @@ Item {
                             value: value
                         })
                         onNightLightToggled: Data.call("nightlight.toggle", {})
+                        onTemperatureSet: kelvin => Data.call("nightlight.temperature", {
+                            value: kelvin
+                        })
+                        onNightLightSettingsOpened: {
+                            root.brightnessOpen = false;
+                            // A settings module is hidden from menus, so it has no entry in the app list; only its id is needed.
+                            Launch.app({
+                                id: TrayRules.nightLightSettingsApp
+                            });
+                        }
                     }
                 }
             }

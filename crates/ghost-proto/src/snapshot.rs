@@ -571,13 +571,16 @@ pub struct DisplayBrightness {
 
 /// KWin's Night Light: `enabled` is its setting, `inhibited` whether it is suspended (what KWin's
 /// "Toggle Night Color" flips), and `running` whether it is tinting the screen now, which a
-/// scheduled Night Light does not do by day.
+/// scheduled Night Light does not do by day. `temperature` is the setting in effect at this time of
+/// day in kelvin, also while suspended, and `day` says it is the day setting, not the night one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct NightLight {
     pub available: bool,
     pub enabled: bool,
     pub inhibited: bool,
     pub running: bool,
+    pub temperature: u32,
+    pub day: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

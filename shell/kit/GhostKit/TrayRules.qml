@@ -6,6 +6,7 @@ import "lib/tray.mjs" as TrayLib
 // Re-exports the tray rules so the tray widget reaches them through the GhostKit import instead of by file path.
 Singleton {
     readonly property var applets: TrayLib.APPLETS
+    readonly property string nightLightSettingsApp: TrayLib.NIGHT_LIGHT_SETTINGS_APP
 
     function network(links) {
         return TrayLib.networkState(links);
@@ -41,6 +42,14 @@ Singleton {
 
     function cellBrightness(x, cells, cellStep, max) {
         return TrayLib.cellBrightness(x, cells, cellStep, max);
+    }
+
+    function cellTemperature(x, cells, cellStep) {
+        return TrayLib.cellTemperature(x, cells, cellStep);
+    }
+
+    function temperatureFraction(kelvin) {
+        return TrayLib.temperatureFraction(kelvin);
     }
 
     function nightLightSwitch(nightLight) {

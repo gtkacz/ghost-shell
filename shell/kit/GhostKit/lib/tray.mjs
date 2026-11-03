@@ -6,6 +6,12 @@ const NOTCHES_PER_RANGE = 20;
 // A backlight at zero can be fully dark, with nothing on screen to turn it back up, and one raw unit is as dark on a
 // display whose range has thousands; ghostd clamps to the same share (DARK_PANEL_FLOOR_PCT in brightness.rs).
 const MIN_BRIGHTNESS_PCT = 1;
+// Over the popup's fifty cells a temperature cell is a round 100 K, ending on KWin's neutral. Colder settings are left
+// to KDE's own window.
+const TEMPERATURE_ROW_ZERO_K = 1500;
+const TEMPERATURE_ROW_SPAN_K = 5000;
+
+export const NIGHT_LIGHT_SETTINGS_APP = 'kcm_nightlight';
 
 export const APPLETS = {
   network: 'org.kde.plasma.networkmanagement',
@@ -66,6 +72,15 @@ export function cellBrightness(x, cells, cellStep, max) {
   }
   const cell = Math.min(cells, Math.max(1, Math.floor(x / cellStep) + 1));
   return Math.max(brightnessFloor(max), Math.round((cell / cells) * max));
+}
+
+export function cellTemperature(x, cells, cellStep) {
+  const cell = Math.min(cells, Math.max(1, Math.floor(x / cellStep) + 1));
+  return TEMPERATURE_ROW_ZERO_K + Math.round((cell / cells) * TEMPERATURE_ROW_SPAN_K);
+}
+
+export function temperatureFraction(kelvin) {
+  return Math.min(1, Math.max(0, (kelvin - TEMPERATURE_ROW_ZERO_K) / TEMPERATURE_ROW_SPAN_K));
 }
 
 

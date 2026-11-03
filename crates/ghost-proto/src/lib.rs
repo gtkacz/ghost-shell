@@ -109,6 +109,8 @@ pub mod calls {
     pub const BRIGHTNESS_SET: &str = "brightness.set";
     /// `{}`
     pub const NIGHTLIGHT_TOGGLE: &str = "nightlight.toggle";
+    /// `{"value": <kelvin>}`
+    pub const NIGHTLIGHT_TEMPERATURE: &str = "nightlight.temperature";
     /// `{"app": "<desktop id>"}`
     pub const BAR_PIN: &str = "bar.pin";
     pub const BAR_UNPIN: &str = "bar.unpin";
@@ -123,7 +125,7 @@ pub mod calls {
     /// `{"on": <bool>}`
     pub const NOTIFICATIONS_DND: &str = "notifications.dnd";
 
-    pub const ALL: [&str; 19] = [
+    pub const ALL: [&str; 20] = [
         WINDOWS_ACTIVATE,
         WINDOWS_MINIMIZE,
         WINDOWS_CLOSE,
@@ -136,6 +138,7 @@ pub mod calls {
         PLASMA_POPUP,
         BRIGHTNESS_SET,
         NIGHTLIGHT_TOGGLE,
+        NIGHTLIGHT_TEMPERATURE,
         BAR_PIN,
         BAR_UNPIN,
         NOTIFICATIONS_INVOKE,

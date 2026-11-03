@@ -344,6 +344,8 @@ fn fake_brightness() -> Brightness {
             enabled: true,
             inhibited: false,
             running: true,
+            temperature: 2500,
+            day: false,
         },
     }
 }

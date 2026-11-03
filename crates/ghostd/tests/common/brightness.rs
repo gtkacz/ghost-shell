@@ -129,6 +129,9 @@ pub struct NightLightState {
     pub enabled: bool,
     pub inhibited: bool,
     pub running: bool,
+    pub target_temperature: u32,
+    pub mode: u32,
+    pub daylight: bool,
 }
 
 struct FakeNightLight {
@@ -155,6 +158,21 @@ impl FakeNightLight {
     #[zbus(property, name = "running")]
     fn running(&self) -> bool {
         self.state.running
+    }
+
+    #[zbus(property, name = "targetTemperature")]
+    fn target_temperature(&self) -> u32 {
+        self.state.target_temperature
+    }
+
+    #[zbus(property, name = "mode")]
+    fn mode(&self) -> u32 {
+        self.state.mode
+    }
+
+    #[zbus(property, name = "daylight")]
+    fn daylight(&self) -> bool {
+        self.state.daylight
     }
 }
 
@@ -184,6 +202,9 @@ impl FakePlasma {
             enabled: true,
             inhibited: false,
             running: true,
+            target_temperature: 2500,
+            mode: 1,
+            daylight: false,
         };
         Self::start_with(bus, night_light).await
     }
@@ -279,5 +300,8 @@ impl FakePlasma {
         fields.enabled_changed(emitter).await.unwrap();
         fields.inhibited_changed(emitter).await.unwrap();
         fields.running_changed(emitter).await.unwrap();
+        fields.target_temperature_changed(emitter).await.unwrap();
+        fields.mode_changed(emitter).await.unwrap();
+        fields.daylight_changed(emitter).await.unwrap();
     }
 }

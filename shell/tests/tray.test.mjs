@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { networkState, bluetoothState, volumeState, kdeConnectState, brightnessState, showsInline, stepVolume, stepBrightness, cellBrightness, nightLightSwitch, brightnessFloor, displayedBrightness, pendingAfter, wheelTarget, APPLETS } from '../kit/GhostKit/lib/tray.mjs';
+import { networkState, bluetoothState, volumeState, kdeConnectState, brightnessState, showsInline, stepVolume, stepBrightness, cellBrightness, nightLightSwitch, brightnessFloor, displayedBrightness, pendingAfter, wheelTarget, cellTemperature, temperatureFraction, APPLETS } from '../kit/GhostKit/lib/tray.mjs';
+import { litCells } from '../kit/GhostKit/lib/segments.mjs';
 
 const ACTIONS_RS = new URL('../../crates/ghostd/src/feeds/actions.rs', import.meta.url);
 const WIDGET_QML = new URL('../../widgets/tray/Widget.qml', import.meta.url);
@@ -91,6 +92,42 @@ test('a slider cell sets the brightness that lights up to it', () => {
   assert.equal(cellBrightness(-4, cells, cellStep, MAX), 500);
   assert.equal(cellBrightness(10, 0, cellStep, MAX), 100);
   assert.equal(cellBrightness(0, 400, cellStep, MAX), 100);
+});
+
+test('fifty cells make every even percent of the range exact, and light exactly that many cells', () => {
+  const cells = 50;
+  const cellStep = 6;
+  assert.equal(cellBrightness(24 * cellStep, cells, cellStep, MAX), 5000);
+  for (let cell = 1; cell <= cells; cell++) {
+    const value = cellBrightness((cell - 1) * cellStep, cells, cellStep, MAX);
+    assert.equal(value, cell * 200);
+    assert.equal(litCells(value / MAX, 0, 1, cells), cell);
+  }
+});
+
+test('a temperature cell is a round hundred kelvin, up to neutral', () => {
+  const cells = 50;
+  const cellStep = 6;
+  assert.equal(cellTemperature(0, cells, cellStep), 1600);
+  assert.equal(cellTemperature(9 * cellStep, cells, cellStep), 2500);
+  assert.equal(cellTemperature(14 * cellStep + 5.9, cells, cellStep), 3000);
+  assert.equal(cellTemperature(1000, cells, cellStep), 6500);
+  assert.equal(cellTemperature(-4, cells, cellStep), 1600);
+});
+
+test('a temperature lights the cell that sets it', () => {
+  const cells = 50;
+  const cellStep = 6;
+  for (let cell = 1; cell <= cells; cell++) {
+    const kelvin = cellTemperature((cell - 1) * cellStep, cells, cellStep);
+    assert.equal(litCells(temperatureFraction(kelvin), 0, 1, cells), cell);
+  }
+});
+
+test('a temperature set colder than the row reaches lights no cell, and one above it all of them', () => {
+  assert.equal(temperatureFraction(1000), 0);
+  assert.equal(temperatureFraction(1500), 0);
+  assert.equal(temperatureFraction(7000), 1);
 });
 
 test('the night light switch reads on unless it is suspended, and works only while enabled', () => {

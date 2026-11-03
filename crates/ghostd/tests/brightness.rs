@@ -1,6 +1,7 @@
 mod common;
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use common::brightness::{
@@ -12,6 +13,7 @@ use ghost_proto::{Brightness, DisplayBrightness, NightLight, ResolvedConfig, cal
 use ghostd::feeds::brightness;
 use ghostd::server::{Call, FeedContext, Publisher};
 use serde_json::{Value, json};
+use tempfile::TempDir;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
@@ -24,6 +26,10 @@ const PANEL_START: i32 = 100;
 const MONITOR_FLOOR: i32 = 100;
 const PANEL_FLOOR: i32 = 3;
 const DEBOUNCED: Duration = Duration::from_millis(500);
+const NIGHT_KELVIN: u32 = 2500;
+// KWin's values for `mode`.
+const MODE_CONSTANT: u32 = 0;
+const MODE_DARK_LIGHT: u32 = 1;
 
 /// The real feed on a private bus standing in for the session bus, and everything it publishes.
 struct Running {
@@ -32,6 +38,8 @@ struct Running {
     calls: broadcast::Sender<Call>,
     demand: watch::Sender<BTreeSet<String>>,
     _config: watch::Sender<ResolvedConfig>,
+    kwin_config: PathBuf,
+    _config_dir: TempDir,
     _bus: PrivateBus,
     _task: JoinHandle<()>,
 }
@@ -62,12 +70,17 @@ impl Running {
             calls: calls_receiver,
             topics: broadcast::channel(1).1,
         };
-        let feed = brightness::feed_on(bus.connect().await);
+        // The real kwriteconfig6 on a file of the test's own, so no test can touch the desktop's kwinrc.
+        let config_dir = TempDir::new().unwrap();
+        let kwin_config = config_dir.path().join("kwinrc-under-test");
+        let feed = brightness::feed_on(bus.connect().await, kwin_config.to_str().unwrap());
         Self {
             plasma,
             published,
             calls,
             demand,
+            kwin_config,
+            _config_dir: config_dir,
             _config: config,
             _bus: bus,
             _task: tokio::spawn(feed.run(context)),
@@ -116,6 +129,12 @@ impl Running {
         .expect("the fake never saw the requests")
     }
 
+    /// The Night Light temperature keys in the config file, once the feed has had time to write.
+    async fn night_color_after_quiet(&self) -> String {
+        sleep(QUIET).await;
+        std::fs::read_to_string(&self.kwin_config).unwrap_or_default()
+    }
+
     /// Everything the fake saw once the feed had time to act on what it was asked.
     async fn requests_after_quiet(&self) -> Vec<Request> {
         sleep(QUIET).await;
@@ -128,18 +147,27 @@ const NIGHT_LIGHT_RUNNING: NightLightState = NightLightState {
     enabled: true,
     inhibited: false,
     running: true,
+    target_temperature: NIGHT_KELVIN,
+    mode: MODE_DARK_LIGHT,
+    daylight: false,
 };
 const NIGHT_LIGHT_OFF: NightLightState = NightLightState {
     available: true,
     enabled: false,
     inhibited: false,
     running: false,
+    target_temperature: NIGHT_KELVIN,
+    mode: MODE_DARK_LIGHT,
+    daylight: false,
 };
 const NIGHT_LIGHT_UNAVAILABLE: NightLightState = NightLightState {
     available: false,
     enabled: false,
     inhibited: false,
     running: false,
+    target_temperature: NIGHT_KELVIN,
+    mode: MODE_DARK_LIGHT,
+    daylight: false,
 };
 
 fn set(display: &str, value: Value) -> Value {
@@ -179,6 +207,8 @@ async fn publishes_the_displays_and_night_light_once_wanted() {
                 enabled: true,
                 inhibited: false,
                 running: true,
+                temperature: NIGHT_KELVIN,
+                day: false,
             },
         }
     );
@@ -233,6 +263,8 @@ async fn follows_night_light() {
             enabled: false,
             inhibited: false,
             running: false,
+            temperature: NIGHT_KELVIN,
+            day: false,
         }
     );
 }
@@ -339,7 +371,11 @@ async fn survives_a_plasma_that_is_not_on_the_bus() {
         calls: calls_receiver,
         topics: broadcast::channel(1).1,
     };
-    let task = tokio::spawn(brightness::feed_on(bus.connect().await).run(context));
+    let config_dir = TempDir::new().unwrap();
+    let kwin_config = config_dir.path().join("kwinrc-under-test");
+    let task = tokio::spawn(
+        brightness::feed_on(bus.connect().await, kwin_config.to_str().unwrap()).run(context),
+    );
     let (_, data) = timeout(BUS_WAIT, published.recv()).await.unwrap().unwrap();
     assert_eq!(
         serde_json::from_value::<Brightness>(data).unwrap(),
@@ -388,4 +424,107 @@ async fn follows_night_light_being_suspended() {
         .snapshot_where(|snapshot| snapshot.night_light.inhibited)
         .await;
     assert!(snapshot.night_light.enabled && !snapshot.night_light.running);
+}
+
+#[tokio::test]
+async fn reads_the_day_temperature_only_on_a_schedule_by_day() {
+    let by_day = NightLightState {
+        target_temperature: 3000,
+        daylight: true,
+        ..NIGHT_LIGHT_RUNNING
+    };
+    let mut running = Running::start_with(by_day, true).await;
+    let night_light = running.next_snapshot().await.night_light;
+    assert_eq!((night_light.temperature, night_light.day), (3000, true));
+
+    let constant = NightLightState {
+        mode: MODE_CONSTANT,
+        ..by_day
+    };
+    let mut running = Running::start_with(constant, true).await;
+    assert!(!running.next_snapshot().await.night_light.day);
+}
+
+#[tokio::test]
+async fn follows_the_temperature_kwin_aims_for() {
+    let mut running = Running::start().await;
+    running.next_snapshot().await;
+    running
+        .plasma
+        .set_night_light(NightLightState {
+            target_temperature: 2700,
+            ..NIGHT_LIGHT_RUNNING
+        })
+        .await;
+    running
+        .snapshot_where(|snapshot| snapshot.night_light.temperature == 2700)
+        .await;
+}
+
+#[tokio::test]
+async fn writes_a_temperature_to_the_night_setting_by_night() {
+    let running = Running::start().await;
+    running.call(calls::NIGHTLIGHT_TEMPERATURE, json!({"value": 2700}));
+    let config = running.night_color_after_quiet().await;
+    assert!(config.contains("[NightColor]"), "{config}");
+    assert!(config.contains("NightTemperature=2700"), "{config}");
+    assert!(!config.contains("DayTemperature"), "{config}");
+}
+
+#[tokio::test]
+async fn writes_a_temperature_to_the_day_setting_by_day() {
+    let by_day = NightLightState {
+        daylight: true,
+        ..NIGHT_LIGHT_RUNNING
+    };
+    let running = Running::start_with(by_day, true).await;
+    running.call(calls::NIGHTLIGHT_TEMPERATURE, json!({"value": 3100}));
+    let config = running.night_color_after_quiet().await;
+    assert!(config.contains("DayTemperature=3100"), "{config}");
+    assert!(!config.contains("NightTemperature"), "{config}");
+}
+
+#[tokio::test]
+async fn writes_the_night_setting_for_a_constant_night_light_even_by_day() {
+    let constant = NightLightState {
+        mode: MODE_CONSTANT,
+        daylight: true,
+        ..NIGHT_LIGHT_RUNNING
+    };
+    let running = Running::start_with(constant, true).await;
+    running.call(calls::NIGHTLIGHT_TEMPERATURE, json!({"value": 2600}));
+    let config = running.night_color_after_quiet().await;
+    assert!(config.contains("NightTemperature=2600"), "{config}");
+}
+
+#[tokio::test]
+async fn clamps_a_temperature_to_kwins_range() {
+    for (sent, written) in [(100, 1000), (99_999, 6500)] {
+        let running = Running::start().await;
+        running.call(calls::NIGHTLIGHT_TEMPERATURE, json!({"value": sent}));
+        let config = running.night_color_after_quiet().await;
+        assert!(
+            config.contains(&format!("NightTemperature={written}")),
+            "{config}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn writes_no_temperature_it_cannot_trust() {
+    let running = Running::start().await;
+    for value in [json!("2700"), json!(null), json!(true), json!([1])] {
+        running.call(calls::NIGHTLIGHT_TEMPERATURE, json!({"value": value}));
+    }
+    running.call(calls::NIGHTLIGHT_TEMPERATURE, json!({}));
+    assert_eq!(running.night_color_after_quiet().await, "");
+}
+
+#[tokio::test]
+async fn writes_no_temperature_while_night_light_is_off_or_missing() {
+    for night_light in [NIGHT_LIGHT_OFF, NIGHT_LIGHT_UNAVAILABLE] {
+        let running = Running::start_with(night_light, true).await;
+        running.call(calls::NIGHTLIGHT_TEMPERATURE, json!({"value": 2700}));
+        assert_eq!(running.night_color_after_quiet().await, "");
+    }
 }

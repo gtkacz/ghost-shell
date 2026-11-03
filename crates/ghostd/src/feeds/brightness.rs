@@ -16,14 +16,20 @@
 //!   which is read-only), and the action suspends or resumes it, so a second toggle undoes the
 //!   first. It is left alone while Night Light is unavailable or disabled in the settings: it
 //!   would suspend nothing visible, and would leave it suspended when it is enabled later. A toggle
-//!   within `TOGGLE_DEBOUNCE` of the last one is dropped, so a double click is one toggle.
+//!   within `TOGGLE_DEBOUNCE` of the last one is dropped, so a double click is one toggle;
+//! - `nightlight.temperature` saves the temperature for the current time of day, clamped to KWin's
+//!   range, through `kwriteconfig6`: KWin has no D-Bus method that keeps a temperature (`preview`
+//!   lapses and pops up an OSD), but reloads its settings when told the file changed. It too is
+//!   left alone while Night Light is unavailable or disabled.
 
 use std::collections::HashMap;
 use std::future::pending;
+use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
 use ghost_proto::{Brightness, DisplayBrightness, NightLight, calls, topics};
 use serde_json::Value;
+use tokio::process::Command;
 use tokio::sync::broadcast;
 use tokio::time::{Instant, timeout};
 use tracing::{debug, warn};
@@ -44,7 +50,25 @@ const KGLOBALACCEL: &str = "org.kde.kglobalaccel";
 const KWIN_COMPONENT_PATH: &str = "/component/kwin";
 const COMPONENT_INTERFACE: &str = "org.kde.kglobalaccel.Component";
 const TOGGLE_NIGHT_LIGHT: &str = "Toggle Night Color";
-const NIGHT_LIGHT_READ: [&str; 4] = ["available", "enabled", "inhibited", "running"];
+const NIGHT_LIGHT_READ: [&str; 7] = [
+    "available",
+    "enabled",
+    "inhibited",
+    "running",
+    "targetTemperature",
+    "mode",
+    "daylight",
+];
+/// KWin's `NightLightMode::Constant`: one temperature, kept in the night setting, at all hours.
+const MODE_CONSTANT: u32 = 0;
+const KWIN_CONFIG: &str = "kwinrc";
+const KWRITECONFIG: &str = "kwriteconfig6";
+const NIGHT_LIGHT_GROUP: &str = "NightColor";
+const DAY_TEMPERATURE_KEY: &str = "DayTemperature";
+const NIGHT_TEMPERATURE_KEY: &str = "NightTemperature";
+/// KWin's `MIN_TEMPERATURE` and `DEFAULT_DAY_TEMPERATURE`, which it clamps its settings to.
+const MIN_KELVIN: f64 = 1000.0;
+const MAX_KELVIN: f64 = 6500.0;
 const DISPLAY_ARG: &str = "display";
 const VALUE_ARG: &str = "value";
 /// A backlight at zero can be fully dark, with nothing on screen to turn it back up, and one raw
@@ -71,16 +95,19 @@ pub fn feed() -> Feed {
                 warn!(%error, "cannot connect to the session bus; brightness has no displays and its calls do nothing");
             })
             .ok();
-        run(bus, context).await;
+        run(bus, KWIN_CONFIG, context).await;
     })
 }
 
-/// As [`feed`], on `bus`.
-pub fn feed_on(bus: Connection) -> Feed {
-    Feed::new(topics::BRIGHTNESS, move |context| run(Some(bus), context))
+/// As [`feed`], on `bus` and saving Night Light's temperature to `kwin_config`.
+pub fn feed_on(bus: Connection, kwin_config: &str) -> Feed {
+    let kwin_config = kwin_config.to_owned();
+    Feed::new(topics::BRIGHTNESS, move |context| async move {
+        run(Some(bus), &kwin_config, context).await;
+    })
 }
 
-async fn run(bus: Option<Connection>, context: FeedContext) {
+async fn run(bus: Option<Connection>, kwin_config: &str, context: FeedContext) {
     let FeedContext {
         publisher,
         mut demand,
@@ -88,7 +115,7 @@ async fn run(bus: Option<Connection>, context: FeedContext) {
         ..
     } = context;
     tokio::select! {
-        () = serve_calls(bus.as_ref(), calls) => {}
+        () = serve_calls(bus.as_ref(), kwin_config, calls) => {}
         () = publish_while_wanted(bus.as_ref(), &publisher, &mut demand) => {}
     }
 }
@@ -296,6 +323,9 @@ async fn read_night_light(bus: &Connection) -> NightLight {
             enabled: night_light.get("enabled").await?,
             inhibited: night_light.get("inhibited").await?,
             running: night_light.get("running").await?,
+            temperature: night_light.get("targetTemperature").await?,
+            day: night_light.get::<u32>("mode").await? != MODE_CONSTANT
+                && night_light.get("daylight").await?,
         })
     };
     read.await.unwrap_or_else(|error| {
@@ -306,7 +336,11 @@ async fn read_night_light(bus: &Connection) -> NightLight {
 
 /// Never returns: calls keep coming for as long as the daemon runs. They are handled one at a
 /// time, in arrival order.
-async fn serve_calls(bus: Option<&Connection>, mut incoming: broadcast::Receiver<Call>) {
+async fn serve_calls(
+    bus: Option<&Connection>,
+    kwin_config: &str,
+    mut incoming: broadcast::Receiver<Call>,
+) {
     let mut last_toggle: Option<Instant> = None;
     loop {
         match incoming.recv().await {
@@ -320,7 +354,7 @@ async fn serve_calls(bus: Option<&Connection>, mut incoming: broadcast::Receiver
                     }
                     last_toggle = Some(Instant::now());
                 }
-                handle(bus, &call).await;
+                handle(bus, kwin_config, &call).await;
             }
             Err(broadcast::error::RecvError::Lagged(missed)) => {
                 warn!(
@@ -333,10 +367,10 @@ async fn serve_calls(bus: Option<&Connection>, mut incoming: broadcast::Receiver
     }
 }
 
-async fn handle(bus: Option<&Connection>, call: &Call) {
+async fn handle(bus: Option<&Connection>, kwin_config: &str, call: &Call) {
     if !matches!(
         call.method.as_str(),
-        calls::BRIGHTNESS_SET | calls::NIGHTLIGHT_TOGGLE
+        calls::BRIGHTNESS_SET | calls::NIGHTLIGHT_TOGGLE | calls::NIGHTLIGHT_TEMPERATURE
     ) {
         return;
     }
@@ -349,6 +383,8 @@ async fn handle(bus: Option<&Connection>, call: &Call) {
     };
     let done = if call.method == calls::BRIGHTNESS_SET {
         timeout(BUS_TIMEOUT, set_brightness(bus, &call.args)).await
+    } else if call.method == calls::NIGHTLIGHT_TEMPERATURE {
+        timeout(BUS_TIMEOUT, set_temperature(bus, kwin_config, &call.args)).await
     } else {
         timeout(BUS_TIMEOUT, toggle_night_light(bus)).await
     };
@@ -413,10 +449,58 @@ async fn toggle_night_light(bus: &Connection) -> Result<(), CallError> {
     Ok(())
 }
 
+async fn set_temperature(
+    bus: &Connection,
+    kwin_config: &str,
+    args: &Value,
+) -> Result<(), CallError> {
+    let Some(kelvin) = args
+        .get(VALUE_ARG)
+        .and_then(Value::as_f64)
+        .filter(|kelvin| kelvin.is_finite())
+    else {
+        return Err(CallError::Refused("needs a temperature in kelvin"));
+    };
+    let night_light = read_night_light(bus).await;
+    if !(night_light.available && night_light.enabled) {
+        return Err(CallError::Refused("Night Light is unavailable or disabled"));
+    }
+    let key = if night_light.day {
+        DAY_TEMPERATURE_KEY
+    } else {
+        NIGHT_TEMPERATURE_KEY
+    };
+    let kelvin = kelvin.round().clamp(MIN_KELVIN, MAX_KELVIN) as u32;
+    let status = Command::new(KWRITECONFIG)
+        .args([
+            "--file",
+            kwin_config,
+            "--group",
+            NIGHT_LIGHT_GROUP,
+            "--key",
+            key,
+            "--notify",
+        ])
+        .arg(kelvin.to_string())
+        .stdin(Stdio::null())
+        // The call's timeout drops this future; a stuck writer must not outlive it.
+        .kill_on_drop(true)
+        .status()
+        .await?;
+    if !status.success() {
+        return Err(CallError::Write(status));
+    }
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CallError {
     #[error("refused: {0}")]
     Refused(&'static str),
     #[error(transparent)]
     Bus(#[from] zbus::Error),
+    #[error("cannot run kwriteconfig6: {0}")]
+    Spawn(#[from] std::io::Error),
+    #[error("kwriteconfig6 failed: {0}")]
+    Write(ExitStatus),
 }
