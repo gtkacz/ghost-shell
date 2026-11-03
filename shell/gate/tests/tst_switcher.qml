@@ -157,6 +157,17 @@ TestCase {
         verify(!findChild(panel, "more-below").visible);
     }
 
+    // The layout loads the theme once the panel is built, so on a session's first opening the rows grow under it.
+    function test_selection_stays_visible_when_the_panel_is_fitted_late() {
+        Theme.u = 1;
+        const panel = makePanel(rows(15), 14);
+        const list = findChild(panel, "list");
+        Theme.fit(screenWidth);
+        // The rows move only when the list next lays out, so before that their old positions would pass the check.
+        waitForRendering(list);
+        tryVerify(() => list.currentItem.y + list.currentItem.height <= list.contentY + list.height && list.currentItem.y >= list.contentY);
+    }
+
     function test_no_chevron_when_nothing_is_hidden() {
         const panel = makePanel(rows(10), 9);
         verify(!findChild(panel, "more-above").visible);
