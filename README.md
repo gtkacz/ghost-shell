@@ -1288,6 +1288,46 @@ The arms overlap and do not order as cost would, so the item's cost is below wha
 
 The feeds' CPU cost is below what this resolves. RSS is 1,676 KiB higher, from a single pair of readings of processes of different ages, so it is an indication and not a figure. `echo '{}' | ghostd codex-hook` took 1 ms in each of 5 runs, timed to the millisecond, with an empty payload and not a real event's. The chip's cost in the shell was not measured. A reading from 2026-10-24 (0.07 %, 38,420 KiB) predates the daemon's later feeds, so it is no baseline for this.
 
+### Plan 3c: the switcher
+
+The live desktop on 2026-11-03 at `68d6b9a`: NVIDIA, the user's windows and effects, one KWin process throughout, other sessions running. There are no numeric targets, because stock is the baseline. KWin's CPU comes from `/proc/<pid>/stat` as a percentage of one core, so GPU work is not in it. Each held reading covers 25 s of a 30 s hold.
+
+| Arm | Closed 60 s: mean, median, peak second | Held open 25 s: mean, median, peak second | `VmRSS` across the run |
+|---|---|---|---|
+| Stock, `org.kde.breeze.desktop` (14:52) | 6.07 %, 6 %, 20 % | 5.75 %, 6 %, 8 % | 656,708 → 657,104 KiB |
+| The switcher (15:32) | 4.99 %, 5 %, 9 % | 5.07 %, 5 %, 6 % | 672,700 → 674,080 KiB |
+
+The switcher costs no more CPU than stock, closed or held open. Its lower readings are not a gain: the runs are 40 minutes apart, and a later closed reading of 20 s (15:47) came to about 1 %, which is unexplained and shows how far the baseline moves. The cause of the stock run's one 20 % second is unknown.
+
+**Memory across openings,** `VmRSS` of the same KWin:
+
+| Point | KiB |
+|---|---|
+| After `--switcher`, before any opening | 668,604 |
+| After 3 openings | 672,600 |
+| After 4 | 674,080 |
+| After 6 | 675,636 |
+| After 14, with 11 `konsole` windows opened and closed in between | 808,260 |
+| After 24, with no new windows | 809,596 |
+
+KWin had grown 11,500 KiB since the stock run before the switcher ever loaded, across a text console round trip, so that growth is not the switcher's. The last ten openings cost 1,336 KiB, about 130 KiB each, nearly all of it anonymous memory (`RssAnon` +1,300 KiB), with `RssFile` (378,344 KiB) and `RssShmem` (205,680 KiB) unchanged.
+
+**The jump of 132,624 KiB comes from the burst of windows,** which a stock run in the same KWin reproduced with the switcher removed. Stock holds took it from 809,604 to 810,980 KiB; they log nothing, so they are not counted. Launching the 11 `konsole` windows then took it to 1,030,620 KiB within one 2 s sample and to 1,061,788 KiB at its peak, and closing them left 862,952 KiB. Some of a burst stays with or without the switcher. Lifetime `VmHWM` was 1,074,020 KiB at 15:47 and did not move after that, with no earlier reading to compare. `nvidia-smi` gave KWin 146 MiB at each of three readings from the 14th opening on, also with no earlier reading.
+
+**Opening time,** key press to first changed capture at the screen's centre: `spikes/switcher/run.sh timing` in a headless KWin with the user's effects and still stand-ins, so it compares layouts and says nothing about NVIDIA. For the switcher's rows the script's `layout_id` and copied package were pointed at `packaging/switcher/org.ghostshell.switcher`, a two-line change that is not committed. On the real GPU the opening was not timed; the user raised no slowness when asked.
+
+| Layout | First opening | Later openings |
+|---|---|---|
+| The switcher, run 1 | 160 ms | 111, 123, 110 ms |
+| The switcher, run 2 | 158 ms | 108, 114, 116 ms |
+| `org.kde.breeze.desktop`, run 1 | 208 ms | 127, 122, 120 ms |
+| `org.kde.breeze.desktop`, run 2 | 202 ms | 122, 125, 123 ms |
+| The spike, with no list (Task 1) | 148 ms | 99, 106, 108 ms |
+| `thumbnail_grid` (Task 1) | 210 ms | 120, 126, 127 ms |
+| `org.kde.breeze.desktop` (Task 1) | 207 ms | 123, 123, 124 ms |
+
+The list costs the switcher little against the spike, and it stays ahead of stock on first and later openings.
+
 ## License
 
 Copyright (C) 2026 Gabriel Mitelman Tkacz
