@@ -121,6 +121,8 @@ enabled = true
 claude_config_dirs = ["~/.claude", "~/.config/claude-code/work"]
 ```
 
+The same detail can be a dashboard panel. Add `{ widget = "agents", title = "AI", settings = { style = "panel" } }` to a view's `tabs`, with or without the chip.
+
 `scripts/install-agents.sh` needs `scripts/install.sh` to have run first. It backs up `~/.claude/settings.json` and `~/.codex/hooks.json` to `<file>.ghost-shell.bak.<timestamp>`, checks each copy with `cmp`, and stops without changing anything if that fails. Then it points Claude's `statusLine` at `ghostd claude-statusline-tap`, which runs your previous status-line command (saved in `~/.config/ghost-shell/claude-statusline-inner`) after saving Claude's JSON, and adds a `ghostd codex-hook` entry for each of eight Codex events. It prints each backup with its `restore: cp` line, and is idempotent. `--dry-run` lists what it would write, and `--uninstall` reverses both edits, with the same backups. Anything that rewrites `statusLine` (a claude-hud update, unsnooze setup) removes the tap, and the chip reads `CC --` until you rerun the installer. A Codex session already running stays invisible until its next prompt or tool call. Usage is read from `~/.claude` only, while sessions come from every `claude_config_dirs` entry. Run its tests with `uv run --no-project --with pytest python -I -m pytest scripts/test_agents_hooks.py`.
 
 ### CPU package power (optional)
