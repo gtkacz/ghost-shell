@@ -999,6 +999,7 @@ Then, with the user's yes, append to `~/.config/ghost-shell/config.toml` (which 
 [layout.bar]
 left = [{ widget = "brand" }, { widget = "tasks", settings = { style = "icons" } }]
 right = [
+    { widget = "media", settings = { style = "bar" } },
     { widget = "status", settings = { parts = ["cpu", "net", "vpn", "weather"] } },
     { widget = "agents" },
     { widget = "tray" },

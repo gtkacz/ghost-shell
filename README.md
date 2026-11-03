@@ -118,6 +118,7 @@ The `agents` chip shows Claude Code and Codex usage meters and the number of run
 left = [{ widget = "brand" }, { widget = "tasks", settings = { style = "icons" } }]
 centre = []
 right = [
+    { widget = "media", settings = { style = "bar" } },
     { widget = "status", settings = { parts = ["cpu", "net", "vpn", "weather"] } },
     { widget = "agents" },
     { widget = "tray" },
