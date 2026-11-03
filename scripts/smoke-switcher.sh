@@ -282,6 +282,19 @@ keys "-$alt"
 expect_steps 1 "new colour"
 echo "smoke-switcher: new colour"
 
+# Nothing left to switch to. The checks below cover this too: KWin must survive it, with no warning.
+for window in "${!window_pids[@]}"; do
+    stop "${window_pids[$window]}"
+    unset "window_pids[$window]"
+done
+sleep "$settle_s"
+before_empty=$(openings)
+keys "+$alt" "$tab"
+sleep "$settle_s"
+keys "-$alt"
+sleep "$settle_s"
+echo "smoke-switcher: no windows, opened $(($(openings) - before_empty)) times"
+
 kill -0 "$(< "$root/kwin.pid")" 2> /dev/null || fail "KWin died; see $kwin_log"
 warnings=$(grep -aE -- "$warning_pattern" "$kwin_log" || true)
 [[ -z $warnings ]] || fail "warnings in $kwin_log:"$'\n'"$warnings"
