@@ -312,6 +312,7 @@ pub struct BarConfig {
     pub status: BarStatus,
     pub agents: BarAgents,
     pub tray: BarTray,
+    pub view_chip: BarViewChip,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -390,6 +391,19 @@ pub struct BarTray {
 impl Default for BarTray {
     fn default() -> Self {
         Self { icon_size: 13 }
+    }
+}
+
+/// The MAIN/MONITOR chip and the swap button beside it in the bar.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BarViewChip {
+    pub enabled: bool,
+}
+
+impl Default for BarViewChip {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 

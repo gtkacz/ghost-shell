@@ -11,6 +11,7 @@ use crate::config::is_hex_colour;
 
 const STATUS_WIDGET: &str = "status";
 const AGENTS_WIDGET: &str = "agents";
+const VIEW_CHIP_WIDGET: &str = "view-chip";
 const PARTS_SETTING: &str = "parts";
 
 /// Checks every slot of every view against `manifests`.
@@ -57,6 +58,7 @@ fn is_switched_on(config: &BarConfig, widget: &str) -> bool {
     match widget {
         STATUS_WIDGET => config.status.enabled,
         AGENTS_WIDGET => config.agents.enabled,
+        VIEW_CHIP_WIDGET => config.view_chip.enabled,
         _ => true,
     }
 }

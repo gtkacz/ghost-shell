@@ -160,6 +160,11 @@ enabled = false
 # unread count off the bar.
 icon_size = 13
 
+[bar.view_chip]
+# The MAIN/MONITOR chip and the swap button beside it. With them off, the monitor and swap
+# keys in [shortcuts] are what change the view.
+enabled = true
+
 [greeting]
 # Name used in the greeting. Empty means your login name.
 name = ""
@@ -255,7 +260,7 @@ margin = 12
 # The bar's widgets, left to right in three groups. Without [layout.bar] the preset for
 # bar.layout is used (this is preset "a"); `layout.dock`, an array of the same tables, replaces
 # the dock that layout "b" shows. Only widgets that declare the "bar" kind fit here.
-# `status` and `agents` show only while [bar.status] and [bar.agents] enable them, wherever they are listed.
+# `status`, `agents` and `view-chip` show only while [bar.status], [bar.agents] and [bar.view_chip] enable them, wherever they are listed.
 # [layout.bar]
 # left = [{ widget = "brand" }, { widget = "tasks", settings = { style = "icons" } }]
 # centre = []

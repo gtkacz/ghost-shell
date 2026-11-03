@@ -251,6 +251,28 @@ fn tray_icon_size_that_pushes_the_bells_badge_off_the_bar_names_its_path() {
 }
 
 #[test]
+fn a_switched_off_view_chip_leaves_every_preset() {
+    for layout in [BarLayout::A, BarLayout::B, BarLayout::C] {
+        let right = resolve_config("[bar.view_chip]\nenabled = false\n", layout)
+            .bar
+            .right;
+
+        assert_eq!(widgets(&right), ["media", "tray", "bar-clock"]);
+    }
+}
+
+#[test]
+fn a_switched_off_view_chip_stays_off_when_the_users_bar_lists_it() {
+    let resolved = resolve_config(
+        "[bar.view_chip]\nenabled = false\n\
+         [layout.bar]\nright = [{ widget = \"view-chip\" }, { widget = \"tray\" }]\n",
+        BarLayout::A,
+    );
+
+    assert_eq!(widgets(&resolved.bar.right), ["tray"]);
+}
+
+#[test]
 fn the_status_readout_and_the_agents_chip_are_off_in_every_preset_by_default() {
     for layout in [BarLayout::A, BarLayout::B, BarLayout::C] {
         let right = resolve_config("", layout).bar.right;
