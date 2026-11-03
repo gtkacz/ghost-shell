@@ -19,6 +19,53 @@ def _load():
 tt = _load()
 
 
+def test_netrunner_preset_matches_desktop_and_passes_checks(tmp_path):
+    out = tmp_path / "netrunner"
+    assert tt.main(["--palette", "netrunner", "--out", str(out)]) == 0
+    config = (out / "ghostty-config").read_text()
+    assert "background = #0b0914" in config
+    assert "foreground = #d4cce5" in config
+    assert "cursor-color = #b58aff" in config
+    assert "palette = 1=#ff3b45" in config
+    assert "palette = 3=#fcee0a" in config
+    assert "#38d9f5" in (out / "starship.toml").read_text()
+    assert tt.main(["--palette", "netrunner", "--check"]) == 0
+
+
+def test_explicit_section_nine_matches_default_output(tmp_path):
+    original, explicit = tmp_path / "original", tmp_path / "explicit"
+    assert tt.main(["--out", str(original)]) == 0
+    assert tt.main(["--palette", "section-nine", "--out", str(explicit)]) == 0
+    assert {p.name: p.read_bytes() for p in original.iterdir()} == {
+        p.name: p.read_bytes() for p in explicit.iterdir()
+    }
+
+
+def test_netrunner_prompt_chip_keeps_violet_text_readable():
+    import json
+
+    colors = json.loads((REPO / "crates/ghost-proto/src/palettes/netrunner.json").read_text())
+    palette = tt.load_palette(DEFAULT_TOML, REPO / "term/netrunner.toml", desktop_colors=colors)
+    assert f"bg:{palette.selection}" in tt.render_starship(palette)
+    for kind in tt.SIMULATED:
+        assert tt.contrast(tt.simulate(colors["hi"], kind), tt.simulate(palette.selection, kind)) >= 4.5
+
+
+def test_unknown_preset_rejected_before_writing(tmp_path):
+    out = tmp_path / "output"
+    with pytest.raises(SystemExit):
+        tt.main(["--palette", "typo", "--out", str(out)])
+    assert not out.exists()
+
+
+def test_installer_netrunner_dry_run(tmp_path):
+    home = _home(tmp_path)
+    result = _run_script("install-term.sh", home, "--palette", "netrunner", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert (home / ".config/ghostty/config").read_text() == "old = 1\n"
+    assert "background = #0b0914" in (REPO / "term/out/ghostty-config").read_text()
+
+
 def _write(tmp_path, name, body):
     path = tmp_path / name
     path.write_text(textwrap.dedent(body))

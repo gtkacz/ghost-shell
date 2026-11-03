@@ -1,0 +1,14 @@
+{
+  "ground": "#0b0914",
+  "panel": "#130e20",
+  "hair": "#48345e",
+  "hair2": "#241a32",
+  "text": "#d4cce5",
+  "hi": "#b58aff",
+  "dim": "#9285a8",
+  "signal": "#38d9f5",
+  "warn": "#fcee0a",
+  "crit": "#ff3b45",
+  "dot": "#38d9f5",
+  "burn": "#e9ddff"
+}

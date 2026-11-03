@@ -105,6 +105,23 @@ make install-term
 
 `scripts/install-term.sh` themes Ghostty, Starship, `eza` and `fast-syntax-highlighting` from the shell's palette, which `scripts/install.sh` never does. It first backs up `~/.zshrc` and the existing terminal configs into `~/.config/term-backup-*.tar.gz`, checks the checksum, and stops without changing anything if that fails. Then it writes the configs under `~/.config/` and adds one marked block to `~/.zshrc`. It needs `uv`, Ghostty and Starship, and it is idempotent. `--dry-run` lists what it would write. The colours come from `crates/ghostd/src/config/default.toml` and `term/palette.toml`, and the palette is checked under a protan and deutan colour-vision simulation before anything is written. Run its tests with `uv run --no-project --with pytest python -I -m pytest scripts/test_term_theme.py`.
 
+The terminal defaults to **Section Nine**, independently of the desktop selection.
+For **Netrunner**, run `scripts/install-term.sh --palette netrunner` (add
+`--dry-run` to preview). It uses a violet cursor, plum-black background, lilac
+text, cyan accents, yellow warnings and red errors. Its 16 ANSI colors keep blue
+lighter than magenta for color-vision separation. Netrunner's desktop tokens are
+shared from `crates/ghost-proto/src/palettes/netrunner.json`; its terminal-only
+colors live in `term/netrunner.toml`.
+
+To generate or check without installing:
+
+```sh
+uv run --no-project python -I scripts/term-theme.py --palette netrunner --out term/out/netrunner
+uv run --no-project python -I scripts/term-theme.py --palette netrunner --check
+```
+
+Run `scripts/install-term.sh --palette section-nine` to switch back.
+
 ### LLM agents (optional)
 
 ```sh

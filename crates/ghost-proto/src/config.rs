@@ -96,20 +96,8 @@ impl Palette {
     pub fn colors(self) -> Colors {
         match self {
             Self::SectionNine => Colors::default(),
-            Self::Netrunner => Colors {
-                ground: "#0b0914".into(),
-                panel: "#130e20".into(),
-                hair: "#48345e".into(),
-                hair2: "#241a32".into(),
-                text: "#d4cce5".into(),
-                hi: "#b58aff".into(),
-                dim: "#9285a8".into(),
-                signal: "#38d9f5".into(),
-                warn: "#fcee0a".into(),
-                crit: "#ff3b45".into(),
-                dot: "#38d9f5".into(),
-                burn: "#e9ddff".into(),
-            },
+            Self::Netrunner => serde_json::from_str(include_str!("palettes/netrunner.json"))
+                .expect("embedded Netrunner palette must be valid"),
         }
     }
 }

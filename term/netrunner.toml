@@ -1,0 +1,12 @@
+# Desktop tokens are shared with ghost-proto/src/palettes/netrunner.json.
+# Blue is lighter than magenta so they remain distinct under protan/deutan simulation.
+[terminal]
+ground = "#0b0914"
+opacity = 94
+cursor = "#b58aff"
+selection = "#30213f"
+orange = "#ffb454"
+
+[ansi]
+normal = ["#130e20", "#ff3b45", "#9de6a1", "#fcee0a", "#9fc5ff", "#a574e8", "#38d9f5", "#d4cce5"]
+bright = ["#9285a8", "#ff6b73", "#c2f4c5", "#fff58a", "#c1d9ff", "#d4b5ff", "#a4f1ff", "#f0e9ff"]

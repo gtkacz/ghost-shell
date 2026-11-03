@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs the generated terminal themes and points zsh at Starship, after a verified backup.
-# usage: scripts/install-term.sh [--dry-run]
+# usage: scripts/install-term.sh [--dry-run] [--palette section-nine|netrunner]
 set -euo pipefail
 
 : "${HOME:?HOME must be set}"
@@ -11,16 +11,28 @@ out=$repo/term/out
 marker_begin="# >>> ghost-shell terminal >>>"
 marker_end="# <<< ghost-shell terminal <<<"
 dry_run=false
+palette=section-nine
 
-if [[ ${1:-} == --dry-run ]]; then
-    dry_run=true
-fi
+while (($#)); do
+    case "$1" in
+        --dry-run) dry_run=true; shift ;;
+        --palette)
+            if (($# < 2)) || [[ $2 != section-nine && $2 != netrunner ]]; then
+                echo "--palette requires section-nine or netrunner" >&2
+                exit 2
+            fi
+            palette=$2
+            shift 2
+            ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+done
 
 # A symlinked ~/.zshrc is edited through the link so the link itself survives.
 zshrc=$(readlink -f "$HOME/.zshrc")
 plugin_dir=$HOME/.oh-my-zsh/custom/plugins/fast-syntax-highlighting
 
-uv run --no-project python -I "$repo/scripts/term-theme.py" --out "$out"
+uv run --no-project python -I "$repo/scripts/term-theme.py" --palette "$palette" --out "$out"
 
 targets=(
     "ghostty-config:$config_home/ghostty/config"
