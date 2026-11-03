@@ -1290,14 +1290,24 @@ The feeds' CPU cost is below what this resolves. RSS is 1,676 KiB higher, from a
 
 ### Plan 3c: the switcher
 
-The live desktop on 2026-11-03 at `68d6b9a`: NVIDIA, the user's windows and effects, one KWin process throughout, other sessions running. There are no numeric targets, because stock is the baseline. KWin's CPU comes from `/proc/<pid>/stat` as a percentage of one core, so GPU work is not in it. Each held reading covers 25 s of a 30 s hold.
+The live desktop on 2026-11-03 at `68d6b9a`: NVIDIA, the user's windows and effects, one KWin process throughout, other sessions running. There are no numeric targets, because stock is the baseline. KWin's CPU comes from `/proc/<pid>/stat` as a percentage of one core, so GPU work is not in it. Each held reading covers 25 s of a 30 s hold between two sounds, and counts only if the log shows the opening inside it. The switcher logs `switcher: open`; Breeze logs `This plugin does not support setting window masks` three times per opening, as 8 sandboxed openings showed. The log has no line for a release, so how long each hold lasted is the user's word.
 
-| Arm | Closed 60 s: mean, median, peak second | Held open 25 s: mean, median, peak second | `VmRSS` across the run |
+| Arm | Closed 60 s: mean, median, peak second | Held open 25 s: mean, median, peak second | Bell, then opening | `VmRSS` across the run |
+|---|---|---|---|---|
+| Stock, `org.kde.breeze.desktop` (16:06) | 1.05 %, 1 %, 4 % | 1.20 %, 1 %, 9 % | 16:08:21, 16:08:25 | 864,296 → 863,244 KiB |
+| The switcher (16:12) | 0.65 %, 0 %, 4 % | 1.16 %, 1 %, 4 % | 16:13:55, 16:13:57 | 863,272 → 863,384 KiB |
+
+These two ran minutes apart on the same windows. The switcher costs no more CPU than stock, closed or held open, and the differences are below what this resolves. Stock's 9 % second is the reading's first, just after the opening.
+
+Three earlier runs do not count as the comparison, and are kept for the record:
+
+| Run | Closed 60 s: mean, median, peak second | Held 25 s: mean, median, peak second | Why not |
 |---|---|---|---|
-| Stock, `org.kde.breeze.desktop` (14:52) | 6.07 %, 6 %, 20 % | 5.75 %, 6 %, 8 % | 656,708 → 657,104 KiB |
-| The switcher (15:32) | 4.99 %, 5 %, 9 % | 5.07 %, 5 %, 6 % | 672,700 → 674,080 KiB |
+| Stock (14:52) | 6.07 %, 6 %, 20 % | 5.75 %, 6 %, 8 % | Nothing was open: the log has no Breeze opening between 14:49:08 and 15:01:04 |
+| The switcher (15:32) | 4.99 %, 5 %, 9 % | 5.07 %, 5 %, 6 % | A valid hold (opening at 15:33:39), but with no valid stock run beside it |
+| The switcher (16:08) | 0.73 %, 1 %, 5 % | 1.08 %, 1 %, 2 % | Mis-cued: the panel was probably held through the "closed" minute and shut for most of the "held" one |
 
-The switcher costs no more CPU than stock, closed or held open. Its lower readings are not a gain: the runs are 40 minutes apart, and a later closed reading of 20 s (15:47) came to about 1 %, which is unexplained and shows how far the baseline moves. The cause of the stock run's one 20 % second is unknown.
+The baseline fell from about 6 % to about 1 % across the afternoon, which is why only readings minutes apart compare. The cause was not established. A closed reading of 20 s at 15:47 already read about 1 %. The cause of the 14:52 run's one 20 % second is also unknown.
 
 **Memory across openings,** `VmRSS` of the same KWin:
 
@@ -1310,9 +1320,9 @@ The switcher costs no more CPU than stock, closed or held open. Its lower readin
 | After 14, with 11 `konsole` windows opened and closed in between | 808,260 |
 | After 24, with no new windows | 809,596 |
 
-KWin had grown 11,500 KiB since the stock run before the switcher ever loaded, across a text console round trip, so that growth is not the switcher's. The last ten openings cost 1,336 KiB, about 130 KiB each, nearly all of it anonymous memory (`RssAnon` +1,300 KiB), with `RssFile` (378,344 KiB) and `RssShmem` (205,680 KiB) unchanged.
+KWin had grown 11,500 KiB since the stock run before the switcher ever loaded, across a text console round trip, so that growth is not the switcher's. The last ten openings cost 1,336 KiB, about 134 KiB each, nearly all of it anonymous memory (`RssAnon` +1,300 KiB), with `RssFile` (378,344 KiB) and `RssShmem` (205,680 KiB) unchanged. Eleven stock openings in the same KWin with the switcher removed cost 1,376 KiB, from 809,604 to 810,980 KiB, about 125 KiB each, so an opening costs about the same on both.
 
-**The jump of 132,624 KiB comes from the burst of windows,** which a stock run in the same KWin reproduced with the switcher removed. Stock holds took it from 809,604 to 810,980 KiB; they log nothing, so they are not counted. Launching the 11 `konsole` windows then took it to 1,030,620 KiB within one 2 s sample and to 1,061,788 KiB at its peak, and closing them left 862,952 KiB. Some of a burst stays with or without the switcher. Lifetime `VmHWM` was 1,074,020 KiB at 15:47 and did not move after that, with no earlier reading to compare. `nvidia-smi` gave KWin 146 MiB at each of three readings from the 14th opening on, also with no earlier reading.
+**The jump of 132,624 KiB comes from the burst of windows,** which that stock run reproduced. Launching the 11 `konsole` windows took KWin to 1,030,620 KiB within one 2 s sample, with no opening since 15:53:41, and to 1,061,788 KiB at its peak. Closing them left 862,952 KiB. Some of a burst stays with or without the switcher. Lifetime `VmHWM` was 1,074,020 KiB at 15:47 and did not move after that, with no earlier reading to compare. `nvidia-smi` gave KWin 146 MiB at each of three readings from the 14th opening on, also with no earlier reading.
 
 **Opening time,** key press to first changed capture at the screen's centre: `spikes/switcher/run.sh timing` in a headless KWin with the user's effects and still stand-ins, so it compares layouts and says nothing about NVIDIA. For the switcher's rows the script's `layout_id` and copied package were pointed at `packaging/switcher/org.ghostshell.switcher`, a two-line change that is not committed. On the real GPU the opening was not timed; the user raised no slowness when asked.
 
