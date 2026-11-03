@@ -75,6 +75,12 @@ export function resetText(resetsAtS, nowS) {
   return WEEKDAYS[when.getDay()] + ' ' + padded(when.getHours()) + ':' + padded(when.getMinutes());
 }
 
+// Takes `sorted` in attention order. Hiding any row costs a line to say how many, so that line comes out of the rows.
+export function fitRows(sorted, rows) {
+  const shown = sorted.length <= rows ? sorted.length : Math.max(0, rows - 1);
+  return { rows: sorted.slice(0, shown), hidden: sorted.length - shown };
+}
+
 export function collapseIdle(sorted, shown = IDLE_SHOWN) {
   let idleSeen = 0;
   const rows = sorted.filter(session => session.state !== 'idle' || ++idleSeen <= shown);

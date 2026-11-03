@@ -312,6 +312,7 @@ default = 0
 tabs = [
   { widget = "uplink", title = "UPLINK" },
   { widget = "silicon", title = "SILICON" },
+  # { widget = "agents", title = "AI", settings = { style = "panel" } },
 ]
 
 [[layout.views.v1.children.children.children]]
@@ -358,6 +359,7 @@ default = 0
 tabs = [
   { widget = "uplink", title = "UPLINK" },
   { widget = "silicon", title = "SILICON" },
+  # { widget = "agents", title = "AI", settings = { style = "panel" } },
 ]
 
 [[layout.views.v2.children.children]]

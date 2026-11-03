@@ -28,6 +28,7 @@ export const TAGS = Object.freeze({
   scope: Object.freeze({ kanji: '衛星', katakana: 'アップリンク' }),
   die: Object.freeze({ kanji: '回路', katakana: 'シリコン' }),
   tree: Object.freeze({ kanji: '系譜', katakana: 'プロセス' }),
+  agents: Object.freeze({ kanji: '電脳', katakana: 'エージェント' }),
   telem: Object.freeze({ kanji: '遠隔', katakana: 'テレメトリ' }),
   switch: Object.freeze({ kanji: '窓切替', katakana: 'スイッチ' }),
   launch: Object.freeze({ kanji: '起動', katakana: 'ランチャー' }),

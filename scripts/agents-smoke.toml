@@ -1,7 +1,14 @@
-# Loads the agents chip and the machine readout in the bar, both off by default. Every key not set here keeps its
-# default. `make smoke-agents` runs the smoke test against it.
+# Loads the agents chip and the machine readout in the bar, both off by default, and the agents panel in a tabs node.
+# Every key not set here keeps its default. `make smoke-agents` runs the smoke test against it.
 [bar.status]
 enabled = true
 
 [bar.agents]
 enabled = true
+
+[layout.views.v1]
+default = 0
+tabs = [
+  { widget = "agents", title = "AI", settings = { style = "panel" } },
+  { widget = "uplink", title = "UPLINK" },
+]

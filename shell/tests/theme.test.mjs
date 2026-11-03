@@ -39,6 +39,7 @@ test('every panel tag in the constraints table resolves in both scripts', () => 
     scope: ['衛星', 'アップリンク'],
     die: ['回路', 'シリコン'],
     tree: ['系譜', 'プロセス'],
+    agents: ['電脳', 'エージェント'],
     telem: ['遠隔', 'テレメトリ'],
     switch: ['窓切替', 'スイッチ'],
   };

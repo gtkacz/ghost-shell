@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collapseIdle, projectOf, providerTag, resetText, sortSessions, stateLabel, waitingCount, weeklyOf, windowLabel } from '../../widgets/agents/agents.mjs';
+import { collapseIdle, fitRows, projectOf, providerTag, resetText, sortSessions, stateLabel, waitingCount, weeklyOf, windowLabel } from '../../widgets/agents/agents.mjs';
 
 const s = (id, state, since_s, extra = {}) => ({ provider: 'claude', id, name: id, cwd: '/home/u/p', state, waiting_for: null, since_s, pid: null, tmux: null, ...extra });
 
@@ -71,4 +71,16 @@ test('idle rows collapse past five', () => {
 test('project is the last path segment', () => {
   assert.equal(projectOf('/home/u/Codes/ghost-shell'), 'ghost-shell');
   assert.equal(projectOf(''), '');
+});
+
+test('rows that do not fit are counted on a line of their own', () => {
+  const sorted = [s('a', 'waiting', 1), s('b', 'busy', 2), s('c', 'idle', 3)];
+
+  assert.deepEqual(fitRows(sorted, 4), { rows: sorted, hidden: 0 });
+  assert.deepEqual(fitRows(sorted, 3), { rows: sorted, hidden: 0 });
+  assert.deepEqual(fitRows(sorted, 2), { rows: [sorted[0]], hidden: 2 });
+  assert.deepEqual(fitRows(sorted, 1), { rows: [], hidden: 3 });
+  assert.deepEqual(fitRows(sorted, 0), { rows: [], hidden: 3 });
+  assert.deepEqual(fitRows(sorted, -2), { rows: [], hidden: 3 });
+  assert.deepEqual(fitRows([], 0), { rows: [], hidden: 0 });
 });
