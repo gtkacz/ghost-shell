@@ -16,6 +16,8 @@ use crate::providers::ALERTS_NAME_PREFIX;
 const PERCENT: RangeInclusive<u32> = 0..=100;
 const FRACTION: RangeInclusive<f64> = 0.0..=1.0;
 const HISTORY_MINUTES: RangeInclusive<u32> = 1..=60;
+// Any larger pushes the bell's badge off the bar: BAR_BAND_PX less twice TrayItem's badgeOffsetYPx.
+const TRAY_ICON_SIZE: RangeInclusive<u32> = 1..=18;
 const LATITUDE: RangeInclusive<f64> = -90.0..=90.0;
 const LONGITUDE: RangeInclusive<f64> = -180.0..=180.0;
 // The readings widgets/status can draw.
@@ -152,6 +154,11 @@ fn validate(config: &ResolvedConfig) -> Result<(), ConfigError> {
     validate_uplink(&config.uplink)?;
     validate_agents(&config.agents)?;
     validate_bar_status(&config.bar.status)?;
+    check_range(
+        "bar.tray.icon_size",
+        config.bar.tray.icon_size,
+        &TRAY_ICON_SIZE,
+    )?;
     validate_providers(&config.providers)
 }
 

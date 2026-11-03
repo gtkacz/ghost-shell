@@ -7,7 +7,7 @@ Item {
     id: root
 
     // Design pixels, from the reference mockup's .tray and .tip.
-    readonly property real iconPx: 13
+    readonly property real iconPx: Data.config !== null ? Data.config.bar.tray.icon_size : 13
     readonly property real hitPadPx: 5
     readonly property real tipTextPx: 9.5
     readonly property real tipPadXPx: 8

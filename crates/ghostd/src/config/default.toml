@@ -155,6 +155,11 @@ enabled = false
 # The LLM usage and sessions chip; [agents] picks what it watches. scripts/install-agents.sh feeds it.
 enabled = false
 
+[bar.tray]
+# The size of the tray's icons in design pixels, from 1 to 18; any larger would push the bell's
+# unread count off the bar.
+icon_size = 13
+
 [greeting]
 # Name used in the greeting. Empty means your login name.
 name = ""

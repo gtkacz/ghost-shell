@@ -311,6 +311,7 @@ pub struct BarConfig {
     pub clock: Clock,
     pub status: BarStatus,
     pub agents: BarAgents,
+    pub tray: BarTray,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -376,6 +377,20 @@ pub struct BarStatus {
 #[serde(default, deny_unknown_fields)]
 pub struct BarAgents {
     pub enabled: bool,
+}
+
+/// The tray's icons in the bar.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BarTray {
+    /// In design pixels.
+    pub icon_size: u32,
+}
+
+impl Default for BarTray {
+    fn default() -> Self {
+        Self { icon_size: 13 }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

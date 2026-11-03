@@ -216,6 +216,41 @@ fn bar_clock_seconds_other_than_covered_or_always_names_its_path() {
 }
 
 #[test]
+fn tray_icons_keep_the_mockup_size_by_default() {
+    let config = load_str_with_user("", "u").unwrap();
+
+    assert_eq!(config.bar.tray.icon_size, 13);
+}
+
+#[test]
+fn tray_icon_size_is_taken_from_the_config() {
+    let config = load_str_with_user("[bar.tray]\nicon_size = 16\n", "u").unwrap();
+
+    assert_eq!(config.bar.tray.icon_size, 16);
+}
+
+#[test]
+fn tray_icon_size_may_reach_the_largest_that_keeps_the_bells_badge_on_the_bar() {
+    let config = load_str_with_user("[bar.tray]\nicon_size = 18\n", "u").unwrap();
+
+    assert_eq!(config.bar.tray.icon_size, 18);
+}
+
+#[test]
+fn tray_icon_size_of_zero_names_its_path() {
+    let error = load_str_with_user("[bar.tray]\nicon_size = 0\n", "u").unwrap_err();
+
+    assert!(error.message.contains("bar.tray.icon_size"), "{error}");
+}
+
+#[test]
+fn tray_icon_size_that_pushes_the_bells_badge_off_the_bar_names_its_path() {
+    let error = load_str_with_user("[bar.tray]\nicon_size = 19\n", "u").unwrap_err();
+
+    assert!(error.message.contains("bar.tray.icon_size"), "{error}");
+}
+
+#[test]
 fn the_status_readout_and_the_agents_chip_are_off_in_every_preset_by_default() {
     for layout in [BarLayout::A, BarLayout::B, BarLayout::C] {
         let right = resolve_config("", layout).bar.right;
