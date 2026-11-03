@@ -21,11 +21,15 @@ ShellRoot {
         greetingHides: greeting.hidesDashboard
     }
 
-    LazyLoader {
-        active: barEnabled && desktop.mainScreen !== null
+    // Rebuilt for each main screen, as Desktop's windows are: KWin closes a layer surface when its output goes away, and
+    // a window that was closed stays closed when it is only given a new screen.
+    Variants {
+        model: barEnabled && desktop.mainScreen !== null ? [desktop.mainScreen] : []
 
         Bar {
-            screen: desktop.mainScreen
+            required property var modelData
+
+            screen: modelData
         }
     }
 

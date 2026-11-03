@@ -3,7 +3,7 @@ SHADERS := $(wildcard $(SHADER_DIR)/*.frag)
 COMPILED_SHADERS := $(SHADERS:.frag=.frag.qsb)
 LAYOUT_TEST_CONFIG := /tmp/ghost-layout-test.toml
 
-.PHONY: shaders release install install-term install-agents test test-gate gate-shots smoke smoke-layout smoke-agents smoke-holds smoke-greeting smoke-lock smoke-login
+.PHONY: shaders release install install-term install-agents test test-gate gate-shots smoke smoke-layout smoke-agents smoke-holds smoke-output-return smoke-greeting smoke-lock smoke-login
 
 shaders: $(COMPILED_SHADERS)
 
@@ -49,6 +49,9 @@ smoke-agents: shaders
 
 smoke-holds: shaders
 	scripts/smoke-holds.sh
+
+smoke-output-return: shaders
+	scripts/smoke-output-return.sh
 
 smoke-greeting: shaders
 	scripts/smoke-greeting.sh
