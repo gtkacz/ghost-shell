@@ -48,6 +48,7 @@ if [[ $dry_run == true ]]; then
     for pair in "${targets[@]}"; do
         echo "would write ${pair#*:}"
     done
+    echo "would persistently disable Konsole's default Ctrl+Alt+T and assign it to Ghostty"
     echo "would set ZSH_THEME=\"\" and add 'eval \"\$(starship init zsh)\"' before the zoxide init line in $zshrc"
     exit 0
 fi
@@ -85,6 +86,8 @@ awk -v begin="$marker_begin" -v end="$marker_end" '
 ' "$zshrc" >"$tmp"
 cat "$tmp" >"$zshrc"
 rm -f "$tmp"
+
+bash "$repo/scripts/terminal-shortcut.sh"
 
 echo "backup: $backup"
 echo "restore: tar -C \"$HOME\" -xzf \"$backup\""

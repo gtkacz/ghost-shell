@@ -10,6 +10,8 @@ Environment=QML_IMPORT_PATH=%h/.local/share/ghost-shell/shell/kit
 Environment=QSG_ATLAS_WIDTH=512
 Environment=QSG_ATLAS_HEIGHT=512
 ExecStart=/usr/bin/qs -p %h/.local/share/ghost-shell/shell
+# The default soft limit of 1024 was exhausted by the long-running Wayland UI.
+LimitNOFILE=65536
 Restart=on-failure
 
 [Install]
