@@ -90,6 +90,7 @@ pub enum Palette {
     #[default]
     SectionNine,
     Netrunner,
+    TronLegacy,
 }
 
 impl Palette {
@@ -98,6 +99,8 @@ impl Palette {
             Self::SectionNine => Colors::default(),
             Self::Netrunner => serde_json::from_str(include_str!("palettes/netrunner.json"))
                 .expect("embedded Netrunner palette must be valid"),
+            Self::TronLegacy => serde_json::from_str(include_str!("palettes/tron-legacy.json"))
+                .expect("embedded Tron Legacy palette must be valid"),
         }
     }
 }

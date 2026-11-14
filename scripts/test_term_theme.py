@@ -32,6 +32,29 @@ def test_netrunner_preset_matches_desktop_and_passes_checks(tmp_path):
     assert tt.main(["--palette", "netrunner", "--check"]) == 0
 
 
+def test_tron_legacy_preset_matches_desktop_and_passes_checks(tmp_path):
+    out = tmp_path / "tron-legacy"
+    assert tt.main(["--palette", "tron-legacy", "--out", str(out)]) == 0
+    config = (out / "ghostty-config").read_text()
+    assert "background = #050a14" in config
+    assert "foreground = #d9e4f7" in config
+    assert "cursor-color = #2b8cff" in config
+    assert "palette = 1=#ff3f37" in config
+    assert "palette = 3=#ffb02e" in config
+    assert "#62b8ff" in (out / "starship.toml").read_text()
+    assert tt.main(["--palette", "tron-legacy", "--check"]) == 0
+
+
+def test_tron_legacy_prompt_chip_keeps_blue_text_readable():
+    import json
+
+    colors = json.loads((REPO / "crates/ghost-proto/src/palettes/tron-legacy.json").read_text())
+    palette = tt.load_palette(DEFAULT_TOML, REPO / "term/tron-legacy.toml", desktop_colors=colors)
+    assert f"bg:{palette.selection}" in tt.render_starship(palette)
+    for kind in tt.SIMULATED:
+        assert tt.contrast(tt.simulate(colors["hi"], kind), tt.simulate(palette.selection, kind)) >= 4.5
+
+
 def test_explicit_section_nine_matches_default_output(tmp_path):
     original, explicit = tmp_path / "original", tmp_path / "explicit"
     assert tt.main(["--out", str(original)]) == 0
@@ -64,6 +87,14 @@ def test_installer_netrunner_dry_run(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (home / ".config/ghostty/config").read_text() == "old = 1\n"
     assert "background = #0b0914" in (REPO / "term/out/ghostty-config").read_text()
+
+
+def test_installer_tron_legacy_dry_run(tmp_path):
+    home = _home(tmp_path)
+    result = _run_script("install-term.sh", home, "--palette", "tron-legacy", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert (home / ".config/ghostty/config").read_text() == "old = 1\n"
+    assert "background = #050a14" in (REPO / "term/out/ghostty-config").read_text()
 
 
 def _write(tmp_path, name, body):

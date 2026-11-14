@@ -1,0 +1,13 @@
+# Desktop tokens are shared with ghost-proto/src/palettes/tron-legacy.json.
+# The cyan slot carries the desktop signal blue, light enough that the protan red stays
+# clearly darker; blue is a paler periwinkle, lighter than both magenta and cyan.
+[terminal]
+ground = "#050a14"
+opacity = 94
+cursor = "#2b8cff"
+selection = "#0a1a36"
+orange = "#ff9e2c"
+
+[ansi]
+normal = ["#0a1424", "#ff3f37", "#43e0a6", "#ffb02e", "#a2c8ff", "#a874ff", "#62b8ff", "#d9e4f7"]
+bright = ["#7e93b5", "#ff7d68", "#8ff2c4", "#ffd35c", "#c2d9ff", "#cfa6ff", "#8fc7ff", "#f0f6ff"]

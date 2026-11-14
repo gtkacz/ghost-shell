@@ -10,6 +10,13 @@ fn palette_presets_and_overrides() {
     assert_eq!(net.appearance.colors.signal, "#38d9f5");
     assert_eq!(net.appearance.colors.crit, "#ff3b45");
     assert_eq!(net.appearance.colors.ground, "#0b0914");
+    let tron = load_str_with_user("[appearance]\npalette = 'tron-legacy'", "u").unwrap();
+    assert_eq!(tron.appearance.colors.hi, "#2b8cff");
+    assert_eq!(tron.appearance.colors.warn, "#ffb02e");
+    assert_eq!(tron.appearance.colors.burn, "#d2e2ff");
+    assert_eq!(tron.appearance.colors.signal, "#62b8ff");
+    assert_eq!(tron.appearance.colors.crit, "#ff3f37");
+    assert_eq!(tron.appearance.colors.ground, "#050a14");
     let custom = load_str_with_user("[appearance]\npalette = 'netrunner'\n[appearance.colors]\nsignal = '#a3d4cc'\nburn = '#123456'", "u").unwrap();
     assert_eq!(custom.appearance.colors.signal, "#a3d4cc");
     assert_eq!(custom.appearance.colors.burn, "#123456");

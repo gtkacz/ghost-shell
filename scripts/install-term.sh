@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs the generated terminal themes and points zsh at Starship, after a verified backup.
-# usage: scripts/install-term.sh [--dry-run] [--palette section-nine|netrunner]
+# usage: scripts/install-term.sh [--dry-run] [--palette section-nine|netrunner|tron-legacy]
 set -euo pipefail
 
 : "${HOME:?HOME must be set}"
@@ -17,8 +17,8 @@ while (($#)); do
     case "$1" in
         --dry-run) dry_run=true; shift ;;
         --palette)
-            if (($# < 2)) || [[ $2 != section-nine && $2 != netrunner ]]; then
-                echo "--palette requires section-nine or netrunner" >&2
+            if (($# < 2)) || [[ $2 != section-nine && $2 != netrunner && $2 != tron-legacy ]]; then
+                echo "--palette requires section-nine, netrunner or tron-legacy" >&2
                 exit 2
             fi
             palette=$2

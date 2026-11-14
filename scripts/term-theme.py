@@ -6,7 +6,8 @@ usage:
     uv run --no-project python -I scripts/term-theme.py --palette netrunner
 
 Section Nine reads desktop colors from crates/ghostd/src/config/default.toml and terminal-only
-colors from term/palette.toml. Netrunner uses ghost-proto's shared palette JSON and term/netrunner.toml.
+colors from term/palette.toml. Netrunner uses ghost-proto's shared palette JSON and
+term/netrunner.toml; Tron Legacy uses palettes/tron-legacy.json and term/tron-legacy.toml.
 The palette is checked under a colour-vision simulation before anything is written.
 """
 
@@ -458,6 +459,17 @@ OUTPUTS = {
 }
 
 
+# Palettes that share desktop colors through ghost-proto's palette JSON instead of default.toml.
+PRESET_JSON = {
+    "netrunner": "crates/ghost-proto/src/palettes/netrunner.json",
+    "tron-legacy": "crates/ghost-proto/src/palettes/tron-legacy.json",
+}
+PRESET_TERM = {
+    "netrunner": "term/netrunner.toml",
+    "tron-legacy": "term/tron-legacy.toml",
+}
+
+
 def _swatches(p: Palette) -> str:
     rows = []
     for kind in SIMULATED:
@@ -470,19 +482,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate the terminal themes from the ghost-shell palette.")
     parser.add_argument("--out", type=Path, default=REPO / "term/out")
     parser.add_argument("--check", action="store_true", help="print the simulated swatches and the check result")
-    parser.add_argument("--palette", choices=("section-nine", "netrunner"), default="section-nine")
+    parser.add_argument("--palette", choices=("section-nine", *PRESET_JSON), default="section-nine")
     parser.add_argument("--default-toml", type=Path)
     parser.add_argument("--term-toml", type=Path)
     args = parser.parse_args(argv)
-    if args.palette == "netrunner" and args.default_toml is not None:
+    if args.palette != "section-nine" and args.default_toml is not None:
         parser.error("--default-toml applies only to the section-nine palette")
 
     try:
         desktop_colors = None
-        if args.palette == "netrunner":
-            desktop_colors = json.loads((REPO / "crates/ghost-proto/src/palettes/netrunner.json").read_text())
+        if args.palette in PRESET_JSON:
+            desktop_colors = json.loads((REPO / PRESET_JSON[args.palette]).read_text())
         default_toml = args.default_toml or REPO / "crates/ghostd/src/config/default.toml"
-        term_toml = args.term_toml or REPO / ("term/netrunner.toml" if args.palette == "netrunner" else "term/palette.toml")
+        term_toml = args.term_toml or REPO / PRESET_TERM.get(args.palette, "term/palette.toml")
         palette = load_palette(default_toml, term_toml, desktop_colors=desktop_colors)
     except (PaletteError, OSError, tomllib.TOMLDecodeError, json.JSONDecodeError) as error:
         print(f"palette error: {error}", file=sys.stderr)

@@ -7,7 +7,7 @@
 # Print this file again with `ghostd default-config`.
 
 [appearance]
-# Color preset: "section-nine" (default) or "netrunner". Applied live on save.
+# Color preset: "section-nine" (default), "netrunner" or "tron-legacy". Applied live on save.
 # Explicit [appearance.colors] values below override the preset; remove them to
 # see all the selected preset's colors.
 palette = "section-nine"

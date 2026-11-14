@@ -113,6 +113,14 @@ lighter than magenta for color-vision separation. Netrunner's desktop tokens are
 shared from `crates/ghost-proto/src/palettes/netrunner.json`; its terminal-only
 colors live in `term/netrunner.toml`.
 
+For **Tron Legacy**, run `scripts/install-term.sh --palette tron-legacy`. It
+uses a blue cursor, navy-black background, ice-blue text, electric blue
+accents, amber warnings and red errors, with the same blue/magenta
+color-vision separation.
+Its desktop tokens are shared from
+`crates/ghost-proto/src/palettes/tron-legacy.json`; its terminal-only colors
+live in `term/tron-legacy.toml`.
+
 To generate or check without installing:
 
 ```sh
@@ -201,7 +209,10 @@ The default palette is **Section Nine**. To use **Netrunner**, set
 `palette = "netrunner"` under `[appearance]`; switch back with
 `palette = "section-nine"`. Saved changes apply live to the desktop and the
 lock-screen snapshot. Netrunner combines plum-black surfaces, violet headings,
-lilac body text, cyan live data, yellow warnings and red critical alerts. Individual
+lilac body text, cyan live data, yellow warnings and red critical alerts.
+**Tron Legacy** (`palette = "tron-legacy"`) combines navy-black surfaces,
+deep blue headings, ice-blue body text, electric blue live data, amber
+warnings and red critical alerts. Individual
 `[appearance.colors]` entries override the selected preset: remove those entries
 from a copied default config to see the full preset. Terminal themes are separate.
 
